@@ -1,23 +1,24 @@
-# Neural Network Models (MLP, CNN, Attention)
+# Neural Network Models in Rust + Python (MLP, CNN, Attention)
 
 Authors: Antonio Neto and Thales Matheus
 
-This project implements several small neural nets for two problems:
+This project implements several small neural nets in Rust for two problems:
 
 - MNIST digit classification (MLP, CNN, and single-head self-attention + FFN)
 - XOR toy example (2->4->1)
 
-Current code is in Rust and Swift. The design and binary model format are inspired by https://github.com/djbyrne/mlp.c.
+Python utilities are included for visualization and digit recognition. Swift code was moved to the companion repository.
+
+The design and binary model format are inspired by https://github.com/djbyrne/mlp.c.
 
 ## Contents
 
-Source code:
+Source code (Rust):
 
-- `mnist_mlp.rs`, `mnist_cnn.rs`, `mnist_attention_pool.rs`, `mlp_simple.rs` (Rust)
-- `mnist_mlp.swift`, `mnist_cnn.swift`, `mnist_attention_pool.swift`, `mlp_simple.swift` (Swift)
-- `Cargo.toml` / `Cargo.lock` (Rust build config)
+- `mnist_mlp.rs`, `mnist_cnn.rs`, `mnist_attention_pool.rs`, `mlp_simple.rs`
+- `Cargo.toml` / `Cargo.lock`
 
-Scripts:
+Scripts (Python):
 
 - `digit_recognizer.py` (draw digits and run inference with a saved model)
 - `plot_comparison.py` (plots training loss from `logs/`)
@@ -28,8 +29,6 @@ Data and outputs:
 - `data/` (MNIST IDX files)
 - `logs/` (training loss logs)
 - `mnist_model.bin` (saved model)
-- `logs/training_loss_cnn.txt` (CNN loss log)
-- `logs/training_loss_attention_mnist.txt` (attention loss log)
 
 ## MNIST MLP model
 
@@ -39,7 +38,7 @@ Architecture:
 - Hidden: 512 neurons (ReLU)
 - Output: 10 neurons (Softmax)
 
-Default training parameters (Swift and Rust):
+Default training parameters:
 
 - Learning rate: 0.01
 - Batch size: 64
@@ -96,81 +95,7 @@ Architecture:
 
 Training uses 1,000,000 epochs by default.
 
-## Swift GPU optimizations
-
-`mnist_mlp.swift` includes GPU paths for faster training and testing:
-
-- MPS GEMM with shared CPU/GPU buffers
-- Custom Metal kernels for bias add, ReLU, softmax, reductions, loss, and SGD
-- MPSGraph to run forward, loss, gradients, and updates fully on GPU
-- GPU testing path that uses argmax on logits (no softmax needed)
-
-Note: `--mpsgraph` uses a fixed batch size; leftover samples are dropped to keep the graph static.
-
-## Build and run
-
-### Swift
-
-Build:
-
-```
-swiftc -O mnist_mlp.swift -o mnist_mlp_swift
-swiftc -O mlp_simple.swift -o mlp_simple_swift
-swiftc -O mnist_cnn.swift -o mnist_cnn_swift
-swiftc -O mnist_attention_pool.swift -o mnist_attention_pool_swift
-```
-
-Run MNIST MLP:
-
-```
-./mnist_mlp_swift --mps
-./mnist_mlp_swift --mpsgraph
-```
-
-Run MNIST CNN:
-
-```
-./mnist_cnn_swift
-```
-
-Run MNIST attention:
-
-```
-./mnist_attention_pool_swift
-```
-
-Run XOR:
-
-```
-./mlp_simple_swift
-```
-
-Swift MLP options (`mnist_mlp_swift`):
-
-```
---mps          use MPS GEMM + Metal kernels
---mpsgraph     use MPSGraph (train and test on GPU)
---batch N      batch size (default: 64)
---hidden N     hidden layer size (default: 512)
---epochs N     epochs (default: 10)
---lr F         learning rate (default: 0.01)
---seed N       RNG seed (default: 1)
---help         print usage
-```
-
-Swift attention options (`mnist_attention_pool_swift`):
-
-```
---batch N      batch size (default: 32)
---epochs N     epochs (default: 5)
---lr F         learning rate (default: 0.01)
---seed N       RNG seed (default: 1)
---help         print usage
-```
-
-Note: `mnist_cnn_swift` uses fixed defaults and has no CLI flags.
-
-### Rust
+## Build and run (Rust)
 
 Build:
 
@@ -220,12 +145,8 @@ All runs used the default settings unless noted. Training time is reported as to
 | MNIST CNN | Rust | `cargo run --release --bin mnist_cnn` | 3 | 32 | 11.24 | 91.93 | Conv8/3x3 + MaxPool |
 | MNIST Attention | Rust | `cargo run --release --bin mnist_attention_pool` | 5 | 32 | 33.88 | 38.55 | D=16, FF=32 |
 | XOR MLP | Rust | `cargo run --release --bin mlp_simple` | 1,000,000 | - | 0.74 | 100.00 | Threshold 0.5 |
-| MNIST MLP | Swift | `./mnist_mlp_swift` | 10 | 64 | 7.30 | 11.90 | CPU backend (no `--mps`) |
-| MNIST CNN | Swift | `./mnist_cnn_swift` | 3 | 32 | 53.21 | 92.35 | Conv8/3x3 + MaxPool |
-| MNIST Attention | Swift | `./mnist_attention_pool_swift` | 5 | 32 | 101.71 | 24.53 | D=16, FF=32 |
-| XOR MLP | Swift | `./mlp_simple_swift` | 1,000,000 | - | 1.78 | 100.00 | Threshold 0.5 |
 
-Note: results vary by hardware and build flags. The Swift MLP CPU run above did not converge well; try `--mps` or `--mpsgraph` for faster and more stable training.
+Note: results vary by hardware and build flags.
 
 ## MNIST dataset
 
