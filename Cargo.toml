@@ -1,0 +1,28 @@
+[package]
+name = "netural-network-cpp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+blas-src = { version = "0.14", features = ["accelerate"] }
+cblas = "0.5"
+
+[[bin]]
+name = "mnist_mlp"
+path = "mnist_mlp.rs"
+
+[[bin]]
+name = "mlp_simple"
+path = "mlp_simple.rs"
+
+[[bin]]
+name = "mnist_cnn"
+path = "mnist_cnn.rs"
+
+[[bin]]
+name = "mnist_attention_pool"
+path = "mnist_attention_pool.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1
