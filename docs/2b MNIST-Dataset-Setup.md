@@ -11,9 +11,9 @@
 
 This document covers the MNIST dataset structure, file format specifications, and directory organization required for training neural network models in this repository. It explains the IDX binary format, file naming conventions, and how the Rust training code loads and parses these files.
 
-For installation of dependencies and build tools, see [Installation](#2.1). For information about specific model architectures that use this data, see [Model Implementations](#3).
+For installation of dependencies and build tools, see [Installation](2a%20Installation.md). For information about specific model architectures that use this data, see [Model Implementations](3%20Model-Implementations.md).
 
-**Sources**: [README.md L151-L163](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L151-L163)
+**Sources**: Project overview and setup
 
 ---
 
@@ -28,7 +28,7 @@ The MNIST (Modified National Institute of Standards and Technology) database con
 
 Each image is a single-channel (grayscale) 28×28 pixel grid, stored as unsigned 8-bit integers representing pixel intensities. Labels are single bytes representing digits 0 through 9.
 
-**Sources**: [README.md L151-L163](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L151-L163)
+**Sources**: Project overview and setup
 
  High-Level Diagrams (MNIST Dataset section)
 
@@ -61,7 +61,7 @@ Rust-Neural-Networks/
 | `t10k-images.idx3-ubyte` | Test images | IDX3 (3D tensor) | ~7.8 MB |
 | `t10k-labels.idx1-ubyte` | Test labels | IDX1 (1D vector) | ~10 KB |
 
-**Sources**: [README.md L151-L163](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L151-L163)
+**Sources**: Project overview and setup
 
  [data/t10k-images.idx3-ubyte L1](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/data/t10k-images.idx3-ubyte#L1-L1)
 
@@ -220,7 +220,7 @@ The MNIST dataset can be downloaded from two primary sources:
 4. **Verify file presence**: ``` ls -lh data/# Should show all four .idx*-ubyte files ```
 5. **Verify file sizes** (approximate): * `train-images.idx3-ubyte`: ~47 MB * `train-labels.idx1-ubyte`: ~60 KB * `t10k-images.idx3-ubyte`: ~7.8 MB * `t10k-labels.idx1-ubyte`: ~10 KB
 
-**Sources**: [README.md L160-L163](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L160-L163)
+**Sources**: Project overview and setup
 
 ---
 
@@ -318,7 +318,7 @@ subgraph subGraph0 ["1. File Open"]
 end
 ```
 
-**Sources**: High-Level Diagrams (Overall System Architecture, MNIST Training Pipeline), [README.md L33-L87](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L33-L87)
+**Sources**: High-Level Diagrams (Overall System Architecture, MNIST Training Pipeline), README.md
 
 ---
 
@@ -348,7 +348,7 @@ To verify correct dataset setup:
 
  [data/t10k-labels.idx1-ubyte L1](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/data/t10k-labels.idx1-ubyte#L1-L1)
 
- [README.md L151-L163](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L151-L163)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L151-L163)
 
 ---
 
@@ -383,7 +383,7 @@ Epoch 1/10, Loss: 0.xxxx
 Final test accuracy: xx.xx%
 ```
 
-**Sources**: [README.md L98-L147](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L98-L147)
+**Sources**: README.md
 
  High-Level Diagrams (MNIST Training Pipeline Architecture)
 
@@ -407,13 +407,13 @@ Final test accuracy: xx.xx%
 # Verify file typesfile data/*.idx*-ubyte# All should show "data"# Check file sizesls -lh data/# train-images: ~47M, train-labels: ~60K# t10k-images: ~7.8M, t10k-labels: ~10K# Inspect binary headershexdump -C data/train-images.idx3-ubyte | head -n 2# First line should start: 00 00 08 03 00 00 ea 60
 ```
 
-**Sources**: [README.md L151-L163](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L151-L163)
+**Sources**: Project overview and setup
 
  [data/t10k-images.idx3-ubyte L1](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/data/t10k-images.idx3-ubyte#L1-L1)
 
-Refresh this wiki
 
-Last indexed: 5 January 2026 ([0e978f](https://github.com/ThalesMMS/Rust-Neural-Networks/commit/0e978f90))
+
+)
 
 ### On this page
 

@@ -9,11 +9,11 @@
 
 This page documents the simple Multi-Layer Perceptron (MLP) implementation in [mlp_simple.rs](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mlp_simple.rs)
 
- that solves the XOR problem. This implementation serves as an **educational example** demonstrating fundamental neural network concepts including forward propagation, backpropagation, and gradient descent in a minimal, self-contained codebase. Unlike the MNIST models (see [3.1](#3.1), [3.2](#3.2), [3.3](#3.3)), this implementation uses no external neural network libraries and includes a custom random number generator to avoid dependencies.
+ that solves the XOR problem. This implementation serves as an **educational example** demonstrating fundamental neural network concepts including forward propagation, backpropagation, and gradient descent in a minimal, self-contained codebase. Unlike the MNIST models (see [3.1](3a%20MNIST-MLP.md), [3.2](3b%20MNIST-CNN.md), [3.3](3c%20MNIST-Attention-Model.md)), this implementation uses no external neural network libraries and includes a custom random number generator to avoid dependencies.
 
 The XOR model achieves **100% accuracy** on the 4-sample XOR dataset after training for 1,000,000 epochs in approximately 0.74 seconds.
 
-**Sources:** [README.md L88-L97](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L88-L97)
+**Sources:** README.md
 
  [mlp_simple.rs L1-L249](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mlp_simple.rs#L1-L249)
 
@@ -88,7 +88,7 @@ end
 
  [mlp_simple.rs L73-L76](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mlp_simple.rs#L73-L76)
 
- [README.md L90-L94](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L90-L94)
+ README.md
 
 ### Activation Functions
 
@@ -248,7 +248,7 @@ The model trains on all 4 samples sequentially each epoch without batching.
 
 **Sources:** [mlp_simple.rs L8-L10](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mlp_simple.rs#L8-L10)
 
- [README.md L96](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L96-L96)
+ README.md
 
 ### Training Flow
 
@@ -488,7 +488,7 @@ The `--release` flag enables optimizations defined in [Cargo.toml L26-L28](https
 * Link-Time Optimization (LTO)
 * Single codegen unit for better inlining
 
-**Sources:** [README.md L113-L116](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L113-L116)
+**Sources:** [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L113-L116)
 
  [Cargo.toml L14-L16](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L14-L16)
 
@@ -525,7 +525,7 @@ Input: 1.0, 1.0, Expected Output: 0.0, Predicted Output: 0.001
 
 ### Performance Metrics
 
-From the benchmark table in [README.md L142-L147](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L142-L147)
+From the benchmark table in **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L142-L147)
 
 :
 
@@ -538,13 +538,13 @@ From the benchmark table in [README.md L142-L147](https://github.com/ThalesMMS/R
 
 The model achieves perfect classification when using a 0.5 threshold to convert sigmoid outputs to binary predictions. The training time of 0.74 seconds for 1,000,000 epochs demonstrates efficient implementation despite lacking BLAS acceleration.
 
-**Sources:** [README.md L142-L147](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L142-L147)
+**Sources:** [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L142-L147)
 
 ---
 
 ## Comparison with MNIST Models
 
-Unlike the MNIST models documented in sections [3.1](#3.1), [3.2](#3.2), and [3.3](#3.3), the XOR MLP:
+Unlike the MNIST models documented in sections [3.1](3a%20MNIST-MLP.md), [3.2](3b%20MNIST-CNN.md), and [3.3](3c%20MNIST-Attention-Model.md), the XOR MLP:
 
 * **Has no external dependencies** - Uses custom RNG instead of external randomness libraries
 * **Uses no BLAS acceleration** - All operations are explicit loops (suitable for small model)
@@ -557,13 +557,13 @@ Unlike the MNIST models documented in sections [3.1](#3.1), [3.2](#3.2), and [3.
 
 The XOR implementation prioritizes **code clarity and self-containment** over performance, making it ideal for understanding fundamental neural network mechanics before exploring the more complex MNIST implementations.
 
-**Sources:** [README.md L1-L191](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L1-L191)
+**Sources:** README.md
 
  [mlp_simple.rs L1-L249](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mlp_simple.rs#L1-L249)
 
-Refresh this wiki
 
-Last indexed: 5 January 2026 ([0e978f](https://github.com/ThalesMMS/Rust-Neural-Networks/commit/0e978f90))
+
+)
 
 ### On this page
 

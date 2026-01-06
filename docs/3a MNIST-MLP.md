@@ -7,7 +7,7 @@
 
 This page documents the Multi-Layer Perceptron (MLP) implementation for MNIST digit classification, featuring BLAS-accelerated matrix operations for high-performance training. This is the fastest and most accurate MNIST model in the repository, achieving ~94% test accuracy in approximately 3 seconds on typical hardware.
 
-**Scope**: This page covers the `mnist_mlp` binary implementation, including architecture, BLAS integration, training procedures, and model serialization. For the CNN-based MNIST implementation, see [MNIST CNN](#3.2). For attention-based MNIST, see [MNIST Attention Model](#3.3). For details on BLAS configuration and platform-specific optimization, see [BLAS Integration](#5.1). For information on the binary model format used for persistence, see [Binary Model Format](#5.3).
+**Scope**: This page covers the `mnist_mlp` binary implementation, including architecture, BLAS integration, training procedures, and model serialization. For the CNN-based MNIST implementation, see [MNIST CNN](3b%20MNIST-CNN.md). For attention-based MNIST, see [MNIST Attention Model](3c%20MNIST-Attention-Model.md). For details on BLAS configuration and platform-specific optimization, see [BLAS Integration](5a%20BLAS-Integration.md). For information on the binary model format used for persistence, see [Binary Model Format](5c%20Binary-Model-Format.md).
 
 ## Architecture Overview
 
@@ -50,7 +50,7 @@ end
 
  [mnist_mlp.rs L101-L111](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs#L101-L111)
 
- [README.md L33-L48](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L33-L48)
+ README.md
 
 | Component | Size | Activation | Parameters |
 | --- | --- | --- | --- |
@@ -323,7 +323,7 @@ The training configuration is defined at [mnist_mlp.rs L15-L18](https://github.c
 
 **Sources**: [mnist_mlp.rs L15-L18](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs#L15-L18)
 
- [README.md L41-L46](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L41-L46)
+ README.md
 
 ### Forward Pass Implementation
 
@@ -415,7 +415,7 @@ end
 The `SimpleRng` struct implements:
 
 * Xorshift RNG algorithm at [mnist_mlp.rs L42-L49](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs#L42-L49)
-* Conversion to uniform `f32` in [0 L52-L54](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/0, 1) at [mnist_mlp.rs#L52-L54)
+* Conversion to uniform `f32` in [0, 1] at [mnist_mlp.rs L52-L54](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs#L52-L54)
 * Range sampling at [mnist_mlp.rs L57-L59](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs#L57-L59)
 * Integer sampling for shuffling at [mnist_mlp.rs L62-L68](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs#L62-L68)
 * Time-based reseeding at [mnist_mlp.rs L33-L39](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs#L33-L39)
@@ -528,7 +528,7 @@ end
 
 **Sources**: [mnist_mlp.rs L523-L561](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs#L523-L561)
 
- [README.md L31](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L31-L31)
+ README.md
 
 The `save_model` function at [mnist_mlp.rs L523-L561](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs#L523-L561)
 
@@ -553,7 +553,7 @@ Offset    Type       Description
 3260428   f64[10]    output layer biases
 ```
 
-This format is consumed by `digit_recognizer.py` for inference. See [Digit Recognizer GUI](#4.1) for details on model loading.
+This format is consumed by `digit_recognizer.py` for inference. See [Digit Recognizer GUI](4a%20Digit-Recognizer-GUI.md) for details on model loading.
 
 **Sources**: [mnist_mlp.rs L523-L561](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs#L523-L561)
 
@@ -652,7 +652,7 @@ end
 
 **Sources**: [mnist_mlp.rs L622-L664](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs#L622-L664)
 
- [README.md L144](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L144-L144)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L144-L144)
 
 ### Benchmark Results
 
@@ -673,7 +673,7 @@ From the default configuration running on macOS with Accelerate framework:
 * ReLU activation is computationally cheap
 * Softmax is computed row-wise with numerical stability (subtract max)
 
-**Sources**: [README.md L138-L149](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L138-L149)
+**Sources**: Project overview and setup
 
  [mnist_mlp.rs L15-L18](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs#L15-L18)
 
@@ -686,7 +686,7 @@ The release build configuration at [Cargo.toml L26-L28](https://github.com/Thale
 * **LTO** (Link-Time Optimization): `lto = true`
 * **Single codegen unit**: `codegen-units = 1` (maximizes optimization)
 
-Additional recommended flags from [README.md L132-L134](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L132-L134)
+Additional recommended flags from **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L132-L134)
 
 :
 
@@ -699,7 +699,7 @@ RUSTFLAGS="-C target-cpu=native" VECLIB_MAXIMUM_THREADS=8 cargo run --relea
 
 **Sources**: [Cargo.toml L26-L28](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L26-L28)
 
- [README.md L130-L136](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L130-L136)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L130-L136)
 
 ## Code Structure Summary
 
@@ -754,7 +754,7 @@ The log file is created at [mnist_mlp.rs L268-L272](https://github.com/ThalesMMS
 
  and written per-epoch at [mnist_mlp.rs L442-L445](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs#L442-L445)
 
-This CSV format is consumed by `plot_comparison.py` for visualization. See [Training Visualization](#4.2) for details.
+This CSV format is consumed by `plot_comparison.py` for visualization. See [Training Pipeline](4b%20Training-Pipeline.md) for details.
 
 **Sources**: [mnist_mlp.rs L268-L272](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs#L268-L272)
 
@@ -762,9 +762,9 @@ This CSV format is consumed by `plot_comparison.py` for visualization. See [Trai
 
  [README.md L24](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L24-L24)
 
-Refresh this wiki
 
-Last indexed: 5 January 2026 ([0e978f](https://github.com/ThalesMMS/Rust-Neural-Networks/commit/0e978f90))
+
+)
 
 ### On this page
 

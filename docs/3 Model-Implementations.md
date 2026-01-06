@@ -13,12 +13,12 @@ This page provides an overview of the four neural network implementations in the
 
 For detailed documentation on individual models, see:
 
-* MNIST Multi-Layer Perceptron: [MNIST MLP](#3.1)
-* MNIST Convolutional Neural Network: [MNIST CNN](#3.2)
-* MNIST Attention-based Model: [MNIST Attention Model](#3.3)
-* Simple XOR Problem: [Simple XOR MLP](#3.4)
+* MNIST Multi-Layer Perceptron: [MNIST MLP](3a%20MNIST-MLP.md)
+* MNIST Convolutional Neural Network: [MNIST CNN](3b%20MNIST-CNN.md)
+* MNIST Attention-based Model: [MNIST Attention Model](3c%20MNIST-Attention-Model.md)
+* Simple XOR Problem: [Simple XOR MLP](3d%20Simple-XOR-MLP.md)
 
-For information about the training pipeline shared across models, see [Training Pipeline](#5.2). For BLAS acceleration details specific to the MLP, see [BLAS Integration](#5.1).
+For information about the training pipeline shared across models, see [Training Visualization](5b%20Training-Visualization.md). For BLAS acceleration details specific to the MLP, see [BLAS Integration](5a%20BLAS-Integration.md).
 
 ## Implementation Overview
 
@@ -35,7 +35,7 @@ All implementations use custom training loops without external ML frameworks, im
 
 **Sources**: [README.md L5-L18](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L5-L18)
 
- [README.md L33-L97](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L33-L97)
+ README.md
 
 ## Model-to-Code Entity Mapping
 
@@ -158,13 +158,13 @@ subgraph subGraph0 ["MLP: 784→512→10"]
 end
 ```
 
-**Sources**: [README.md L33-L48](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L33-L48)
+**Sources**: README.md
 
- [README.md L56-L69](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L56-L69)
+ README.md
 
- [README.md L71-L87](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L71-L87)
+ README.md
 
- [README.md L89-L96](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L89-L96)
+ README.md
 
 ### Implementation Characteristics
 
@@ -207,7 +207,7 @@ The following benchmarks were collected on local hardware using default hyperpar
 
 **XOR Performance**: The simple 2-4-1 architecture achieves perfect accuracy on the 4-sample XOR dataset, validating the core backpropagation implementation.
 
-**Sources**: [README.md L138-L148](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L138-L148)
+**Sources**: Project overview and setup
 
 ## Code Structure and Data Flow
 
@@ -310,7 +310,7 @@ end
 * **Key learning**: Backpropagation fundamentals at [mlp_simple.rs L123-L146](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mlp_simple.rs#L123-L146)
 * **Binary target**: `cargo run --release --bin mlp_simple`
 
-**Sources**: [README.md L98-L128](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L98-L128)
+**Sources**: README.md
 
  [Cargo.toml L1-L20](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L1-L20)
 
@@ -374,31 +374,31 @@ All models use vanilla SGD without momentum or weight decay. Parameters are defi
 * **Attention**: [mnist_attention_pool.rs L43-L46](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L43-L46)
 * **XOR**: [mlp_simple.rs L9-L10](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mlp_simple.rs#L9-L10)
 
-**Sources**: [README.md L41-L96](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L41-L96)
+**Sources**: README.md
 
-Refresh this wiki
 
-Last indexed: 5 January 2026 ([0e978f](https://github.com/ThalesMMS/Rust-Neural-Networks/commit/0e978f90))
+
+)
 
 ### On this page
 
-* [Model Implementations](#3-model-implementations)
-* [Purpose and Scope](#3-purpose-and-scope)
-* [Implementation Overview](#3-implementation-overview)
-* [Model-to-Code Entity Mapping](#3-model-to-code-entity-mapping)
-* [Architecture Comparison](#3-architecture-comparison)
-* [Layer Topology](#3-layer-topology)
-* [Implementation Characteristics](#3-implementation-characteristics)
-* [Performance Benchmarks](#3-performance-benchmarks)
-* [Performance Analysis](#3-performance-analysis)
-* [Code Structure and Data Flow](#3-code-structure-and-data-flow)
-* [Choosing the Right Model](#3-choosing-the-right-model)
-* [Use Case Guide](#3-use-case-guide)
-* [Common Implementation Patterns](#3-common-implementation-patterns)
-* [1. Custom RNG ( SimpleRng )](#3-1-custom-rng-object-object)
-* [2. IDX Format Parsing](#3-2-idx-format-parsing)
-* [3. Xavier/Glorot Initialization](#3-3-xavierglorot-initialization)
-* [4. Batch Gathering](#3-4-batch-gathering)
-* [Training Parameters Summary](#3-training-parameters-summary)
+* [Model Implementations](3%20Model-Implementations.md)
+* [Purpose and Scope](3%20Model-Implementations.md)
+* [Implementation Overview](3%20Model-Implementations.md)
+* [Model-to-Code Entity Mapping](3%20Model-Implementations.md)
+* [Architecture Comparison](3%20Model-Implementations.md)
+* [Layer Topology](3%20Model-Implementations.md)
+* [Implementation Characteristics](3%20Model-Implementations.md)
+* [Performance Benchmarks](3%20Model-Implementations.md)
+* [Performance Analysis](3%20Model-Implementations.md)
+* [Code Structure and Data Flow](3%20Model-Implementations.md)
+* [Choosing the Right Model](3%20Model-Implementations.md)
+* [Use Case Guide](3%20Model-Implementations.md)
+* [Common Implementation Patterns](3%20Model-Implementations.md)
+* [1. Custom RNG ( SimpleRng )](3%20Model-Implementations.md)
+* [2. IDX Format Parsing](3%20Model-Implementations.md)
+* [3. Xavier/Glorot Initialization](3%20Model-Implementations.md)
+* [4. Batch Gathering](3%20Model-Implementations.md)
+* [Training Parameters Summary](3%20Model-Implementations.md)
 
 Ask Devin about Rust-Neural-Networks

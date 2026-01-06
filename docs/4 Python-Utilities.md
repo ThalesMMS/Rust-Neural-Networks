@@ -10,11 +10,11 @@
 
 This document covers the Python utilities provided for model interaction, visualization, and inference. These tools complement the Rust neural network training implementations by providing user-facing interfaces for loading trained models and analyzing training performance. The utilities consume outputs from Rust training (binary model files and CSV training logs) and provide interactive inference and visualization capabilities.
 
-For details about the Rust training implementations that produce these outputs, see [Model Implementations](#3). For information about the binary serialization format used to save models, see [Binary Model Format](#5.3).
+For details about the Rust training implementations that produce these outputs, see [Model Implementations](3%20Model-Implementations.md). For information about the binary serialization format used to save models, see [Binary Model Format](5c%20Binary-Model-Format.md).
 
-**Sources**: [README.md L10-L25](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L10-L25)
+**Sources**: README.md
 
- [README.md L165-L185](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L165-L185)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L165-L185)
 
 ---
 
@@ -29,9 +29,9 @@ The repository includes two Python utilities:
 
 These utilities separate computationally intensive training (performed in Rust with BLAS acceleration) from user-friendly interfaces (implemented in Python leveraging numpy, matplotlib, PIL, and tkinter). The binary model format (`mnist_model.bin`) serves as the critical interface between Rust training and Python inference.
 
-**Sources**: [README.md L21-L25](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L21-L25)
+**Sources**: README.md
 
- [README.md L165-L185](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L165-L185)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L165-L185)
 
 ---
 
@@ -167,7 +167,7 @@ The `digit_recognizer.py` script provides an interactive Tkinter-based GUI for d
 
 **Sources**: [digit_recognizer.py L1-L5](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/digit_recognizer.py#L1-L5)
 
- [README.md L173-L179](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L173-L179)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L173-L179)
 
 ### Architecture
 
@@ -289,7 +289,7 @@ The `DigitRecognizerApp` class [digit_recognizer.py L87-L236](https://github.com
 
 The application searches for available model files in this order: `mnist_model.bin`, `mnist_model_cpu.bin`, `mnist_model_gpu.bin` [digit_recognizer.py L238-L272](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/digit_recognizer.py#L238-L272)
 
-**Sources**: [README.md L173-L185](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L173-L185)
+**Sources**: Project overview and setup
 
  [digit_recognizer.py L238-L286](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/digit_recognizer.py#L238-L286)
 
@@ -303,7 +303,7 @@ The `plot_comparison.py` script reads CSV-formatted training logs and generates 
 
 **Sources**: [plot_comparison.py L1-L5](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/plot_comparison.py#L1-L5)
 
- [README.md L165-L171](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L165-L171)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L165-L171)
 
 ### Architecture
 
@@ -435,7 +435,7 @@ The figure is saved at 300 DPI with tight bounding box [plot_comparison.py L114]
 
 The script reads from `logs/training_loss_c.txt` by default and outputs `training_comparison.png`. Console output shows a summary table [plot_comparison.py L105-L111](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/plot_comparison.py#L105-L111)
 
-**Sources**: [README.md L165-L171](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L165-L171)
+**Sources**: Project overview and setup
 
  [plot_comparison.py L11-L16](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/plot_comparison.py#L11-L16)
 
@@ -488,36 +488,36 @@ The Python utilities consume outputs from Rust training in two distinct workflow
 4. Four-panel matplotlib figure generated
 5. PNG image saved and statistics printed to console
 
-**Sources**: [README.md L1-L191](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L1-L191)
+**Sources**: README.md
 
  Diagram 5 from high-level architecture
 
-Refresh this wiki
 
-Last indexed: 5 January 2026 ([0e978f](https://github.com/ThalesMMS/Rust-Neural-Networks/commit/0e978f90))
+
+)
 
 ### On this page
 
-* [Python Utilities](#4-python-utilities)
-* [Purpose and Scope](#4-purpose-and-scope)
-* [Overview](#4-overview)
-* [System Architecture](#4-system-architecture)
-* [Binary Model Format Interface](#4-binary-model-format-interface)
-* [Format Specification](#4-format-specification)
-* [Loading Process](#4-loading-process)
-* [Digit Recognizer ( digit_recognizer.py )](#4-digit-recognizer-object-object)
-* [Purpose](#4-purpose)
-* [Architecture](#4-architecture)
-* [Key Components](#4-key-components)
-* [Usage](#4-usage)
-* [Training Visualization ( plot_comparison.py )](#4-training-visualization-object-object)
-* [Purpose](#4-purpose-1)
-* [Architecture](#4-architecture-1)
-* [Key Components](#4-key-components-1)
-* [Usage](#4-usage-1)
-* [Dependencies](#4-dependencies)
-* [Data Flow Summary](#4-data-flow-summary)
-* [Inference Workflow](#4-inference-workflow)
-* [Visualization Workflow](#4-visualization-workflow)
+* [Python Utilities](4%20Python-Utilities.md)
+* [Purpose and Scope](4%20Python-Utilities.md)
+* [Overview](4%20Python-Utilities.md)
+* [System Architecture](4%20Python-Utilities.md)
+* [Binary Model Format Interface](4%20Python-Utilities.md)
+* [Format Specification](4%20Python-Utilities.md)
+* [Loading Process](4%20Python-Utilities.md)
+* [Digit Recognizer ( digit_recognizer.py )](4%20Python-Utilities.md)
+* [Purpose](4%20Python-Utilities.md)
+* [Architecture](4%20Python-Utilities.md)
+* [Key Components](4%20Python-Utilities.md)
+* [Usage](4%20Python-Utilities.md)
+* [Training Visualization ( plot_comparison.py )](4%20Python-Utilities.md)
+* [Purpose](4%20Python-Utilities.md)
+* [Architecture](4%20Python-Utilities.md)
+* [Key Components](4%20Python-Utilities.md)
+* [Usage](4%20Python-Utilities.md)
+* [Dependencies](4%20Python-Utilities.md)
+* [Data Flow Summary](4%20Python-Utilities.md)
+* [Inference Workflow](4%20Python-Utilities.md)
+* [Visualization Workflow](4%20Python-Utilities.md)
 
 Ask Devin about Rust-Neural-Networks

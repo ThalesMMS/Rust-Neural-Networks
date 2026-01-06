@@ -10,7 +10,7 @@
 
 This document describes the common training workflow shared across all neural network implementations in the repository. It covers data loading from IDX files, model initialization with Xavier/Glorot distributions, the mini-batch training loop with forward/backward propagation, stochastic gradient descent (SGD) optimization, and evaluation procedures.
 
-For platform-specific BLAS acceleration details, see [BLAS Integration](#5.1). For model serialization format, see [Binary Model Format](#5.3). For architecture-specific implementation details, see the individual model pages: [MNIST MLP](#3.1), [MNIST CNN](#3.2), [MNIST Attention Model](#3.3), and [Simple XOR MLP](#3.4).
+For platform-specific BLAS acceleration details, see [BLAS Integration](5a%20BLAS-Integration.md). For model serialization format, see [Binary Model Format](5c%20Binary-Model-Format.md). For architecture-specific implementation details, see the individual model pages: [MNIST MLP](3a%20MNIST-MLP.md), [MNIST CNN](3b%20MNIST-CNN.md), [MNIST Attention Model](3c%20MNIST-Attention-Model.md), and [Simple XOR MLP](3d%20Simple-XOR-MLP.md).
 
 ## Training Pipeline Architecture
 
@@ -659,43 +659,43 @@ FILE -.-> WRITE_DIM
 
 **Sources:** [mnist_mlp.rs L522-L561](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs#L522-L561)
 
-The serialized model uses native endianness (via `to_ne_bytes()`) and converts f32 weights to f64 for storage. This format is consumed by the Python digit recognizer GUI (see [Digit Recognizer GUI](#4.1)).
+The serialized model uses native endianness (via `to_ne_bytes()`) and converts f32 weights to f64 for storage. This format is consumed by the Python digit recognizer GUI (see [Digit Recognizer GUI](4a%20Digit-Recognizer-GUI.md)).
 
-Refresh this wiki
 
-Last indexed: 5 January 2026 ([0e978f](https://github.com/ThalesMMS/Rust-Neural-Networks/commit/0e978f90))
+
+)
 
 ### On this page
 
-* [Training Pipeline](#5.2-training-pipeline)
-* [Purpose and Scope](#5.2-purpose-and-scope)
-* [Training Pipeline Architecture](#5.2-training-pipeline-architecture)
-* [Data Loading](#5.2-data-loading)
-* [IDX Format Parsing](#5.2-idx-format-parsing)
-* [Image and Label Loading](#5.2-image-and-label-loading)
-* [Model Initialization](#5.2-model-initialization)
-* [Random Number Generation](#5.2-random-number-generation)
-* [Xavier/Glorot Initialization](#5.2-xavierglorot-initialization)
-* [Training Loop Structure](#5.2-training-loop-structure)
-* [Epoch and Batch Organization](#5.2-epoch-and-batch-organization)
-* [Mini-Batch Sampling](#5.2-mini-batch-sampling)
-* [Forward Propagation](#5.2-forward-propagation)
-* [MLP Forward Pass (BLAS-Accelerated)](#5.2-mlp-forward-pass-blas-accelerated)
-* [CNN Forward Pass (Manual Loops)](#5.2-cnn-forward-pass-manual-loops)
-* [Attention Forward Pass](#5.2-attention-forward-pass)
-* [Loss Computation](#5.2-loss-computation)
-* [Cross-Entropy Loss](#5.2-cross-entropy-loss)
-* [Backward Propagation](#5.2-backward-propagation)
-* [Gradient Flow Through Layers](#5.2-gradient-flow-through-layers)
-* [MLP Backward Pass](#5.2-mlp-backward-pass)
-* [CNN Backward Pass](#5.2-cnn-backward-pass)
-* [Attention Backward Pass](#5.2-attention-backward-pass)
-* [Optimizer](#5.2-optimizer)
-* [Stochastic Gradient Descent (SGD)](#5.2-stochastic-gradient-descent-sgd)
-* [Evaluation](#5.2-evaluation)
-* [Test Accuracy Computation](#5.2-test-accuracy-computation)
-* [Logging and Persistence](#5.2-logging-and-persistence)
-* [Training Logs](#5.2-training-logs)
-* [Model Serialization](#5.2-model-serialization)
+* [Training Pipeline](5b%20Training-Visualization.md)
+* [Purpose and Scope](5b%20Training-Visualization.md)
+* [Training Pipeline Architecture](5b%20Training-Visualization.md)
+* [Data Loading](5b%20Training-Visualization.md)
+* [IDX Format Parsing](5b%20Training-Visualization.md)
+* [Image and Label Loading](5b%20Training-Visualization.md)
+* [Model Initialization](5b%20Training-Visualization.md)
+* [Random Number Generation](5b%20Training-Visualization.md)
+* [Xavier/Glorot Initialization](5b%20Training-Visualization.md)
+* [Training Loop Structure](5b%20Training-Visualization.md)
+* [Epoch and Batch Organization](5b%20Training-Visualization.md)
+* [Mini-Batch Sampling](5b%20Training-Visualization.md)
+* [Forward Propagation](5b%20Training-Visualization.md)
+* [MLP Forward Pass (BLAS-Accelerated)](5b%20Training-Visualization.md)
+* [CNN Forward Pass (Manual Loops)](5b%20Training-Visualization.md)
+* [Attention Forward Pass](5b%20Training-Visualization.md)
+* [Loss Computation](5b%20Training-Visualization.md)
+* [Cross-Entropy Loss](5b%20Training-Visualization.md)
+* [Backward Propagation](5b%20Training-Visualization.md)
+* [Gradient Flow Through Layers](5b%20Training-Visualization.md)
+* [MLP Backward Pass](5b%20Training-Visualization.md)
+* [CNN Backward Pass](5b%20Training-Visualization.md)
+* [Attention Backward Pass](5b%20Training-Visualization.md)
+* [Optimizer](5b%20Training-Visualization.md)
+* [Stochastic Gradient Descent (SGD)](5b%20Training-Visualization.md)
+* [Evaluation](5b%20Training-Visualization.md)
+* [Test Accuracy Computation](5b%20Training-Visualization.md)
+* [Logging and Persistence](5b%20Training-Visualization.md)
+* [Training Logs](5b%20Training-Visualization.md)
+* [Model Serialization](5b%20Training-Visualization.md)
 
 Ask Devin about Rust-Neural-Networks

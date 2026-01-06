@@ -7,7 +7,7 @@
 
 This page provides a step-by-step guide to set up the Rust Neural Networks repository and run your first model. It covers the essential prerequisites, directory structure, and commands needed to train a neural network on the MNIST dataset or XOR problem.
 
-For detailed installation instructions including BLAS backend configuration, see [Installation](#2.1). For information about the MNIST dataset structure and IDX file format, see [MNIST Dataset Setup](#2.2).
+For detailed installation instructions including BLAS backend configuration, see [Installation](2a%20Installation.md). For information about the MNIST dataset structure and IDX file format, see [MNIST Dataset Setup](2b%20MNIST-Dataset-Setup.md).
 
 ## Prerequisites Overview
 
@@ -22,7 +22,7 @@ The project requires:
 
 The simplest model to start with is `mlp_simple` (XOR), which requires no external data files. For MNIST models, you must download the dataset files first.
 
-**Sources**: [README.md L98-L137](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L98-L137)
+**Sources**: README.md
 
  [Cargo.toml L1-L8](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L1-L8)
 
@@ -96,7 +96,7 @@ subgraph subGraph0 ["Source Files"]
 end
 ```
 
-**Sources**: [README.md L14-L31](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L14-L31)
+**Sources**: README.md
 
  [Cargo.toml L10-L24](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L10-L24)
 
@@ -145,7 +145,7 @@ subgraph subGraph0 ["Setup Phase"]
 end
 ```
 
-**Sources**: [README.md L98-L128](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L98-L128)
+**Sources**: README.md
 
  [Cargo.toml L10-L24](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L10-L24)
 
@@ -199,9 +199,9 @@ This confirms that:
 * Basic neural network training executes
 * Gradient descent converges correctly
 
-**Sources**: [README.md L112-L116](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L112-L116)
+**Sources**: Project overview and setup
 
- [README.md L147](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L147-L147)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L147-L147)
 
 ### Step 4: Download MNIST Dataset (For MNIST Models)
 
@@ -211,9 +211,9 @@ To run MNIST models (`mnist_mlp`, `mnist_cnn`, `mnist_attention_pool`), download
 2. Download from one of these sources: * [https://www.kaggle.com/datasets/hojjatk/mnist-dataset](https://www.kaggle.com/datasets/hojjatk/mnist-dataset) * [http://yann.lecun.com/exdb/mnist/](http://yann.lecun.com/exdb/mnist/)
 3. Place these 4 files in `data/`: * `train-images.idx3-ubyte` (60,000 training images) * `train-labels.idx1-ubyte` (60,000 training labels) * `t10k-images.idx3-ubyte` (10,000 test images) * `t10k-labels.idx1-ubyte` (10,000 test labels)
 
-See [MNIST Dataset Setup](#2.2) for detailed information about the IDX file format.
+See [MNIST Dataset Setup](2b%20MNIST-Dataset-Setup.md) for detailed information about the IDX file format.
 
-**Sources**: [README.md L151-L163](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L151-L163)
+**Sources**: Project overview and setup
 
 ### Step 5: Run MNIST MLP
 
@@ -242,11 +242,11 @@ This demonstrates:
 * Training converges to ~94-97% test accuracy
 * Model serialization to `mnist_model.bin`
 
-**Sources**: [README.md L106-L110](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L106-L110)
+**Sources**: Project overview and setup
 
- [README.md L33-L54](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L33-L54)
+README.md
 
- [README.md L144](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L144-L144)
+**Sources**: Project overview and setup
 
 ## Binary Targets Reference
 
@@ -265,7 +265,7 @@ All MNIST binaries read from the `data/` directory and write logs to `logs/train
 
 **Sources**: [Cargo.toml L10-L24](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L10-L24)
 
- [README.md L142-L147](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L142-L147)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L142-L147)
 
 ## Compilation and Execution Flow
 
@@ -320,7 +320,7 @@ end
 
 **Sources**: [Cargo.toml L1-L29](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L1-L29)
 
- [README.md L100-L104](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L100-L104)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L100-L104)
 
 ## Verifying Your Setup
 
@@ -357,7 +357,7 @@ epoch,loss,time_seconds
 ...
 ```
 
-**Sources**: [README.md L138-L147](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L138-L147)
+**Sources**: Project overview and setup
 
 ## Performance Optimization (Optional)
 
@@ -380,7 +380,7 @@ The [Cargo.toml L26-L28](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/
 * `lto = true` (Link-Time Optimization)
 * `codegen-units = 1` (Maximum optimization, slower compile)
 
-**Sources**: [README.md L130-L136](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L130-L136)
+**Sources**: Project overview and setup
 
  [Cargo.toml L26-L28](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L26-L28)
 
@@ -398,9 +398,9 @@ The [Cargo.toml L26-L28](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/
 * Modify [Cargo.toml L7](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L7-L7)  to change BLAS backend: ``` blas-src = { version = "0.14", features = ["openblas"] } ```
 * Install OpenBLAS via package manager (e.g., `apt-get install libopenblas-dev`)
 
-For detailed platform-specific setup, see [Installation](#2.1) and [BLAS Integration](#5.1).
+For detailed platform-specific setup, see [Installation](2a%20Installation.md) and [BLAS Integration](5a%20BLAS-Integration.md).
 
-**Sources**: [README.md L135-L136](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L135-L136)
+**Sources**: Project overview and setup
 
  [Cargo.toml L7](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L7-L7)
 
@@ -408,39 +408,39 @@ For detailed platform-specific setup, see [Installation](#2.1) and [BLAS Integra
 
 After successfully running your first model:
 
-1. **Explore other architectures**: Try `mnist_cnn` and `mnist_attention_pool` to compare performance. See [Model Implementations](#3).
-2. **Visualize training**: Install Python dependencies and run visualization tools: ``` pip install -r requirements.txtpython plot_comparison.py  # Plot training curves ``` See [Training Visualization](#4.2).
-3. **Interactive inference**: Test the trained MLP model with a drawing GUI: ``` python digit_recognizer.py ``` See [Digit Recognizer GUI](#4.1).
-4. **Understand the architecture**: Review the training pipeline and optimization strategies in [Architecture & Design](#5).
+1. **Explore other architectures**: Try `mnist_cnn` and `mnist_attention_pool` to compare performance. See [Model Implementations](3%20Model-Implementations.md).
+2. **Visualize training**: Install Python dependencies and run visualization tools: ``` pip install -r requirements.txt python plot_comparison.py  # Plot training curves ``` See [Training Pipeline](4b%20Training-Pipeline.md).
+3. **Interactive inference**: Test the trained MLP model with a drawing GUI: ``` python digit_recognizer.py ``` See [Digit Recognizer GUI](4a%20Digit-Recognizer-GUI.md).
+4. **Understand the architecture**: Review the training pipeline and optimization strategies in [Architecture & Design](5%20Architecture-&-Design.md).
 5. **Modify hyperparameters**: Edit source files to experiment with learning rates, batch sizes, and network dimensions.
 
-**Sources**: [README.md L165-L185](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L165-L185)
+**Sources**: Project overview and setup
 
-Refresh this wiki
 
-Last indexed: 5 January 2026 ([0e978f](https://github.com/ThalesMMS/Rust-Neural-Networks/commit/0e978f90))
+
+)
 
 ### On this page
 
-* [Getting Started](#2-getting-started)
-* [Prerequisites Overview](#2-prerequisites-overview)
-* [Repository Structure](#2-repository-structure)
-* [Quick Start Workflow](#2-quick-start-workflow)
-* [Step-by-Step: First Run](#2-step-by-step-first-run)
-* [Step 1: Install Rust](#2-step-1-install-rust)
-* [Step 2: Clone and Navigate](#2-step-2-clone-and-navigate)
-* [Step 3: Run XOR Example (No Data Required)](#2-step-3-run-xor-example-no-data-required)
-* [Step 4: Download MNIST Dataset (For MNIST Models)](#2-step-4-download-mnist-dataset-for-mnist-models)
-* [Step 5: Run MNIST MLP](#2-step-5-run-mnist-mlp)
-* [Binary Targets Reference](#2-binary-targets-reference)
-* [Compilation and Execution Flow](#2-compilation-and-execution-flow)
-* [Verifying Your Setup](#2-verifying-your-setup)
-* [Console Output Verification](#2-console-output-verification)
-* [File Output Verification](#2-file-output-verification)
-* [Performance Optimization (Optional)](#2-performance-optimization-optional)
-* [Platform-Specific Notes](#2-platform-specific-notes)
-* [macOS](#2-macos)
-* [Linux/Windows](#2-linuxwindows)
-* [Next Steps](#2-next-steps)
+* [Getting Started](2%20Getting-Started.md)
+* [Prerequisites Overview](2%20Getting-Started.md)
+* [Repository Structure](2%20Getting-Started.md)
+* [Quick Start Workflow](2%20Getting-Started.md)
+* [Step-by-Step: First Run](2%20Getting-Started.md)
+* [Step 1: Install Rust](2%20Getting-Started.md)
+* [Step 2: Clone and Navigate](2%20Getting-Started.md)
+* [Step 3: Run XOR Example (No Data Required)](2%20Getting-Started.md)
+* [Step 4: Download MNIST Dataset (For MNIST Models)](2%20Getting-Started.md)
+* [Step 5: Run MNIST MLP](2%20Getting-Started.md)
+* [Binary Targets Reference](2%20Getting-Started.md)
+* [Compilation and Execution Flow](2%20Getting-Started.md)
+* [Verifying Your Setup](2%20Getting-Started.md)
+* [Console Output Verification](2%20Getting-Started.md)
+* [File Output Verification](2%20Getting-Started.md)
+* [Performance Optimization (Optional)](2%20Getting-Started.md)
+* [Platform-Specific Notes](2%20Getting-Started.md)
+* [macOS](2%20Getting-Started.md)
+* [Linux/Windows](2%20Getting-Started.md)
+* [Next Steps](2%20Getting-Started.md)
 
 Ask Devin about Rust-Neural-Networks

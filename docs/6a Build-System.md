@@ -7,9 +7,9 @@
 
 ## Purpose and Scope
 
-This document explains the Cargo-based build system used in the Rust Neural Networks repository, covering binary target configuration, release profile optimizations, and compilation flags. For detailed dependency information, see [Dependencies](#6.2). For BLAS-specific configuration, see [BLAS Integration](#5.1). For initial setup instructions, see [Installation](#2.1).
+This document explains the Cargo-based build system used in the Rust Neural Networks repository, covering binary target configuration, release profile optimizations, and compilation flags. For detailed dependency information, see [Dependencies](6b%20Dependencies.md). For BLAS-specific configuration, see [BLAS Integration](5a%20BLAS-Integration.md). For initial setup instructions, see [Installation](2a%20Installation.md).
 
-**Sources**: [README.md L98-L136](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L98-L136)
+**Sources**: README.md
 
  [Cargo.toml L1-L29](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L1-L29)
 
@@ -174,7 +174,7 @@ Each binary can be built independently using `cargo build --bin <name>` or run d
 
 **Sources**: [Cargo.toml L10-L24](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L10-L24)
 
- [README.md L106-L128](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L106-L128)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L106-L128)
 
 ---
 
@@ -276,7 +276,7 @@ end
 
 All production builds should use the `--release` flag to enable the optimizations defined in `[profile.release]`.
 
-**Sources**: [README.md L100-L128](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L100-L128)
+**Sources**: Project overview and setup
 
 ### Build with Performance Flags
 
@@ -293,7 +293,7 @@ The `-C target-cpu=native` flag enables:
 * Additional vectorization opportunities
 * ~10-20% performance improvement for math-heavy code
 
-**Sources**: [README.md L130-L134](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L130-L134)
+**Sources**: Project overview and setup
 
 ### Complete Performance Build Example
 
@@ -307,7 +307,7 @@ This command combines:
 * **BLAS threading**: 8-thread limit for Accelerate framework
 * **Release profile**: LTO and single codegen unit
 
-**Sources**: [README.md L132-L134](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L132-L134)
+**Sources**: Project overview and setup
 
 ---
 
@@ -321,7 +321,7 @@ This command combines:
 | `-C opt-level=3` | Maximum optimization (implicit in release) | Already enabled by `--release` |
 | `-C lto=thin` | Faster LTO variant | Alternative to full LTO for faster builds |
 
-**Sources**: [README.md L132-L134](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L132-L134)
+**Sources**: Project overview and setup
 
 ### Environment Variables
 
@@ -333,9 +333,9 @@ This command combines:
 
 The `VECLIB_MAXIMUM_THREADS` variable is specific to Apple's Accelerate framework and controls parallelism in BLAS operations. Setting it prevents thread oversubscription when running multiple neural network processes.
 
-**Sources**: [README.md L53](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L53-L53)
+**Sources**: README.md
 
- [README.md L132-L134](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L132-L134)
+**Sources**: Project overview and setup
 
 ### Flag Application Pipeline
 
@@ -378,7 +378,7 @@ subgraph subGraph0 ["Build Invocation"]
 end
 ```
 
-**Sources**: [README.md L132-L134](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L132-L134)
+**Sources**: Project overview and setup
 
  [Cargo.toml L26-L28](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L26-L28)
 
@@ -405,7 +405,7 @@ This configuration:
 
  [Cargo.lock L6-L9](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.lock#L6-L9)
 
- [README.md L52](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L52-L52)
+ README.md
 
 ### Linux/Windows Configuration
 
@@ -426,7 +426,7 @@ Alternative backends include:
 * Intel MKL: `features = ["intel-mkl"]`
 * Generic BLAS: `features = ["blas"]` (requires manual library specification)
 
-**Sources**: [README.md L136](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L136-L136)
+**Sources**: Project overview and setup
 
  [Cargo.toml L7](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L7-L7)
 
@@ -485,7 +485,7 @@ end
 
 **Sources**: [Cargo.toml L7](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L7-L7)
 
- [README.md L136](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L136-L136)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L136-L136)
 
  [Cargo.lock L6-L24](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.lock#L6-L24)
 
@@ -582,7 +582,7 @@ All binaries are placed in `target/release/` when built with the `--release` fla
 * Linked BLAS library size
 * Debug symbol inclusion (stripped by default in release)
 
-**Sources**: [README.md L103-L104](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L103-L104)
+**Sources**: Project overview and setup
 
 ---
 
@@ -604,11 +604,11 @@ This is an acceptable trade-off for training workloads where the executable runs
 
 **Sources**: [Cargo.toml L26-L28](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L26-L28)
 
- [README.md L132-L134](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L132-L134)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L132-L134)
 
-Refresh this wiki
 
-Last indexed: 5 January 2026 ([0e978f](https://github.com/ThalesMMS/Rust-Neural-Networks/commit/0e978f90))
+
+)
 
 ### On this page
 

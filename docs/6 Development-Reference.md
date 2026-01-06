@@ -9,9 +9,9 @@
 
 ## Purpose and Scope
 
-This document provides reference material for developers working with the Rust Neural Networks codebase. It covers the build system configuration, dependency management, compiler optimizations, and repository structure. This page serves as a high-level overview of development concerns—for detailed information on specific topics, see [Build System](#6.1), [Dependencies](#6.2), and [Project Configuration](#6.3).
+This document provides reference material for developers working with the Rust Neural Networks codebase. It covers the build system configuration, dependency management, compiler optimizations, and repository structure. This page serves as a high-level overview of development concerns—for detailed information on specific topics, see [Build System](6a%20Build-System.md), [Dependencies](6b%20Dependencies.md), and [Project Configuration](6c%20Project-Configuration.md).
 
-This document is targeted at contributors who need to understand how to build, modify, and extend the codebase. For information about training models or using Python utilities, see [Model Implementations](#3) and [Python Utilities](#4).
+This document is targeted at contributors who need to understand how to build, modify, and extend the codebase. For information about training models or using Python utilities, see [Model Implementations](3%20Model-Implementations.md) and [Python Utilities](4%20Python-Utilities.md).
 
 ---
 
@@ -360,7 +360,7 @@ Developers need to configure both Rust and Python environments.
 **Required**:
 
 * Rust toolchain: 1.70+ (2021 edition required per [Cargo.toml L4](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L4-L4) )
-* Platform-specific BLAS library (see [BLAS Integration](#5.1))
+* Platform-specific BLAS library (see [BLAS Integration](5a%20BLAS-Integration.md))
 
 **macOS**:
 
@@ -516,7 +516,7 @@ This development reference provides the essential configuration details for work
 * **Git Configuration**: Line ending normalization, exclusion of build artifacts
 * **Platform Support**: macOS primary (Accelerate), Linux/Windows via OpenBLAS
 
-For deeper dives into specific topics, see [Build System](#6.1) (detailed Cargo configuration), [Dependencies](#6.2) (complete dependency analysis), and [Project Configuration](#6.3) (repository structure).
+For deeper dives into specific topics, see [Build System](6a%20Build-System.md) (detailed Cargo configuration), [Dependencies](6b%20Dependencies.md) (complete dependency analysis), and [Project Configuration](6c%20Project-Configuration.md) (repository structure).
 
 **Sources**: [Cargo.toml L1-L29](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L1-L29)
 
@@ -528,41 +528,41 @@ For deeper dives into specific topics, see [Build System](#6.1) (detailed Cargo 
 
  [requirements.txt L1-L2](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/requirements.txt#L1-L2)
 
-Refresh this wiki
 
-Last indexed: 5 January 2026 ([0e978f](https://github.com/ThalesMMS/Rust-Neural-Networks/commit/0e978f90))
+
+)
 
 ### On this page
 
-* [Development Reference](#6-development-reference)
-* [Purpose and Scope](#6-purpose-and-scope)
-* [Project Structure](#6-project-structure)
-* [Repository Layout](#6-repository-layout)
-* [Binary Target Configuration](#6-binary-target-configuration)
-* [Building Individual Targets](#6-building-individual-targets)
-* [Dependency Architecture](#6-dependency-architecture)
-* [Rust Dependency Graph](#6-rust-dependency-graph)
-* [Dependency Specifications](#6-dependency-specifications)
-* [Python Dependencies](#6-python-dependencies)
-* [Compiler Optimization Configuration](#6-compiler-optimization-configuration)
-* [Release Profile Settings](#6-release-profile-settings)
-* [Optimization Impact](#6-optimization-impact)
-* [Build System Workflow](#6-build-system-workflow)
-* [Git Configuration](#6-git-configuration)
-* [Line Ending Normalization](#6-line-ending-normalization)
-* [Ignored Files](#6-ignored-files)
-* [Development Environment Setup](#6-development-environment-setup)
-* [Rust Environment](#6-rust-environment)
-* [Python Environment](#6-python-environment)
-* [Development Commands](#6-development-commands)
-* [Development vs Release Builds](#6-development-vs-release-builds)
-* [Repository Metadata](#6-repository-metadata)
-* [Platform-Specific Considerations](#6-platform-specific-considerations)
-* [BLAS Backend Selection](#6-blas-backend-selection)
-* [Thread Configuration](#6-thread-configuration)
-* [Extending the Project](#6-extending-the-project)
-* [Adding a New Binary Target](#6-adding-a-new-binary-target)
-* [Adding Dependencies](#6-adding-dependencies)
-* [Summary](#6-summary)
+* [Development Reference](6%20Development-Reference.md)
+* [Purpose and Scope](6%20Development-Reference.md)
+* [Project Structure](6%20Development-Reference.md)
+* [Repository Layout](6%20Development-Reference.md)
+* [Binary Target Configuration](6%20Development-Reference.md)
+* [Building Individual Targets](6%20Development-Reference.md)
+* [Dependency Architecture](6%20Development-Reference.md)
+* [Rust Dependency Graph](6%20Development-Reference.md)
+* [Dependency Specifications](6%20Development-Reference.md)
+* [Python Dependencies](6%20Development-Reference.md)
+* [Compiler Optimization Configuration](6%20Development-Reference.md)
+* [Release Profile Settings](6%20Development-Reference.md)
+* [Optimization Impact](6%20Development-Reference.md)
+* [Build System Workflow](6%20Development-Reference.md)
+* [Git Configuration](6%20Development-Reference.md)
+* [Line Ending Normalization](6%20Development-Reference.md)
+* [Ignored Files](6%20Development-Reference.md)
+* [Development Environment Setup](6%20Development-Reference.md)
+* [Rust Environment](6%20Development-Reference.md)
+* [Python Environment](6%20Development-Reference.md)
+* [Development Commands](6%20Development-Reference.md)
+* [Development vs Release Builds](6%20Development-Reference.md)
+* [Repository Metadata](6%20Development-Reference.md)
+* [Platform-Specific Considerations](6%20Development-Reference.md)
+* [BLAS Backend Selection](6%20Development-Reference.md)
+* [Thread Configuration](6%20Development-Reference.md)
+* [Extending the Project](6%20Development-Reference.md)
+* [Adding a New Binary Target](6%20Development-Reference.md)
+* [Adding Dependencies](6%20Development-Reference.md)
+* [Summary](6%20Development-Reference.md)
 
 Ask Devin about Rust-Neural-Networks

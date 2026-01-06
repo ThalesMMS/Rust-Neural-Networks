@@ -5,7 +5,7 @@
 > * [Cargo.toml](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml)
 > * [requirements.txt](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/requirements.txt)
 
-This page documents all external dependencies used in the Rust Neural Networks project, including Rust crates and Python packages. For detailed information about BLAS backend configuration and optimization, see [BLAS Integration](#5.1). For installation procedures, see [Installation](#2.1).
+This page documents all external dependencies used in the Rust Neural Networks project, including Rust crates and Python packages. For detailed information about BLAS backend configuration and optimization, see [BLAS Integration](5a%20BLAS-Integration.md). For installation procedures, see [Installation](2a%20Installation.md).
 
 ---
 
@@ -57,7 +57,7 @@ The `cblas` crate provides **safe Rust bindings** to the CBLAS (C BLAS) interfac
 
 **Resolved Version**: `0.5.0` [Cargo.lock L27-L35](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.lock#L27-L35)
 
-**Usage**: The MLP implementation uses `cblas::sgemm()` for batched matrix multiplication in forward and backward passes. See [BLAS Integration](#5.1) for implementation details.
+**Usage**: The MLP implementation uses `cblas::sgemm()` for batched matrix multiplication in forward and backward passes. See [BLAS Integration](5a%20BLAS-Integration.md) for implementation details.
 
 ---
 
@@ -201,7 +201,7 @@ The Python utilities also depend on packages **not listed** in `requirements.txt
 * Converting between image formats
 * Pixel data extraction
 
-**Note**: These dependencies may require manual installation on some systems. See [Installation](#2.1) for platform-specific instructions.
+**Note**: These dependencies may require manual installation on some systems. See [Installation](2a%20Installation.md) for platform-specific instructions.
 
 **Sources**: `digit_recognizer.py`, [README.md](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md)
 
@@ -408,9 +408,9 @@ This diagram shows the **complete dependency chain** from application code down 
 
  [Cargo.toml L6-L8](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L6-L8)
 
-Refresh this wiki
 
-Last indexed: 5 January 2026 ([0e978f](https://github.com/ThalesMMS/Rust-Neural-Networks/commit/0e978f90))
+
+)
 
 ### On this page
 

@@ -12,9 +12,9 @@ This document explains how BLAS (Basic Linear Algebra Subprograms) is integrated
 
 Only the MNIST MLP implementation ([mnist_mlp.rs](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs)
 
-) uses BLAS acceleration. The CNN and Attention models use explicit loops for educational purposes. For details on these implementations, see [MNIST CNN](#3.2) and [MNIST Attention Model](#3.3). For the overall training workflow, see [Training Pipeline](#5.2).
+) uses BLAS acceleration. The CNN and Attention models use explicit loops for educational purposes. For details on these implementations, see [MNIST CNN](3b%20MNIST-CNN.md) and [MNIST Attention Model](3c%20MNIST-Attention-Model.md). For the overall training workflow, see [Training Pipeline](5b%20Training-Visualization.md).
 
-**Sources**: [README.md L1-L191](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L1-L191)
+**Sources**: README.md
 
  [Cargo.toml L1-L29](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L1-L29)
 
@@ -31,9 +31,9 @@ The integration uses two Rust crates:
 
 **Performance Impact**: The BLAS-accelerated MLP trains in 3.33 seconds compared to the manual-loop CNN's 11.24 seconds, despite processing similar data volumes.
 
-**Sources**: [README.md L49-L54](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L49-L54)
+**Sources**: README.md
 
- [README.md L142-L147](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L142-L147)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L142-L147)
 
  [Cargo.toml L6-L8](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L6-L8)
 
@@ -307,7 +307,7 @@ blas-src = { version = "0.14", features = ["accelerate"] }
 
 **Sources**: [Cargo.toml L6-L8](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L6-L8)
 
- [README.md L49-L54](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L49-L54)
+ README.md
 
 ### Linux/Windows: OpenBLAS or Intel MKL
 
@@ -330,7 +330,7 @@ blas-src = { version = "0.14", features = ["intel-mkl"] }
 * OpenBLAS: Install system package (e.g., `libopenblas-dev` on Ubuntu)
 * Intel MKL: Requires Intel Math Kernel Library installation
 
-**Sources**: [README.md L136-L137](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L136-L137)
+**Sources**: Project overview and setup
 
 ### Backend Selection Architecture
 
@@ -357,7 +357,7 @@ HARDWARE["CPU Hardware SIMD + Multi-core"]
 
  [Cargo.lock L5-L24](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.lock#L5-L24)
 
- [README.md L136-L137](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L136-L137)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L136-L137)
 
 ## Threading Configuration
 
@@ -377,7 +377,7 @@ VECLIB_MAXIMUM_THREADS=8 cargo run --release --bin mnist_mlp
 
 **Performance Impact**: Higher thread counts generally improve performance for large matrix operations, but may introduce overhead for small batches due to synchronization costs.
 
-**Sources**: [README.md L130-L134](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L130-L134)
+**Sources**: Project overview and setup
 
 ### Performance Optimization Flags
 
@@ -393,7 +393,7 @@ RUSTFLAGS="-C target-cpu=native" VECLIB_MAXIMUM_THREADS=8 cargo run --relea
 * `VECLIB_MAXIMUM_THREADS=8`: Limits Accelerate to 8 threads
 * `--release`: Enables Rust compiler optimizations (LTO, codegen-units=1 per [Cargo.toml L26-L28](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L26-L28) )
 
-**Sources**: [README.md L130-L134](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L130-L134)
+**Sources**: Project overview and setup
 
  [Cargo.toml L26-L28](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L26-L28)
 
@@ -413,7 +413,7 @@ RUSTFLAGS="-C target-cpu=native" VECLIB_MAXIMUM_THREADS=8 cargo run --relea
 3. Cache-optimized memory access patterns
 4. Vendor-tuned implementations (Accelerate, OpenBLAS)
 
-**Sources**: [README.md L142-L147](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L142-L147)
+**Sources**: Project overview and setup
 
 ### Computational Breakdown
 
@@ -440,7 +440,7 @@ For a single training batch (batch_size=64):
 
 **Sources**: [mnist_mlp.rs L10-L18](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs#L10-L18)
 
- [README.md L142-L147](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L142-L147)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L142-L147)
 
 ### BLAS vs Manual Implementation
 
@@ -480,7 +480,7 @@ end
 
 **Sources**: [mnist_mlp.rs L1-L665](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs#L1-L665)
 
- [README.md L142-L147](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L142-L147)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L142-L147)
 
 ## External BLAS Declaration
 
@@ -512,11 +512,11 @@ The result is a **3.4x speedup** compared to manual implementations, achieving ~
 
  [Cargo.toml L1-L29](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L1-L29)
 
- [README.md L1-L191](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L1-L191)
+ README.md
 
-Refresh this wiki
 
-Last indexed: 5 January 2026 ([0e978f](https://github.com/ThalesMMS/Rust-Neural-Networks/commit/0e978f90))
+
+)
 
 ### On this page
 

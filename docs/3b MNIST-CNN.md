@@ -11,11 +11,11 @@ This page documents the Convolutional Neural Network (CNN) implementation for MN
 
  This implementation demonstrates a complete CNN training pipeline using explicit loops for all operations, without relying on BLAS acceleration or external neural network libraries. The CNN achieves approximately 91.93% test accuracy after 3 epochs of training.
 
-For the BLAS-accelerated MLP implementation, see [MNIST MLP](#3.1). For the attention-based architecture, see [MNIST Attention Model](#3.3). For general training pipeline concepts shared across implementations, see [Training Pipeline](#5.2).
+For the BLAS-accelerated MLP implementation, see [MNIST MLP](3a%20MNIST-MLP.md). For the attention-based architecture, see [MNIST Attention Model](3c%20MNIST-Attention-Model.md). For general training pipeline concepts shared across implementations, see [Training Pipeline](5b%20Training-Visualization.md).
 
 **Sources**: [mnist_cnn.rs L1-L14](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_cnn.rs#L1-L14)
 
- [README.md L55-L69](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L55-L69)
+ README.md
 
 ---
 
@@ -61,7 +61,7 @@ SOFTMAX -.-> FC
 
  [mnist_cnn.rs L220-L227](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_cnn.rs#L220-L227)
 
- [README.md L57-L63](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L57-L63)
+ README.md
 
 ---
 
@@ -577,7 +577,7 @@ epoch,loss,time
 * `loss`: Average cross-entropy loss over training set
 * `time`: Training time for that epoch in seconds
 
-**Usage**: Consumed by `plot_comparison.py` for visualization (see [Training Visualization](#4.2))
+**Usage**: Consumed by `plot_comparison.py` for visualization (see [Training Visualization](4b%20Training-Pipeline.md))
 
 **Sources**: [mnist_cnn.rs L616-L621](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_cnn.rs#L616-L621)
 
@@ -610,7 +610,7 @@ epoch,loss,time
 
 ### Benchmark Results
 
-Performance on default configuration (from [README.md L142-L147](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L142-L147)
+Performance on default configuration (from **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L142-L147)
 
 ):
 
@@ -622,7 +622,7 @@ Performance on default configuration (from [README.md L142-L147](https://github.
 | Batch size | 32 | Fixed throughout training |
 | Parameters | 15,770 | 72 conv + 15,698 FC |
 
-**Comparison to MLP** ([README.md L144-L145](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L144-L145)
+**Comparison to MLP** (**Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L144-L145)
 
 ):
 
@@ -635,7 +635,7 @@ Performance on default configuration (from [README.md L142-L147](https://github.
 * FC operations: ~20% of time
 * Data movement and overhead: ~20% of time
 
-**Sources**: [README.md L138-L149](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L138-L149)
+**Sources**: Project overview and setup
 
 ---
 
@@ -643,7 +643,7 @@ Performance on default configuration (from [README.md L142-L147](https://github.
 
 ### Running the CNN
 
-**Build and execute** ([README.md L118-L122](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L118-L122)
+**Build and execute** (**Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L118-L122)
 
 ):
 
@@ -673,11 +673,11 @@ Test Accuracy: 91.93%
 * `./data/t10k-images.idx3-ubyte` (10,000 test images)
 * `./data/t10k-labels.idx1-ubyte` (10,000 test labels)
 
-For dataset setup instructions, see [MNIST Dataset Setup](#2.2).
+For dataset setup instructions, see [MNIST Dataset Setup](2b%20MNIST-Dataset-Setup.md).
 
 **Sources**: [mnist_cnn.rs L1-L14](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_cnn.rs#L1-L14)
 
- [README.md L118-L122](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L118-L122)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L118-L122)
 
 ### Build Configuration
 
@@ -736,29 +736,29 @@ While this implementation is intentionally unoptimized for educational purposes,
 4. **Parallel batch processing**: Process multiple samples concurrently
 5. **Fused operations**: Combine conv+ReLU+pool into single kernel
 
-For BLAS-accelerated implementation, see [MNIST MLP](#3.1) and [BLAS Integration](#5.1).
+For BLAS-accelerated implementation, see [MNIST MLP](3a%20MNIST-MLP.md) and [BLAS Integration](5a%20BLAS-Integration.md).
 
 **Sources**: [mnist_cnn.rs L13](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_cnn.rs#L13-L13)
 
- [README.md L49-L54](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L49-L54)
+ README.md
 
 ---
 
 ## Related Pages
 
-* [MNIST MLP](#3.1): BLAS-accelerated fully-connected network
-* [MNIST Attention Model](#3.3): Transformer-inspired architecture with self-attention
-* [Training Pipeline](#5.2): Common training workflow across implementations
-* [MNIST Dataset Setup](#2.2): Data preparation and IDX format details
-* [Training Visualization](#4.2): Plotting training curves from log files
+* [MNIST MLP](3a%20MNIST-MLP.md): BLAS-accelerated fully-connected network
+* [MNIST Attention Model](3c%20MNIST-Attention-Model.md): Transformer-inspired architecture with self-attention
+* [Training Pipeline](5b%20Training-Visualization.md): Common training workflow across implementations
+* [MNIST Dataset Setup](2b%20MNIST-Dataset-Setup.md): Data preparation and IDX format details
+* [Training Visualization](4b%20Training-Pipeline.md): Plotting training curves from log files
 
-**Sources**: [README.md L1-L191](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L1-L191)
+**Sources**: README.md
 
  Table of contents
 
-Refresh this wiki
 
-Last indexed: 5 January 2026 ([0e978f](https://github.com/ThalesMMS/Rust-Neural-Networks/commit/0e978f90))
+
+)
 
 ### On this page
 

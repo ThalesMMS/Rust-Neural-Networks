@@ -10,9 +10,9 @@
 
 This document provides a technical deep dive into the architectural decisions, optimization strategies, and internal system design of the Rust Neural Networks repository. It covers the overall system organization, design principles, component relationships, and data flow patterns across all implementations.
 
-For specific implementation details of BLAS acceleration and platform-specific configurations, see [BLAS Integration](#5.1). For the common training workflow mechanics, see [Training Pipeline](#5.2). For model serialization format specifications, see [Binary Model Format](#5.3).
+For specific implementation details of BLAS acceleration and platform-specific configurations, see [BLAS Integration](5a%20BLAS-Integration.md). For the common training workflow mechanics, see [Training Pipeline](5b%20Training-Visualization.md). For model serialization format specifications, see [Binary Model Format](5c%20Binary-Model-Format.md).
 
-For usage instructions and getting started guides, see [Getting Started](#2). For detailed documentation of individual models, see [Model Implementations](#3).
+For usage instructions and getting started guides, see [Getting Started](2%20Getting-Started.md). For detailed documentation of individual models, see [Model Implementations](3%20Model-Implementations.md).
 
 ---
 
@@ -91,7 +91,7 @@ end
 
 **Sources:** [Cargo.toml L1-L29](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L1-L29)
 
- [README.md L14-L31](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L14-L31)
+ README.md
 
 The system uses Cargo's multi-binary feature with four independent executables defined in [Cargo.toml L10-L24](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L10-L24)
 
@@ -110,7 +110,7 @@ The architecture employs a clear separation of concerns by language:
 | Visualization | Python | Loss curve plotting | Matplotlib ecosystem |
 | Interactive UI | Python | GUI for digit drawing | Tkinter, PIL libraries |
 
-**Sources:** [README.md L1-L31](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L1-L31)
+**Sources:** README.md
 
  [mnist_mlp.rs L1-L664](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs#L1-L664)
 
@@ -171,7 +171,7 @@ end
 
  [Cargo.toml L26-L28](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L26-L28)
 
- [README.md L130-L136](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L130-L136)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L130-L136)
 
 **BLAS Integration**: The MLP implementation uses `cblas::sgemm` ([mnist_mlp.rs L113-L157](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs#L113-L157)
 
@@ -495,7 +495,7 @@ end
 
 **Sources:** [mnist_mlp.rs L113-L157](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs#L113-L157)
 
- [README.md L138-L148](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L138-L148)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L138-L148)
 
 **MLP**: Vectorizes computation through BLAS, processing entire batches as matrix operations. Forward pass uses two GEMM calls; backward pass uses four GEMM calls for gradients.
 
@@ -799,7 +799,7 @@ end
 
  [Cargo.lock L1-L77](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.lock#L1-L77)
 
- [README.md L98-L136](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L98-L136)
+ README.md
 
 **Binary Targets** ([Cargo.toml L10-L24](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L10-L24)
 
@@ -816,7 +816,7 @@ end
 
 ): The `features = ["accelerate"]` configuration compiles against macOS's Accelerate framework. For Linux/Windows, users must modify this to `["openblas"]` or other backends and install the corresponding native library.
 
-**Performance Flags** ([README.md L132-L134](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L132-L134)
+**Performance Flags** (**Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L132-L134)
 
 ): The suggested `RUSTFLAGS="-C target-cpu=native"` enables CPU-specific SIMD instructions (AVX2, AVX-512 on x86; NEON on ARM), complementing the BLAS optimizations.
 
@@ -832,33 +832,33 @@ The architecture achieves three primary goals:
 
 The design avoids premature abstraction—each model is independently implemented, making the codebase easier to understand and modify for learning purposes while maintaining professional-grade performance characteristics.
 
-Refresh this wiki
 
-Last indexed: 5 January 2026 ([0e978f](https://github.com/ThalesMMS/Rust-Neural-Networks/commit/0e978f90))
+
+)
 
 ### On this page
 
-* [Architecture & Design](#5-architecture-design)
-* [Purpose and Scope](#5-purpose-and-scope)
-* [System Architecture Overview](#5-system-architecture-overview)
-* [Multi-Binary Structure](#5-multi-binary-structure)
-* [Language Separation Strategy](#5-language-separation-strategy)
-* [Core Design Principles](#5-core-design-principles)
-* [Performance-First Architecture](#5-performance-first-architecture)
-* [Educational Clarity Through Explicit Implementations](#5-educational-clarity-through-explicit-implementations)
-* [Reproducibility Architecture](#5-reproducibility-architecture)
-* [Component Architecture](#5-component-architecture)
-* [Neural Network Data Structures](#5-neural-network-data-structures)
-* [Activation and Loss Functions](#5-activation-and-loss-functions)
-* [Data Loading Infrastructure](#5-data-loading-infrastructure)
-* [Code Organization Patterns](#5-code-organization-patterns)
-* [Shared Structural Patterns](#5-shared-structural-patterns)
-* [Divergent Implementation Strategies](#5-divergent-implementation-strategies)
-* [Data Flow Architecture](#5-data-flow-architecture)
-* [Training Data Flow](#5-training-data-flow)
-* [Inference Data Flow](#5-inference-data-flow)
-* [Logging Architecture](#5-logging-architecture)
-* [Build System Architecture](#5-build-system-architecture)
-* [Summary](#5-summary)
+* [Architecture & Design](5%20Architecture-&-Design.md)
+* [Purpose and Scope](5%20Architecture-&-Design.md)
+* [System Architecture Overview](5%20Architecture-&-Design.md)
+* [Multi-Binary Structure](5%20Architecture-&-Design.md)
+* [Language Separation Strategy](5%20Architecture-&-Design.md)
+* [Core Design Principles](5%20Architecture-&-Design.md)
+* [Performance-First Architecture](5%20Architecture-&-Design.md)
+* [Educational Clarity Through Explicit Implementations](5%20Architecture-&-Design.md)
+* [Reproducibility Architecture](5%20Architecture-&-Design.md)
+* [Component Architecture](5%20Architecture-&-Design.md)
+* [Neural Network Data Structures](5%20Architecture-&-Design.md)
+* [Activation and Loss Functions](5%20Architecture-&-Design.md)
+* [Data Loading Infrastructure](5%20Architecture-&-Design.md)
+* [Code Organization Patterns](5%20Architecture-&-Design.md)
+* [Shared Structural Patterns](5%20Architecture-&-Design.md)
+* [Divergent Implementation Strategies](5%20Architecture-&-Design.md)
+* [Data Flow Architecture](5%20Architecture-&-Design.md)
+* [Training Data Flow](5%20Architecture-&-Design.md)
+* [Inference Data Flow](5%20Architecture-&-Design.md)
+* [Logging Architecture](5%20Architecture-&-Design.md)
+* [Build System Architecture](5%20Architecture-&-Design.md)
+* [Summary](5%20Architecture-&-Design.md)
 
 Ask Devin about Rust-Neural-Networks

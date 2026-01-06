@@ -9,7 +9,7 @@
 
 This document covers the repository-level configuration files that control Git behavior, version control patterns, and the organizational structure of the project. It explains the purpose of `.gitattributes` and `.gitignore`, their configured rules, and how they interact with the development workflow.
 
-For information about build system configuration, see [Build System](#6.1). For dependency management, see [Dependencies](#6.2).
+For information about build system configuration, see [Build System](6a%20Build-System.md). For dependency management, see [Dependencies](6b%20Dependencies.md).
 
 ---
 
@@ -137,7 +137,7 @@ The repository is organized into several functional areas:
 * **Build artifacts**: The `target/` directory contains compiled binaries and intermediate build files, ignored by Git as they are platform-specific and regenerated on each build.
 * **Runtime outputs**: The `logs/` directory stores training metrics, and `mnist_model.bin` stores trained model weights. These are ignored to avoid committing large binary files.
 
-**Sources:** [README.md L14-L31](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L14-L31)
+**Sources:** README.md
 
  [.gitignore L1-L4](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/.gitignore#L1-L4)
 
@@ -332,7 +332,7 @@ This pattern matches only the `/logs` directory at the repository root. During t
 * `logs/training_loss_attention.txt`
 * `logs/training_loss_xor.txt`
 
-These files contain epoch-by-epoch metrics (see [Training Visualization](#4.2)) and are:
+These files contain epoch-by-epoch metrics (see [Training Visualization](4b%20Training-Pipeline.md)) and are:
 
 * Regenerated on each training run
 * User-specific (depend on hardware, hyperparameters, random initialization)
@@ -342,7 +342,7 @@ These files contain epoch-by-epoch metrics (see [Training Visualization](#4.2)) 
 
 **Sources:** [.gitignore L1-L4](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/.gitignore#L1-L4)
 
- [README.md L29-L31](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L29-L31)
+ README.md
 
 ---
 
@@ -352,9 +352,9 @@ Several categories of files are **not** ignored, which is intentional:
 
 ### 1. mnist_model.bin
 
-The trained model binary is **not ignored**, despite being a generated file. The README indicates this file is expected at the root ([README.md L31](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L31-L31)
+The trained model binary is **not ignored**, despite being a generated file. The README indicates this file is expected at the root (README.md
 
-) and is used by `digit_recognizer.py` ([README.md L175-L179](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L175-L179)
+) and is used by `digit_recognizer.py` (**Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L175-L179)
 
 ). Users may want to:
 
@@ -366,7 +366,7 @@ The file is typically ~800 KB, which is acceptable for Git tracking. However, de
 
 ### 2. data/ Directory
 
-The MNIST dataset directory is **not ignored**. However, the README ([README.md L152-L163](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L152-L163)
+The MNIST dataset directory is **not ignored**. However, the README (**Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L152-L163)
 
 ) indicates these files are required:
 
@@ -387,11 +387,11 @@ Python cache directories (`__pycache__/`, `*.pyc`) are not ignored, but this is 
 
 **Sources:** [.gitignore L1-L4](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/.gitignore#L1-L4)
 
- [README.md L29-L31](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L29-L31)
+ README.md
 
- [README.md L152-L163](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L152-L163)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L152-L163)
 
- [README.md L175-L179](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L175-L179)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L175-L179)
 
 ---
 
@@ -528,9 +528,9 @@ The configuration prioritizes:
 
  [README.md L19](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L19-L19)
 
-Refresh this wiki
 
-Last indexed: 5 January 2026 ([0e978f](https://github.com/ThalesMMS/Rust-Neural-Networks/commit/0e978f90))
+
+)
 
 ### On this page
 

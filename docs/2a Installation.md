@@ -8,7 +8,7 @@
 
 This page provides detailed instructions for installing and configuring the Rust Neural Networks project, including the Rust toolchain, BLAS backend configuration, and Python dependencies. After completing these steps, you will be able to build and run all four neural network implementations (MLP, CNN, Attention, XOR) and use the Python visualization utilities.
 
-For information about the MNIST dataset files and IDX format setup, see [MNIST Dataset Setup](#2.2). For build system configuration details, see [Build System](#6.1).
+For information about the MNIST dataset files and IDX format setup, see [MNIST Dataset Setup](2b%20MNIST-Dataset-Setup.md). For build system configuration details, see [Build System](6a%20Build-System.md).
 
 ---
 
@@ -104,7 +104,7 @@ end
 
  [requirements.txt L1-L3](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/requirements.txt#L1-L3)
 
- [README.md L98-L137](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L98-L137)
+ README.md
 
 ---
 
@@ -137,7 +137,7 @@ The toolchain installs:
 * `cargo`: Build tool and package manager (used for `cargo build --release`)
 * Standard library and documentation
 
-**Sources**: [README.md L100-L104](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L100-L104)
+**Sources**: Project overview and setup
 
 ---
 
@@ -197,9 +197,9 @@ end
 
  [Cargo.lock L6-L44](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.lock#L6-L44)
 
- [README.md L49-L54](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L49-L54)
+ README.md
 
- [README.md L136-L137](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L136-L137)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L136-L137)
 
 ### macOS (Default Configuration)
 
@@ -223,9 +223,9 @@ Set this environment variable before running `cargo run --release --bin mnist_ml
 
 **Sources**: [Cargo.toml L6-L8](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L6-L8)
 
- [README.md L52-L54](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L52-L54)
+ README.md
 
- [README.md L133-L134](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L133-L134)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L133-L134)
 
 ### Linux Configuration
 
@@ -255,7 +255,7 @@ cargo cleancargo build --release --bin mnist_mlp
 
 If the build succeeds, OpenBLAS is correctly linked.
 
-**Sources**: [README.md L136-L137](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L136-L137)
+**Sources**: Project overview and setup
 
  [Cargo.toml L7](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L7-L7)
 
@@ -284,7 +284,7 @@ set OPENBLAS_LIB=C:\path\to\openblas\libset PATH=%PATH%;C:\path\to\openblas\bi
 blas-src = { version = "0.14", features = ["openblas-system"] }
 ```
 
-**Sources**: [README.md L136-L137](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L136-L137)
+**Sources**: Project overview and setup
 
  [Cargo.toml L7](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L7-L7)
 
@@ -340,7 +340,7 @@ The `digit_recognizer.py` GUI requires:
 
 **Sources**: [requirements.txt L1-L3](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/requirements.txt#L1-L3)
 
- [README.md L181-L185](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L181-L185)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L181-L185)
 
 ---
 
@@ -379,7 +379,7 @@ These settings increase compile time but significantly improve runtime performan
 
 **Sources**: [Cargo.toml L10-L29](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L10-L29)
 
- [README.md L100-L104](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L100-L104)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L100-L104)
 
 ### CPU-Specific Optimizations
 
@@ -391,7 +391,7 @@ RUSTFLAGS="-C target-cpu=native" cargo build --release
 
 This enables SIMD instructions (AVX, AVX2, FMA on x86; NEON on ARM).
 
-**Sources**: [README.md L133-L134](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L133-L134)
+**Sources**: Project overview and setup
 
 ---
 
@@ -431,7 +431,7 @@ subgraph subGraph0 ["Verification Steps"]
 end
 ```
 
-**Sources**: [README.md L98-L128](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L98-L128)
+**Sources**: README.md
 
 ### Test 1: Build Verification
 
@@ -466,9 +466,9 @@ This verifies:
 * Binary execution succeeds
 * Basic neural network training functions
 
-**Sources**: [README.md L112-L116](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L112-L116)
+**Sources**: Project overview and setup
 
- [README.md L147](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L147-L147)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L147-L147)
 
 ### Test 3: Verify BLAS Integration (macOS/Linux)
 
@@ -485,9 +485,9 @@ Initializing model...
 Starting training...
 ```
 
-If this fails with "undefined symbol: sgemm_", BLAS is not correctly configured. Revisit [Step 2](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Step 2)
+If this fails with "undefined symbol: sgemm_", BLAS is not correctly configured. Revisit [Step 2](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L2-Installation)
 
-**Sources**: [README.md L106-L110](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L106-L110)
+**Sources**: Project overview and setup
 
 ### Test 4: Python Dependencies
 
@@ -534,7 +534,7 @@ ls -lh target/release/ | grep -E "(mnist_mlp|mnist_cnn|mnist_attention_poo
 # macOSRUSTFLAGS="-C target-cpu=native" VECLIB_MAXIMUM_THREADS=8 cargo run --release --bin mnist_mlp# Linux/WindowsRUSTFLAGS="-C target-cpu=native" OPENBLAS_NUM_THREADS=8 cargo run --release --bin mnist_mlp
 ```
 
-**Sources**: [README.md L130-L137](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L130-L137)
+**Sources**: Project overview and setup
 
 ---
 
@@ -554,9 +554,7 @@ ls -lh target/release/ | grep -E "(mnist_mlp|mnist_cnn|mnist_attention_poo
 
 **Cause**: OpenBLAS system library not installed (Linux/Windows).
 
-**Solution**: Install OpenBLAS package for your distribution (see [Linux Configuration](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Linux Configuration)
-
-).
+**Solution**: Install OpenBLAS package for your distribution (see [Linux Configuration](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#Linux-Configuration)).
 
 ### Issue: Python "ModuleNotFoundError: No module named 'numpy'"
 
@@ -574,7 +572,7 @@ ls -lh target/release/ | grep -E "(mnist_mlp|mnist_cnn|mnist_attention_poo
 2. Increase thread count: `VECLIB_MAXIMUM_THREADS=16` (macOS) or `OPENBLAS_NUM_THREADS=16` (Linux)
 3. Verify release mode: Always use `--release` flag
 
-**Sources**: [README.md L130-L137](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L130-L137)
+**Sources**: Project overview and setup
 
 ---
 
@@ -582,15 +580,15 @@ ls -lh target/release/ | grep -E "(mnist_mlp|mnist_cnn|mnist_attention_poo
 
 After successful installation:
 
-1. **Set up MNIST dataset**: See [MNIST Dataset Setup](#2.2) for instructions on downloading and organizing the IDX files
-2. **Run your first model**: See [MNIST MLP](#3.1) to train the MLP model
-3. **Visualize results**: See [Training Visualization](#4.2) to plot training curves
+1. **Set up MNIST dataset**: See [MNIST Dataset Setup](2b%20MNIST-Dataset-Setup.md) for instructions on downloading and organizing the IDX files
+2. **Run your first model**: See [MNIST MLP](3a%20MNIST-MLP.md) to train the MLP model
+3. **Visualize results**: See [Training Pipeline](4b%20Training-Pipeline.md) to plot training curves
 
-**Sources**: [README.md L151-L164](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L151-L164)
+**Sources**: Project overview and setup
 
-Refresh this wiki
 
-Last indexed: 5 January 2026 ([0e978f](https://github.com/ThalesMMS/Rust-Neural-Networks/commit/0e978f90))
+
+)
 
 ### On this page
 

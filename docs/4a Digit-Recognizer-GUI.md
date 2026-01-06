@@ -8,11 +8,11 @@
 
 ## Purpose and Scope
 
-The Digit Recognizer GUI is a Python-based interactive application that provides real-time inference for MNIST digit classification using trained neural network models. The application loads binary model files produced by the Rust training implementations (see [MNIST MLP](#3.1)) and presents a drawing interface where users can sketch digits for immediate classification.
+The Digit Recognizer GUI is a Python-based interactive application that provides real-time inference for MNIST digit classification using trained neural network models. The application loads binary model files produced by the Rust training implementations (see [MNIST MLP](3a%20MNIST-MLP.md)) and presents a drawing interface where users can sketch digits for immediate classification.
 
-This page covers the GUI implementation, model loading mechanism, image preprocessing, and inference execution. For information about the binary model format specification, see [Binary Model Format](#5.3). For details on training the models consumed by this application, see [MNIST MLP](#3.1).
+This page covers the GUI implementation, model loading mechanism, image preprocessing, and inference execution. For information about the binary model format specification, see [Binary Model Format](5c%20Binary-Model-Format.md). For details on training the models consumed by this application, see [MNIST MLP](3a%20MNIST-MLP.md).
 
-**Sources**: [README.md L173-L179](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L173-L179)
+**Sources**: Project overview and setup
 
  [digit_recognizer.py L1-L6](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/digit_recognizer.py#L1-L6)
 
@@ -451,17 +451,17 @@ This installs `numpy` for numerical operations and `matplotlib` (required by req
 
 **Sources**: [requirements.txt L1-L2](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/requirements.txt#L1-L2)
 
- [README.md L181-L185](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L181-L185)
+ **Sources**: [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L181-L185)
 
 ### Running the Application
 
-1. **Train a model**: Execute the MNIST MLP training (see [MNIST MLP](#3.1)): ``` cargo run --release --bin mnist_mlp ``` This produces `mnist_model.bin` in the project root.
+1. **Train a model**: Execute the MNIST MLP training (see [MNIST MLP](3a%20MNIST-MLP.md)): ``` cargo run --release --bin mnist_mlp ``` This produces `mnist_model.bin` in the project root.
 2. **Launch the GUI**: ``` python digit_recognizer.py ```
 3. **Draw a digit**: Click and drag on the black canvas to draw a digit. The application auto-predicts on mouse release.
 4. **View predictions**: Probability bars on the right show the model's confidence for each digit (0-9). The highest-probability digit is highlighted in green.
 5. **Clear and retry**: Click "Clear" to erase the canvas and draw a new digit.
 
-**Sources**: [README.md L173-L179](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L173-L179)
+**Sources**: Project overview and setup
 
 ---
 
@@ -481,9 +481,9 @@ This installs `numpy` for numerical operations and `matplotlib` (required by req
 
  [requirements.txt L1-L2](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/requirements.txt#L1-L2)
 
-Refresh this wiki
 
-Last indexed: 5 January 2026 ([0e978f](https://github.com/ThalesMMS/Rust-Neural-Networks/commit/0e978f90))
+
+)
 
 ### On this page
 

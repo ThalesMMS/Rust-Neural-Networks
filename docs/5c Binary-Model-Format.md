@@ -10,9 +10,9 @@
 
 This document specifies the custom binary format used to serialize trained Multi-Layer Perceptron (MLP) models from Rust and deserialize them in Python utilities. The format enables the `mnist_mlp` implementation to persist trained weights and biases to disk, which can then be loaded by the `digit_recognizer.py` GUI for interactive inference.
 
-For information about the training process that produces these models, see [Training Pipeline](#5.2). For details on how the Python GUI uses loaded models, see [Digit Recognizer GUI](#4.1).
+For information about the training process that produces these models, see [Training Pipeline](4b%20Training-Pipeline.md). For details on how the Python GUI uses loaded models, see [Digit Recognizer GUI](4a%20Digit-Recognizer-GUI.md).
 
-**Sources:** [README.md L1-L191](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L1-L191)
+**Sources:** README.md
 
  [mnist_mlp.rs L522-L561](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs#L522-L561)
 
@@ -419,18 +419,18 @@ The binary model format is specific to the MLP architecture. Other neural networ
 
 For information about these implementations, see:
 
-* [MNIST MLP](#3.1)
-* [MNIST CNN](#3.2)
-* [MNIST Attention Model](#3.3)
-* [Simple XOR MLP](#3.4)
+* [MNIST MLP](3a%20MNIST-MLP.md)
+* [MNIST CNN](3b%20MNIST-CNN.md)
+* [MNIST Attention Model](3c%20MNIST-Attention-Model.md)
+* [Simple XOR MLP](3d%20Simple-XOR-MLP.md)
 
-**Sources:** [README.md L14-L191](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L14-L191)
+**Sources:** README.md
 
  [mnist_mlp.rs L522-L561](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_mlp.rs#L522-L561)
 
-Refresh this wiki
 
-Last indexed: 5 January 2026 ([0e978f](https://github.com/ThalesMMS/Rust-Neural-Networks/commit/0e978f90))
+
+)
 
 ### On this page
 

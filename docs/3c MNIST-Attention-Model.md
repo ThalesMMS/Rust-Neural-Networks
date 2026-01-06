@@ -11,11 +11,11 @@ This document describes the transformer-inspired self-attention model for MNIST 
 
  The model uses patch-based tokenization and single-head self-attention to process 28×28 grayscale images. This implementation prioritizes educational clarity through explicit CPU loops rather than performance optimization.
 
-For the BLAS-accelerated MLP implementation, see [MNIST MLP](#3.1). For the convolutional architecture, see [MNIST CNN](#3.2). For the common training pipeline shared across all models, see [Training Pipeline](#5.2).
+For the BLAS-accelerated MLP implementation, see [MNIST MLP](3a%20MNIST-MLP.md). For the convolutional architecture, see [MNIST CNN](3b%20MNIST-CNN.md). For the common training pipeline shared across all models, see [Training Pipeline](5b%20Training-Visualization.md).
 
 **Sources**: [mnist_attention_pool.rs L1-L18](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L1-L18)
 
- [README.md L70-L87](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L70-L87)
+ README.md
 
 ---
 
@@ -64,7 +64,7 @@ Cls -.-> Output
 
  [mnist_attention_pool.rs L219-L240](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L219-L240)
 
- [README.md L70-L87](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L70-L87)
+ README.md
 
 ---
 
@@ -256,7 +256,7 @@ end
 
 **Sources**: [mnist_attention_pool.rs L465-L487](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L465-L487)
 
- [README.md L74](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L74-L74)
+ README.md
 
 ---
 
@@ -449,14 +449,14 @@ The `forward_batch()` function ([mnist_attention_pool.rs L490-L684](https://gith
 
 **Processing Steps**:
 
-1. Extract patches ([lines 504](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/lines 504) )
-2. Project tokens with position embeddings and ReLU ([lines 507-529](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/lines 507-529) )
-3. Compute Q/K/V projections ([lines 532-555](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/lines 532-555) )
-4. Calculate self-attention ([lines 557-591](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/lines 557-591) )
-5. Apply feed-forward network ([lines 594-623](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/lines 594-623) )
-6. Mean-pool tokens ([lines 625-638](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/lines 625-638) )
-7. Compute classifier logits and softmax ([lines 640-661](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/lines 640-661) )
-8. Calculate cross-entropy loss and gradient w.r.t. logits ([lines 663-682](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/lines 663-682) )
+1. Extract patches ([lines 504](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L504))
+2. Project tokens with position embeddings and ReLU ([lines 507-529](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L507-L529))
+3. Compute Q/K/V projections ([lines 532-555](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L532-L555))
+4. Calculate self-attention ([lines 557-591](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L557-L591))
+5. Apply feed-forward network ([lines 594-623](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L594-L623))
+6. Mean-pool tokens ([lines 625-638](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L625-L638))
+7. Compute classifier logits and softmax ([lines 640-661](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L640-L661))
+8. Calculate cross-entropy loss and gradient w.r.t. logits ([lines 663-682](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L663-L682))
 
 **Sources**: [mnist_attention_pool.rs L490-L684](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L490-L684)
 
@@ -470,13 +470,13 @@ The `backward_batch()` function ([mnist_attention_pool.rs L687-L928](https://git
 
 **Backpropagation Order** (reverse of forward):
 
-1. Classifier gradients (`w_cls`, `b_cls`) and `dpooled` ([lines 722-741](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/lines 722-741) )
-2. Distribute pooling gradients to tokens ([lines 744-753](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/lines 744-753) )
-3. FFN2 gradients and `dffn1` ([lines 756-782](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/lines 756-782) )
-4. FFN1 gradients with ReLU backward ([lines 785-812](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/lines 785-812) )
-5. Attention output gradients ([lines 815-846](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/lines 815-846) )
-6. Q/K/V projection gradients ([lines 850-895](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/lines 850-895) )
-7. Token projection and position embedding gradients ([lines 898-925](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/lines 898-925) )
+1. Classifier gradients (`w_cls`, `b_cls`) and `dpooled` ([lines 722-741](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L722-L741))
+2. Distribute pooling gradients to tokens ([lines 744-753](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L744-L753))
+3. FFN2 gradients and `dffn1` ([lines 756-782](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L756-L782))
+4. FFN1 gradients with ReLU backward ([lines 785-812](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L785-L812))
+5. Attention output gradients ([lines 815-846](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L815-L846))
+6. Q/K/V projection gradients ([lines 850-895](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L850-L895))
+7. Token projection and position embedding gradients ([lines 898-925](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L898-L925))
 
 **Gradient Accumulation**: All gradients are accumulated across the batch before applying SGD updates.
 
@@ -565,9 +565,9 @@ end
 
 ):
 
-1. **Data Loading**: Read IDX files for train and test sets ([lines 1171-1174](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/lines 1171-1174) )
-2. **Model Initialization**: Xavier initialization with random seed ([lines 1188-1191](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/lines 1188-1191) )
-3. **Epoch Loop**: For each of 5 epochs: * Shuffle training indices ([line 1209](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/line 1209) ) * Process batches of 32 samples ([lines 1213-1239](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/lines 1213-1239) ) * Compute test accuracy after each epoch ([line 1243](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/line 1243) ) * Log loss and timing ([line 1252](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/line 1252) )
+1. **Data Loading**: Read IDX files for train and test sets ([lines 1171-1174](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L1171-L1174))
+2. **Model Initialization**: Xavier initialization with random seed ([lines 1188-1191](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L1188-L1191))
+3. **Epoch Loop**: For each of 5 epochs: * Shuffle training indices ([line 1209](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L1209)) * Process batches of 32 samples ([lines 1213-1239](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L1213-L1239)) * Compute test accuracy after each epoch ([line 1243](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L1243)) * Log loss and timing ([line 1252](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L1252))
 
 **Sources**: [mnist_attention_pool.rs L1169-L1256](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L1169-L1256)
 
@@ -606,15 +606,13 @@ The `test_accuracy()` function ([mnist_attention_pool.rs L979-L1167](https://git
 
 **Processing**:
 
-1. Iterate through test set in batches of 32 ([line 986](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/line 986) )
-2. Execute forward pass without backward ([lines 1000-1146](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/lines 1000-1146) )
-3. Take argmax of logits as prediction ([lines 1149-1159](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/lines 1149-1159) )
-4. Count correct predictions ([line 1160](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/line 1160) )
-5. Return percentage: `100.0 * correct / total` ([line 1166](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/line 1166) )
+1. Iterate through test set in batches of 32 ([line 986](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L986))
+2. Execute forward pass without backward ([lines 1000-1146](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L1000-L1146))
+3. Take argmax of logits as prediction ([lines 1149-1159](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L1149-L1159))
+4. Count correct predictions ([line 1160](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L1160))
+5. Return percentage: `100.0 * correct / total` ([line 1166](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L1166))
 
-**Optimization**: Reuses `BatchBuffers` to avoid repeated allocations ([line 984](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/line 984)
-
-)
+**Optimization**: Reuses `BatchBuffers` to avoid repeated allocations ([line 984](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L984))
 
 **Sources**: [mnist_attention_pool.rs L979-L1167](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L979-L1167)
 
@@ -623,10 +621,6 @@ The `test_accuracy()` function ([mnist_attention_pool.rs L979-L1167](https://git
 ## Performance Characteristics
 
 ### Benchmark Results
-
-From [README.md L146](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L146-L146)
-
-:
 
 | Metric | Value | Notes |
 | --- | --- | --- |
@@ -653,7 +647,7 @@ The 33.88s training time reflects the computational cost of:
 * Nested loops for batch, sequence, and dimension iterations
 * No SIMD or multi-threading optimizations
 
-**Sources**: [README.md L146](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L146-L146)
+**Sources**: Project overview and setup
 
  [mnist_attention_pool.rs L12](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L12-L12)
 
@@ -687,7 +681,7 @@ weights ~ Uniform(-limit, limit)
 **Special Initializations**:
 
 * **Biases**: Initialized to zero for all layers
-* **Position embeddings**: Uniform in [-0.1, 0.1] ([line 402](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/line 402) )
+* **Position embeddings**: Uniform in [-0.1, 0.1] ([line 402](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L402))
 
 **Sources**: [mnist_attention_pool.rs L390-L463](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L390-L463)
 
@@ -725,8 +719,8 @@ Where 1{·} is the indicator function.
 
 **Numerical Stability**:
 
-* Small epsilon (1e-9) added when computing log to avoid log(0) ([line 665](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/line 665) )
-* Softmax uses max subtraction internally ([mnist_attention_pool.rs L192-L196](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L192-L196) )
+* Small epsilon (1e-9) added when computing log to avoid log(0) ([line 665](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L665))
+* Softmax uses max subtraction internally ([mnist_attention_pool.rs L192-L196](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L192-L196))
 
 **Sources**: [mnist_attention_pool.rs L663-L682](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L663-L682)
 
@@ -764,7 +758,8 @@ The model uses a custom xorshift PRNG ([mnist_attention_pool.rs L49-L101](https:
 
 **Operations**:
 
-* `next_f32()`: Uniform [0, 1) float\n- `gen_range_f32(low, high)`](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/0, 1) float\n- `gen_range_f32(low, high)`#LNaN-LNaN)
+* `next_f32()`: Uniform [0, 1) float
+* `gen_range_f32(low, high)`: Uniform [low, high) float
 
 ### Batch Gathering
 
@@ -799,7 +794,7 @@ epoch,loss,time
 
 **Writing**: [mnist_attention_pool.rs L1252](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L1252-L1252)
 
-This log file can be visualized using `plot_comparison.py` (see [Training Visualization](#4.2)).
+This log file can be visualized using `plot_comparison.py` (see [Training Visualization](4b%20Training-Pipeline.md)).
 
 **Sources**: [mnist_attention_pool.rs L1181-L1186](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/mnist_attention_pool.rs#L1181-L1186)
 
@@ -832,7 +827,7 @@ This log file can be visualized using `plot_comparison.py` (see [Training Visual
 
 ## Comparison with Other Models
 
-The attention model represents a fundamentally different architectural approach compared to the MLP ([MNIST MLP](#3.1)) and CNN ([MNIST CNN](#3.2)):
+The attention model represents a fundamentally different architectural approach compared to the MLP ([MNIST MLP](3a%20MNIST-MLP.md)) and CNN ([MNIST CNN](3b%20MNIST-CNN.md)):
 
 **Architectural Differences**:
 
@@ -847,13 +842,13 @@ The attention model represents a fundamentally different architectural approach 
 * **Computational cost**: O(N²) attention vs. O(N) for MLP/CNN operations
 * **Memory footprint**: Stores 49×49 attention matrices per sample
 
-For detailed BLAS integration discussion, see [BLAS Integration](#5.1). For training pipeline commonalities, see [Training Pipeline](#5.2).
+For detailed BLAS integration discussion, see [BLAS Integration](5a%20BLAS-Integration.md). For training pipeline commonalities, see [Training Pipeline](5b%20Training-Visualization.md).
 
-**Sources**: [README.md L1-L191](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L1-L191)
+**Sources**: README.md
 
-Refresh this wiki
 
-Last indexed: 5 January 2026 ([0e978f](https://github.com/ThalesMMS/Rust-Neural-Networks/commit/0e978f90))
+
+)
 
 ### On this page
 

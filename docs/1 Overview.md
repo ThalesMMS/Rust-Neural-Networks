@@ -5,9 +5,9 @@
 
 This document provides an overview of the Rust Neural Networks repository, which implements multiple neural network architectures in Rust with Python utilities for visualization and inference. This page covers the repository's purpose, implemented models, performance characteristics, and high-level system architecture.
 
-For detailed setup instructions, see [Getting Started](#2). For in-depth documentation of individual models, see [Model Implementations](#3). For Python tool usage, see [Python Utilities](#4).
+For detailed setup instructions, see [Getting Started](2%20Getting-Started.md). For in-depth documentation of individual models, see [Model Implementations](3%20Model-Implementations.md). For Python tool usage, see [Python Utilities](4%20Python-Utilities.md).
 
-**Sources:** [README.md L1-L191](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L1-L191)
+**Sources:** README.md
 
 ## Purpose and Scope
 
@@ -49,7 +49,7 @@ The repository is organized into Rust source files, Python utilities, and data/o
 | `logs/` | Training loss logs in CSV format |
 | `mnist_model.bin` | Serialized model weights and biases |
 
-**Sources:** [README.md L14-L31](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L14-L31)
+**Sources:** README.md
 
 ## Model Architectures
 
@@ -106,9 +106,9 @@ end
 
 **MNIST MLP** uses a simple fully-connected architecture with BLAS-accelerated matrix multiplications for optimal performance. **MNIST CNN** implements spatial feature extraction through convolution and pooling operations using explicit loops for educational clarity. **MNIST Attention** employs patch-based tokenization with self-attention mechanisms, inspired by transformer architectures. **XOR MLP** provides a minimal example for understanding backpropagation on a trivial problem.
 
-For detailed architecture documentation, see [MNIST MLP](#3.1), [MNIST CNN](#3.2), [MNIST Attention Model](#3.3), and [Simple XOR MLP](#3.4).
+For detailed architecture documentation, see [MNIST MLP](3a%20MNIST-MLP.md), [MNIST CNN](3b%20MNIST-CNN.md), [MNIST Attention Model](3c%20MNIST-Attention-Model.md), and [Simple XOR MLP](3d%20Simple-XOR-MLP.md).
 
-**Sources:** [README.md L33-L96](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L33-L96)
+**Sources:** README.md
 
 ## Performance Benchmarks
 
@@ -123,9 +123,9 @@ The following benchmarks were collected using default training parameters on loc
 
 The MLP achieves the best balance of speed and accuracy due to BLAS acceleration. The CNN is slower but demonstrates convolutional architectures. The attention model shows lower accuracy due to limited capacity (D=16, FF=32) and fewer training epochs. Results vary by hardware and build flags.
 
-For optimization strategies, see [BLAS Integration](#5.1). For build configuration, see [Build System](#6.1).
+For optimization strategies, see [BLAS Integration](5a%20BLAS-Integration.md). For build configuration, see [Build System](6a%20Build-System.md).
 
-**Sources:** [README.md L138-L149](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L138-L149)
+**Sources:** [Project overview and setup](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L138-L149)
 
 ## System Architecture
 
@@ -195,11 +195,11 @@ end
 The system separates concerns into distinct layers:
 
 1. **Training Layer (Rust)**: Four binary targets defined in `Cargo.toml` implement different neural network architectures. The `mnist_mlp` binary uses `blas-src` and `cblas` for hardware-accelerated matrix operations.
-2. **Data Layer**: MNIST dataset files in IDX binary format provide training and test data. For dataset details, see [MNIST Dataset Setup](#2.2).
+2. **Data Layer**: MNIST dataset files in IDX binary format provide training and test data. For dataset details, see [MNIST Dataset Setup](2b%20MNIST-Dataset-Setup.md).
 3. **Output Layer**: Rust binaries produce two types of outputs: * `mnist_model.bin`: Binary serialization of trained model parameters (weights and biases) * `logs/training_loss_*.txt`: CSV-formatted training metrics
-4. **Utilities Layer (Python)**: Python scripts consume Rust outputs for visualization and inference. For detailed documentation, see [Digit Recognizer GUI](#4.1) and [Training Visualization](#4.2).
+4. **Utilities Layer (Python)**: Python scripts consume Rust outputs for visualization and inference. For detailed documentation, see [Digit Recognizer GUI](4a%20Digit-Recognizer-GUI.md) and [Training Visualization](5b%20Training-Visualization.md).
 
-**Sources:** [README.md L1-L191](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L1-L191)
+**Sources:** README.md
 
 ## Training Pipeline
 
@@ -240,9 +240,9 @@ EVAL -.-> PERSIST
 * **Evaluation**: Test set inference calculates final accuracy
 * **Persistence**: `save_model` serializes weights to `mnist_model.bin`; training metrics logged to `logs/`
 
-For detailed pipeline documentation, see [Training Pipeline](#5.2). For model serialization format, see [Binary Model Format](#5.3).
+For detailed pipeline documentation, see [Training Pipeline](4b%20Training-Pipeline.md). For model serialization format, see [Binary Model Format](5c%20Binary-Model-Format.md).
 
-**Sources:** [README.md L33-L96](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L33-L96)
+**Sources:** README.md
 
 ## Technology Stack
 
@@ -265,9 +265,9 @@ The project uses a multi-language stack optimized for different concerns:
 * **Model Serialization**: Custom binary format (little-endian f32 arrays)
 * **Training Logs**: CSV format (epoch, loss, time)
 
-For BLAS configuration details, see [BLAS Integration](#5.1). For dependency management, see [Dependencies](#6.2).
+For BLAS configuration details, see [BLAS Integration](5a%20BLAS-Integration.md). For dependency management, see [Dependencies](6b%20Dependencies.md).
 
-**Sources:** [README.md L49-L136](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L49-L136)
+**Sources:** README.md
 
 ## Usage Overview
 
@@ -311,9 +311,9 @@ Generate training comparison plots:
 python plot_comparison.py
 ```
 
-For detailed usage instructions, see [Getting Started](#2).
+For detailed usage instructions, see [Getting Started](2%20Getting-Started.md).
 
-**Sources:** [README.md L98-L185](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L98-L185)
+**Sources:** README.md
 
 ## Key Design Decisions
 
@@ -327,38 +327,39 @@ Rust handles computationally intensive training with optimal performance and mem
 
 ### Custom Binary Format
 
-The binary model format (inspired by mlp.c) enables efficient serialization and cross-language model loading without external dependencies like ONNX or Protocol Buffers. See [Binary Model Format](#5.3) for specification details.
+The binary model format (inspired by mlp.c) enables efficient serialization and cross-language model loading without external dependencies like ONNX or Protocol Buffers. See [Binary Model Format](5c%20Binary-Model-Format.md) for specification details.
 
-For architectural deep dives, see [Architecture & Design](#5).
+For architectural deep dives, see [Architecture & Design](5%20Architecture-&-Design.md).
 
-**Sources:** [README.md L1-L191](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/README.md#L1-L191)
+**Sources:** README.md
 
-Refresh this wiki
 
-Last indexed: 5 January 2026 ([0e978f](https://github.com/ThalesMMS/Rust-Neural-Networks/commit/0e978f90))
+
+)
 
 ### On this page
 
-* [Overview](#1-overview)
-* [Purpose and Scope](#1-purpose-and-scope)
-* [Repository Contents](#1-repository-contents)
-* [Rust Source Files](#1-rust-source-files)
-* [Python Utilities](#1-python-utilities)
-* [Data and Outputs](#1-data-and-outputs)
-* [Model Architectures](#1-model-architectures)
-* [Performance Benchmarks](#1-performance-benchmarks)
-* [System Architecture](#1-system-architecture)
-* [Training Pipeline](#1-training-pipeline)
-* [Technology Stack](#1-technology-stack)
-* [Rust (Training)](#1-rust-training)
-* [Python (Utilities)](#1-python-utilities-1)
-* [Data Format](#1-data-format)
-* [Usage Overview](#1-usage-overview)
-* [Building and Running Rust Binaries](#1-building-and-running-rust-binaries)
-* [Python Utilities](#1-python-utilities-2)
-* [Key Design Decisions](#1-key-design-decisions)
-* [BLAS Acceleration vs. Manual Loops](#1-blas-acceleration-vs-manual-loops)
-* [Language Separation](#1-language-separation)
-* [Custom Binary Format](#1-custom-binary-format)
+- [Overview](#overview)
+  - [Purpose and Scope](#purpose-and-scope)
+  - [Repository Contents](#repository-contents)
+    - [Rust Source Files](#rust-source-files)
+    - [Python Utilities](#python-utilities)
+    - [Data and Outputs](#data-and-outputs)
+  - [Model Architectures](#model-architectures)
+  - [Performance Benchmarks](#performance-benchmarks)
+  - [System Architecture](#system-architecture)
+  - [Training Pipeline](#training-pipeline)
+  - [Technology Stack](#technology-stack)
+    - [Rust (Training)](#rust-training)
+    - [Python (Utilities)](#python-utilities-1)
+    - [Data Format](#data-format)
+  - [Usage Overview](#usage-overview)
+    - [Building and Running Rust Binaries](#building-and-running-rust-binaries)
+    - [Python Utilities](#python-utilities-2)
+  - [Key Design Decisions](#key-design-decisions)
+    - [BLAS Acceleration vs. Manual Loops](#blas-acceleration-vs-manual-loops)
+    - [Language Separation](#language-separation)
+    - [Custom Binary Format](#custom-binary-format)
+    - [On this page](#on-this-page)
 
 Ask Devin about Rust-Neural-Networks
