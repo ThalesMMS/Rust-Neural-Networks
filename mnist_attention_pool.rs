@@ -42,7 +42,7 @@ const FF_DIM: usize = 128;
 
 // Training hyperparameters.
 const LEARNING_RATE: f32 = 0.01;
-const EPOCHS: usize = 5;
+const EPOCHS: usize = 8;  // Increased from 5 to push accuracy from 83.45% to >85%
 const BATCH_SIZE: usize = 32;
 
 // Tiny xorshift RNG for reproducible init without external crates.
