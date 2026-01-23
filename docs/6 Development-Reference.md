@@ -132,7 +132,7 @@ The project uses a minimal dependency footprint, with BLAS libraries required on
 ```mermaid
 flowchart TD
 
-PROJ["netural-network-cpp (package)"]
+PROJ["rust_neural_networks (package)"]
 BLAS_SRC["blas-src v0.14.0 features: accelerate"]
 CBLAS["cblas v0.5.0"]
 ACCEL_SRC["accelerate-src v0.3.2 (macOS only)"]
@@ -429,7 +429,7 @@ Package metadata defined in [Cargo.toml L1-L4](https://github.com/ThalesMMS/Rust
 
 | Field | Value | Notes |
 | --- | --- | --- |
-| `name` | `netural-network-cpp` | Package identifier (typo: should be "neural") |
+| `name` | `rust_neural_networks` | Package identifier (typo: should be "neural") |
 | `version` | `0.1.0` | Initial development version |
 | `edition` | `2021` | Rust edition (enables 2021 language features) |
 

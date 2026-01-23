@@ -442,7 +442,7 @@ cargo build --release
 **Expected output:**
 
 ```
-Compiling netural-network-cpp v0.1.0
+Compiling rust_neural_networks v0.1.0
     Finished release [optimized] target(s) in X.XXs
 ```
 
