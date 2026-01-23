@@ -23,6 +23,9 @@ path = "mnist_cnn.rs"
 name = "mnist_attention_pool"
 path = "mnist_attention_pool.rs"
 
+[dev-dependencies]
+approx = "0.5"
+
 [profile.release]
 lto = true
 codegen-units = 1
