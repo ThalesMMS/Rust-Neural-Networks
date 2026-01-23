@@ -510,9 +510,11 @@ fn init_model_with_pos_encoding(rng: &mut SimpleRng, pos_type: PosEncodingType) 
     }
 }
 
-// Backward compatibility wrapper (uses original small random).
+// Default initialization with sinusoidal positional encoding.
+// Based on investigation findings: sinusoidal encoding achieves 83.45% accuracy
+// vs. 44.89% with small random initialization [-0.1, 0.1].
 fn init_model(rng: &mut SimpleRng) -> AttnModel {
-    init_model_with_pos_encoding(rng, PosEncodingType::SmallRandom)
+    init_model_with_pos_encoding(rng, PosEncodingType::Sinusoidal)
 }
 
 // Helper function to compute statistics for logging.
@@ -1331,7 +1333,17 @@ fn train_model_with_lr(
 }
 
 fn main() {
-    println!("Loading MNIST...");
+    let program_start = Instant::now();
+
+    println!("=== MNIST Attention Model (Patch-based Transformer) ===");
+    println!("Configuration:");
+    println!("  Model: D_MODEL={}, FF_DIM={}", D_MODEL, FF_DIM);
+    println!("  Patches: {}x{} grid ({} tokens)", GRID, GRID, SEQ_LEN);
+    println!("  Positional encoding: Sinusoidal (Transformer-style)");
+    println!("  Training: {} epochs, batch size {}, LR={}", EPOCHS, BATCH_SIZE, LEARNING_RATE);
+    println!();
+
+    println!("Loading MNIST data...");
     let train_images = read_mnist_images("./data/train-images.idx3-ubyte", TRAIN_SAMPLES);
     let train_labels = read_mnist_labels("./data/train-labels.idx1-ubyte", TRAIN_SAMPLES);
     let test_images = read_mnist_images("./data/t10k-images.idx3-ubyte", TEST_SAMPLES);
@@ -1339,142 +1351,93 @@ fn main() {
 
     let train_n = train_labels.len();
     let test_n = test_labels.len();
-    println!("Train: {} | Test: {}", train_n, test_n);
+    println!("Train samples: {} | Test samples: {}", train_n, test_n);
+    println!();
 
     // Create logs directory.
     fs::create_dir_all("./logs").ok();
 
-    // Positional encoding experiment.
-    let pos_strategies = vec![
-        ("SmallRandom [-0.1, 0.1] (original)", PosEncodingType::SmallRandom),
-        ("LargerRandom [-0.5, 0.5]", PosEncodingType::LargerRandom),
-        ("Sinusoidal (Transformer-style)", PosEncodingType::Sinusoidal),
-        ("Zero (learn from scratch)", PosEncodingType::Zero),
-        ("Xavier initialization", PosEncodingType::Xavier),
-    ];
-
-    let pos_file = File::create("./logs/attention_pos_encoding.txt").unwrap_or_else(|_| {
-        eprintln!("Could not create logs/attention_pos_encoding.txt");
+    // Training log file.
+    let log_file = File::create("./logs/training_loss_attention.txt").unwrap_or_else(|_| {
+        eprintln!("Could not create logs/training_loss_attention.txt");
         process::exit(1);
     });
-    let mut pos_log = BufWriter::new(pos_file);
+    let mut log = BufWriter::new(log_file);
 
-    writeln!(pos_log, "=== POSITIONAL ENCODING EXPERIMENT ===").ok();
-    writeln!(pos_log, "").ok();
-    writeln!(pos_log, "Hypothesis: Positional embeddings are poorly initialized or scaled").ok();
-    writeln!(pos_log, "").ok();
-    writeln!(pos_log, "Model configuration:").ok();
-    writeln!(pos_log, "  D_MODEL: {}", D_MODEL).ok();
-    writeln!(pos_log, "  FF_DIM: {}", FF_DIM).ok();
-    writeln!(pos_log, "  PATCH: {}", PATCH).ok();
-    writeln!(pos_log, "  SEQ_LEN: {}", SEQ_LEN).ok();
-    writeln!(pos_log, "  EPOCHS: {}", EPOCHS).ok();
-    writeln!(pos_log, "  BATCH_SIZE: {}", BATCH_SIZE).ok();
-    writeln!(pos_log, "  LEARNING_RATE: {}", LEARNING_RATE).ok();
-    writeln!(pos_log, "").ok();
-    writeln!(pos_log, "Testing {} positional encoding strategies:", pos_strategies.len()).ok();
-    for (name, _) in &pos_strategies {
-        writeln!(pos_log, "  - {}", name).ok();
-    }
-    writeln!(pos_log, "").ok();
-    writeln!(pos_log, "===============================================").ok();
-    writeln!(pos_log, "").ok();
+    println!("Initializing model with sinusoidal positional encoding...");
+    let mut rng = SimpleRng::new(42);
+    let mut model = init_model(&mut rng);
 
-    println!("\nStarting positional encoding experiment...");
-    println!("Model: D={} ff={} patch={} seq={} epochs={} batch={} lr={}",
-        D_MODEL, FF_DIM, PATCH, SEQ_LEN, EPOCHS, BATCH_SIZE, LEARNING_RATE);
-    println!("Testing {} positional encoding strategies\n", pos_strategies.len());
+    // Shuffled indices for mini-batch sampling.
+    let mut indices: Vec<usize> = (0..train_n).collect();
 
-    // Compute and log initial positional embedding statistics for analysis.
-    let mut rng_stats = SimpleRng::new(42);
-    writeln!(pos_log, "=== POSITIONAL EMBEDDING STATISTICS ===").ok();
-    writeln!(pos_log, "").ok();
-    for (name, pos_type) in &pos_strategies {
-        let model = init_model_with_pos_encoding(&mut rng_stats, *pos_type);
-        let (min_val, max_val, mean_val) = compute_stats(&model.pos);
-        writeln!(pos_log, "{}", name).ok();
-        writeln!(pos_log, "  Min: {:.6}", min_val).ok();
-        writeln!(pos_log, "  Max: {:.6}", max_val).ok();
-        writeln!(pos_log, "  Mean: {:.6}", mean_val).ok();
-        writeln!(pos_log, "").ok();
-    }
-    writeln!(pos_log, "===============================================").ok();
-    writeln!(pos_log, "").ok();
+    // Training buffers (reused each batch to avoid allocations).
+    let mut batch_inputs = vec![0.0f32; BATCH_SIZE * NUM_INPUTS];
+    let mut batch_labels = vec![0u8; BATCH_SIZE];
+    let mut buf = BatchBuffers::new();
+    let mut grads = Grads::new();
 
-    for (name, pos_type) in &pos_strategies {
-        println!("Testing: {}...", name);
-        writeln!(pos_log, "--- Positional Encoding: {} ---", name).ok();
-        writeln!(pos_log, "").ok();
+    println!("Training...");
+    let train_start = Instant::now();
 
-        let start_time = Instant::now();
+    for epoch in 0..EPOCHS {
+        let epoch_start = Instant::now();
+        rng.shuffle_usize(&mut indices);
 
-        // Use fixed seed for reproducibility across experiments.
-        let mut rng = SimpleRng::new(42);
+        let mut total_loss = 0.0f32;
 
-        let (final_acc, epoch_losses, epoch_accs) = train_model_with_config(
-            &train_images,
-            &train_labels,
-            &test_images,
-            &test_labels,
-            LEARNING_RATE,
-            *pos_type,
-            &mut rng,
-        );
+        for batch_start in (0..train_n).step_by(BATCH_SIZE) {
+            let batch_count = (train_n - batch_start).min(BATCH_SIZE);
 
-        let elapsed = start_time.elapsed().as_secs_f32();
+            gather_batch(
+                &train_images,
+                &train_labels,
+                &indices,
+                batch_start,
+                batch_count,
+                &mut batch_inputs,
+                &mut batch_labels,
+            );
 
-        writeln!(pos_log, "Training progress:").ok();
-        writeln!(pos_log, "  Epoch | Loss     | Test Acc").ok();
-        writeln!(pos_log, "  ------|----------|----------").ok();
-        for (i, (loss, acc)) in epoch_losses.iter().zip(epoch_accs.iter()).enumerate() {
-            writeln!(pos_log, "  {:5} | {:.6} | {:6.2}%", i + 1, loss, acc).ok();
+            // Forward pass + loss.
+            let batch_loss = forward_batch(
+                &model,
+                &batch_inputs,
+                &batch_labels,
+                batch_count,
+                &mut buf,
+            );
+            total_loss += batch_loss;
+
+            // Backward pass + SGD update.
+            backward_batch(&model, batch_count, &mut buf, &mut grads);
+            apply_sgd(&mut model, &grads, LEARNING_RATE);
         }
-        writeln!(pos_log, "").ok();
 
-        writeln!(pos_log, "Results:").ok();
-        writeln!(pos_log, "  Final accuracy: {:.2}%", final_acc).ok();
-        writeln!(pos_log, "  Initial loss: {:.6}", epoch_losses[0]).ok();
-        writeln!(pos_log, "  Final loss: {:.6}", epoch_losses[epoch_losses.len() - 1]).ok();
-        writeln!(pos_log, "  Loss improvement: {:.6}", epoch_losses[0] - epoch_losses[epoch_losses.len() - 1]).ok();
-        writeln!(pos_log, "  Training time: {:.2}s", elapsed).ok();
+        let avg_loss = total_loss / train_n as f32;
+        let acc = test_accuracy(&model, &test_images, &test_labels);
+        let epoch_time = epoch_start.elapsed().as_secs_f32();
 
-        // Calculate loss stability (variance of losses).
-        let mean_loss: f32 = epoch_losses.iter().sum::<f32>() / epoch_losses.len() as f32;
-        let variance: f32 = epoch_losses.iter().map(|&x| (x - mean_loss).powi(2)).sum::<f32>() / epoch_losses.len() as f32;
-        let stddev = variance.sqrt();
-        writeln!(pos_log, "  Loss std dev: {:.6} (lower = more stable)", stddev).ok();
+        println!("  Epoch {:2}: loss={:.6} | test_acc={:5.2}% | time={:.2}s",
+            epoch + 1, avg_loss, acc, epoch_time);
 
-        writeln!(pos_log, "").ok();
-        writeln!(pos_log, "===============================================").ok();
-        writeln!(pos_log, "").ok();
-
-        println!("  Final accuracy: {:.2}%", final_acc);
-        println!("  Loss: {:.6} -> {:.6}", epoch_losses[0], epoch_losses[epoch_losses.len() - 1]);
-        println!("  Training time: {:.2}s\n", elapsed);
-
-        pos_log.flush().ok();
+        // Log to file: epoch,loss,accuracy,time
+        writeln!(log, "{},{:.6},{:.2},{:.2}", epoch + 1, avg_loss, acc, epoch_time).ok();
     }
 
-    writeln!(pos_log, "=== SUMMARY ===").ok();
-    writeln!(pos_log, "").ok();
-    writeln!(pos_log, "Compare the results above to determine:").ok();
-    writeln!(pos_log, "1. Which positional encoding achieves the highest test accuracy?").ok();
-    writeln!(pos_log, "2. Which positional encoding shows the most stable training (lowest loss std dev)?").ok();
-    writeln!(pos_log, "3. Which positional encoding shows the best loss improvement?").ok();
-    writeln!(pos_log, "").ok();
-    writeln!(pos_log, "Key questions:").ok();
-    writeln!(pos_log, "- Does sinusoidal encoding (like original Transformer) improve accuracy?").ok();
-    writeln!(pos_log, "- Does larger initialization scale help the model learn better?").ok();
-    writeln!(pos_log, "- Can the model learn positional information from zero initialization?").ok();
-    writeln!(pos_log, "- Does Xavier initialization provide better starting point?").ok();
-    writeln!(pos_log, "").ok();
-    writeln!(pos_log, "If any strategy significantly outperforms the original SmallRandom [-0.1, 0.1],").ok();
-    writeln!(pos_log, "then the hypothesis is confirmed: positional embeddings were poorly initialized/scaled.").ok();
-    writeln!(pos_log, "").ok();
-    writeln!(pos_log, "=== END EXPERIMENT ===").ok();
+    let train_time = train_start.elapsed().as_secs_f32();
+    println!();
+    println!("Training complete in {:.2}s", train_time);
 
-    pos_log.flush().ok();
+    // Final evaluation.
+    println!("Evaluating final accuracy...");
+    let final_acc = test_accuracy(&model, &test_images, &test_labels);
+    println!();
+    println!("=== Final Results ===");
+    println!("Test Accuracy: {:.2}%", final_acc);
 
-    println!("\nPositional encoding experiment complete!");
-    println!("Results saved to: ./logs/attention_pos_encoding.txt");
+    let total_time = program_start.elapsed().as_secs_f32();
+    println!("Total time: {:.2}s", total_time);
+    println!();
+    println!("Training log saved to: ./logs/training_loss_attention.txt");
 }
