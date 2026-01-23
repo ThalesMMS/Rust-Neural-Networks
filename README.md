@@ -72,18 +72,20 @@ Default training parameters:
 Architecture:
 
 - 4x4 patches => 49 tokens
-- Token projection + position embeddings + ReLU
+- Token projection + sinusoidal position embeddings + ReLU
 - Self-attention (1 head, Q/K/V, 49x49 scores)
 - Feed-forward MLP per token (D -> FF -> D)
 - Mean-pool tokens -> 10 classes
 
 Default training parameters:
 
-- D model: 16
-- FF dim: 32
+- D model: 64
+- FF dim: 128
 - Learning rate: 0.01
 - Batch size: 32
-- Epochs: 5
+- Epochs: 8
+
+Expected accuracy: ~88-91% depending on random seed initialization.
 
 ## XOR model
 
@@ -143,7 +145,7 @@ All runs used the default settings unless noted. Training time is reported as to
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | MNIST MLP | Rust | `cargo run --release --bin mnist_mlp` | 10 | 64 | 3.33 | 94.17 | BLAS (Accelerate) |
 | MNIST CNN | Rust | `cargo run --release --bin mnist_cnn` | 3 | 32 | 11.24 | 91.93 | Conv8/3x3 + MaxPool |
-| MNIST Attention | Rust | `cargo run --release --bin mnist_attention_pool` | 5 | 32 | 33.88 | 38.55 | D=16, FF=32 |
+| MNIST Attention | Rust | `cargo run --release --bin mnist_attention_pool` | 8 | 32 | 960 | 91.08 | D=64, FF=128, sinusoidal pos encoding |
 | XOR MLP | Rust | `cargo run --release --bin mlp_simple` | 1,000,000 | - | 0.74 | 100.00 | Threshold 0.5 |
 
 Note: results vary by hardware and build flags.
