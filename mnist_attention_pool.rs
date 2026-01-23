@@ -462,6 +462,27 @@ fn init_model(rng: &mut SimpleRng) -> AttnModel {
     }
 }
 
+// Helper function to compute statistics for logging.
+fn compute_stats(data: &[f32]) -> (f32, f32, f32) {
+    if data.is_empty() {
+        return (0.0, 0.0, 0.0);
+    }
+    let mut min_val = data[0];
+    let mut max_val = data[0];
+    let mut sum = 0.0f32;
+    for &v in data.iter() {
+        if v < min_val {
+            min_val = v;
+        }
+        if v > max_val {
+            max_val = v;
+        }
+        sum += v;
+    }
+    let mean = sum / data.len() as f32;
+    (min_val, max_val, mean)
+}
+
 // Extract 4x4 patches from a contiguous batch of images.
 // patches shape: [batch_count * SEQ_LEN * PATCH_DIM]
 fn extract_patches(batch_inputs: &[f32], batch_count: usize, patches: &mut [f32]) {
@@ -1185,6 +1206,13 @@ fn main() {
     });
     let mut log = BufWriter::new(log_file);
 
+    // Debug log file for attention weights, gradients, and activations.
+    let debug_file = File::create("./logs/attention_debug.txt").unwrap_or_else(|_| {
+        eprintln!("Could not create logs/attention_debug.txt");
+        process::exit(1);
+    });
+    let mut debug_log = BufWriter::new(debug_file);
+
     let mut rng = SimpleRng::new(1);
     rng.reseed_from_time();
 
@@ -1209,6 +1237,7 @@ fn main() {
         rng.shuffle_usize(&mut indices);
 
         let mut total_loss = 0.0f32;
+        let mut batch_idx = 0usize;
 
         for batch_start in (0..train_n).step_by(BATCH_SIZE) {
             let batch_count = (train_n - batch_start).min(BATCH_SIZE);
@@ -1233,9 +1262,167 @@ fn main() {
             );
             total_loss += batch_loss;
 
+            // Debug logging for first batch of first epoch.
+            if epoch == 0 && batch_idx == 0 {
+                writeln!(debug_log, "=== DEBUG LOG: Epoch 1, Batch 1 ===").ok();
+                writeln!(debug_log, "").ok();
+
+                // Log token embeddings statistics.
+                let tok_len = batch_count * SEQ_LEN * D_MODEL;
+                let (tok_min, tok_max, tok_mean) = compute_stats(&buf.tok[..tok_len]);
+                writeln!(
+                    debug_log,
+                    "Token Embeddings (post-ReLU): min={:.6}, max={:.6}, mean={:.6}",
+                    tok_min, tok_max, tok_mean
+                )
+                .ok();
+
+                // Log Q, K, V statistics.
+                let (q_min, q_max, q_mean) = compute_stats(&buf.q[..tok_len]);
+                writeln!(
+                    debug_log,
+                    "Query (Q): min={:.6}, max={:.6}, mean={:.6}",
+                    q_min, q_max, q_mean
+                )
+                .ok();
+
+                let (k_min, k_max, k_mean) = compute_stats(&buf.k[..tok_len]);
+                writeln!(
+                    debug_log,
+                    "Key (K): min={:.6}, max={:.6}, mean={:.6}",
+                    k_min, k_max, k_mean
+                )
+                .ok();
+
+                let (v_min, v_max, v_mean) = compute_stats(&buf.v[..tok_len]);
+                writeln!(
+                    debug_log,
+                    "Value (V): min={:.6}, max={:.6}, mean={:.6}",
+                    v_min, v_max, v_mean
+                )
+                .ok();
+
+                // Log attention weights statistics (first sample, first row).
+                let attn_len = batch_count * SEQ_LEN * SEQ_LEN;
+                let (attn_min, attn_max, attn_mean) = compute_stats(&buf.attn[..attn_len]);
+                writeln!(
+                    debug_log,
+                    "Attention Weights: min={:.6}, max={:.6}, mean={:.6}",
+                    attn_min, attn_max, attn_mean
+                )
+                .ok();
+
+                // Log first row of attention matrix for sample 0.
+                writeln!(debug_log, "Attention Matrix (sample 0, token 0, first 10 values):").ok();
+                write!(debug_log, "  ").ok();
+                for j in 0..10.min(SEQ_LEN) {
+                    write!(debug_log, "{:.4} ", buf.attn[j]).ok();
+                }
+                writeln!(debug_log, "").ok();
+
+                // Log attention output statistics.
+                let (attn_out_min, attn_out_max, attn_out_mean) = compute_stats(&buf.attn_out[..tok_len]);
+                writeln!(
+                    debug_log,
+                    "Attention Output: min={:.6}, max={:.6}, mean={:.6}",
+                    attn_out_min, attn_out_max, attn_out_mean
+                )
+                .ok();
+
+                // Log FFN intermediate statistics.
+                let ffn1_len = batch_count * SEQ_LEN * FF_DIM;
+                let (ffn1_min, ffn1_max, ffn1_mean) = compute_stats(&buf.ffn1[..ffn1_len]);
+                writeln!(
+                    debug_log,
+                    "FFN Layer 1 (post-ReLU): min={:.6}, max={:.6}, mean={:.6}",
+                    ffn1_min, ffn1_max, ffn1_mean
+                )
+                .ok();
+
+                let (ffn2_min, ffn2_max, ffn2_mean) = compute_stats(&buf.ffn2[..tok_len]);
+                writeln!(
+                    debug_log,
+                    "FFN Layer 2: min={:.6}, max={:.6}, mean={:.6}",
+                    ffn2_min, ffn2_max, ffn2_mean
+                )
+                .ok();
+
+                writeln!(debug_log, "").ok();
+                writeln!(debug_log, "Batch Loss: {:.6}", batch_loss).ok();
+            }
+
             // Backward pass + SGD update.
             backward_batch(&model, batch_count, &mut buf, &mut grads);
+
+            // Debug logging for gradients on first batch of first epoch.
+            if epoch == 0 && batch_idx == 0 {
+                writeln!(debug_log, "").ok();
+                writeln!(debug_log, "=== GRADIENTS ===").ok();
+
+                // Log gradient statistics for key parameters.
+                let (dq_min, dq_max, dq_mean) = compute_stats(&grads.w_q);
+                writeln!(
+                    debug_log,
+                    "Grad w_q: min={:.6}, max={:.6}, mean={:.6}",
+                    dq_min, dq_max, dq_mean
+                )
+                .ok();
+
+                let (dk_min, dk_max, dk_mean) = compute_stats(&grads.w_k);
+                writeln!(
+                    debug_log,
+                    "Grad w_k: min={:.6}, max={:.6}, mean={:.6}",
+                    dk_min, dk_max, dk_mean
+                )
+                .ok();
+
+                let (dv_min, dv_max, dv_mean) = compute_stats(&grads.w_v);
+                writeln!(
+                    debug_log,
+                    "Grad w_v: min={:.6}, max={:.6}, mean={:.6}",
+                    dv_min, dv_max, dv_mean
+                )
+                .ok();
+
+                let (dff1_min, dff1_max, dff1_mean) = compute_stats(&grads.w_ff1);
+                writeln!(
+                    debug_log,
+                    "Grad w_ff1: min={:.6}, max={:.6}, mean={:.6}",
+                    dff1_min, dff1_max, dff1_mean
+                )
+                .ok();
+
+                let (dff2_min, dff2_max, dff2_mean) = compute_stats(&grads.w_ff2);
+                writeln!(
+                    debug_log,
+                    "Grad w_ff2: min={:.6}, max={:.6}, mean={:.6}",
+                    dff2_min, dff2_max, dff2_mean
+                )
+                .ok();
+
+                let (dcls_min, dcls_max, dcls_mean) = compute_stats(&grads.w_cls);
+                writeln!(
+                    debug_log,
+                    "Grad w_cls: min={:.6}, max={:.6}, mean={:.6}",
+                    dcls_min, dcls_max, dcls_mean
+                )
+                .ok();
+
+                let (dpos_min, dpos_max, dpos_mean) = compute_stats(&grads.pos);
+                writeln!(
+                    debug_log,
+                    "Grad pos: min={:.6}, max={:.6}, mean={:.6}",
+                    dpos_min, dpos_max, dpos_mean
+                )
+                .ok();
+
+                writeln!(debug_log, "").ok();
+                writeln!(debug_log, "=== END DEBUG LOG ===").ok();
+                debug_log.flush().ok();
+            }
+
             apply_sgd(&mut model, &grads, LEARNING_RATE);
+            batch_idx += 1;
         }
 
         let secs = start_time.elapsed().as_secs_f32();
