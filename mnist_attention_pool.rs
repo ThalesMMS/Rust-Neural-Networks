@@ -35,10 +35,10 @@ const GRID: usize = IMG_H / PATCH; // 7
 const SEQ_LEN: usize = GRID * GRID; // 49
 const PATCH_DIM: usize = PATCH * PATCH; // 16
 
-// Model width. Keep small for fast CPU training.
-const D_MODEL: usize = 16;
-// Feed-forward hidden size.
-const FF_DIM: usize = 32;
+// Model width. Testing larger capacity (was 16).
+const D_MODEL: usize = 64;
+// Feed-forward hidden size. Testing larger capacity (was 32).
+const FF_DIM: usize = 128;
 
 // Training hyperparameters.
 const LEARNING_RATE: f32 = 0.01;
