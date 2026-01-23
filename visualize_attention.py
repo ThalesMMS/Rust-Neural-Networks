@@ -17,15 +17,17 @@ OUTPUT_FILE = "attention_visualization.png"
 
 def parse_attention_weights(filepath):
     """
-    Parse attention weights from log file.
-
-    Expected format:
+    Load attention weight matrices from a text log file into a mapping of sample IDs to NumPy arrays.
+    
+    The file is expected to contain blocks per sample beginning with a header line of the form:
     # Sample: <sample_id>
-    <attention_matrix_row_0>
-    <attention_matrix_row_1>
-    ...
-
-    Returns: dict mapping sample_id -> attention_matrix (numpy array)
+    followed by rows of numeric values for the attention matrix. Rows may be space- or comma-separated. Blank lines are ignored.
+    
+    Parameters:
+        filepath (str): Path to the attention weights log file.
+    
+    Returns:
+        dict[int, numpy.ndarray] | None: Mapping from sample_id to its attention matrix as a NumPy array, or `None` if the file does not exist or parsing fails.
     """
     if not os.path.exists(filepath):
         print(f"Warning: File not found: {filepath}")
@@ -71,8 +73,15 @@ def parse_attention_weights(filepath):
 
 def generate_sample_attention_weights():
     """
-    Generate sample attention weights for visualization demonstration.
-    Creates patterns showing spatial locality and diagonal attention.
+    Generate three synthetic attention weight matrices for a 7x7 token grid (49 tokens) for demonstration and visualization.
+    
+    Each returned matrix is row-normalized so each query's attention distribution sums to 1. The produced patterns are:
+    - 0: Diagonal with local neighborhood attention (strong self-attention plus nearby tokens).
+    - 1: Center-focused (tokens strongly attend to the central patch, with some self-attention).
+    - 2: Vertical stripe (tokens attend primarily to other tokens in the same column).
+    
+    Returns:
+        dict[int, numpy.ndarray]: Mapping from sample id (0, 1, 2) to a (49, 49) attention matrix with rows summing to 1.
     """
     n_tokens = 49  # 7x7 patches for MNIST
 
@@ -125,11 +134,14 @@ def generate_sample_attention_weights():
 
 def visualize_attention_patterns(attention_samples, output_file=OUTPUT_FILE):
     """
-    Visualize attention patterns as heatmaps.
-
-    Args:
-        attention_samples: dict mapping sample_id -> attention_matrix
-        output_file: path to save the visualization
+    Create and save a grid of heatmaps showing attention weight matrices for up to six samples.
+    
+    Parameters:
+        attention_samples (dict[int, numpy.ndarray]): Mapping from sample ID to a 2D attention matrix (rows = query tokens, columns = key tokens).
+        output_file (str): File path where the generated figure will be saved.
+    
+    Returns:
+        matplotlib.figure.Figure: The Matplotlib Figure containing the plotted heatmaps.
     """
     n_samples = min(len(attention_samples), 6)  # Show up to 6 samples
     sample_ids = sorted(attention_samples.keys())[:n_samples]
@@ -208,12 +220,14 @@ def visualize_attention_patterns(attention_samples, output_file=OUTPUT_FILE):
 
 def visualize_single_token_attention(attention_samples, token_idx=0, output_file="token_attention.png"):
     """
-    Visualize attention from a single token as a 2D spatial map (for 7x7 patches).
-
-    Args:
-        attention_samples: dict mapping sample_id -> attention_matrix
-        token_idx: which token's attention to visualize
-        output_file: path to save the visualization
+    Visualize the attention distribution from a single source token as a 2D spatial heatmap.
+    
+    Displays up to four samples in a row, reshaping the selected token's attention row into a square grid when possible (e.g., 7x7); if the token count is not a perfect square, the attention is shown as a 1xN row.
+    
+    Parameters:
+        attention_samples (dict[int, numpy.ndarray]): Mapping from sample ID to attention matrix (queries x keys).
+        token_idx (int): Index of the source/query token whose attention distribution will be visualized.
+        output_file (str): File path to save the generated visualization image (PNG).
     """
     n_samples = min(len(attention_samples), 4)
     sample_ids = sorted(attention_samples.keys())[:n_samples]
@@ -261,7 +275,11 @@ def visualize_single_token_attention(attention_samples, token_idx=0, output_file
     print(f"\n✓ Token attention visualization saved to: {output_file}")
 
 def main():
-    """Main visualization workflow"""
+    """
+    Orchestrates loading (or generation) of attention weights and produces visualization files.
+    
+    Attempts to load attention weight matrices from the configured log file; if none are available, generates example attention patterns and saves them to the log. Produces heatmap visualizations for multiple samples and a spatial attention map for token 0, saving output images to disk. Prints concise progress and instructions for exporting real model attention weights.
+    """
     print("MNIST Attention Weight Visualizer")
     print("="*60)
 
