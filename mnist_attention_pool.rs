@@ -439,6 +439,23 @@ struct BatchBuffers {
 }
 
 impl BatchBuffers {
+    /// Creates a new BatchBuffers with all forward and backward buffers allocated and initialized to `0.0`.
+    ///
+    /// The buffers are sized according to the module constants (e.g., `BATCH_SIZE`, `SEQ_LEN`, `PATCH_DIM`,
+    /// `D_MODEL`, `FF_DIM`, `NUM_CLASSES`) and include per-batch tensors for patches, token embeddings,
+    /// attention (scores and outputs), feed-forward intermediates, pooled representations, logits/probabilities,
+    /// and corresponding backward gradients.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let bufs = BatchBuffers::new();
+    /// // forward buffers
+    /// assert_eq!(bufs.patches.len(), BATCH_SIZE * SEQ_LEN * PATCH_DIM);
+    /// assert_eq!(bufs.pooled.len(), BATCH_SIZE * D_MODEL);
+    /// // backward buffers
+    /// assert_eq!(bufs.dlogits.len(), BATCH_SIZE * NUM_CLASSES);
+    /// ```
     fn new() -> Self {
         Self {
             patches: vec![0.0; BATCH_SIZE * SEQ_LEN * PATCH_DIM],
@@ -501,6 +518,31 @@ enum PosEncodingType {
     Xavier,         // Xavier initialization
 }
 
+/// Initializes an AttnModel with all learnable parameters and positional embeddings
+/// according to the specified positional encoding strategy.
+///
+/// The function sets up patch projection, positional embeddings (per `pos_type`),
+/// attention projection matrices (Q/K/V), feed-forward network weights, and the
+/// classifier head. Most weight matrices use Xavier-style uniform initialization;
+/// positional embeddings are initialized based on `pos_type` (sinusoidal, random
+/// ranges, zero, or Xavier).
+///
+/// # Parameters
+///
+/// - `pos_type`: selects the positional embedding initialization strategy.
+///
+/// # Returns
+///
+/// An `AttnModel` whose parameters are initialized and ready for training.
+///
+/// # Examples
+///
+/// ```
+/// // create a seeded RNG (seed value shown for reproducibility)
+/// let mut rng = SimpleRng::new(123);
+/// let model = init_model_with_pos_encoding(&mut rng, PosEncodingType::Sinusoidal);
+/// assert_eq!(model.w_q.len(), D_MODEL * D_MODEL);
+/// ```
 fn init_model_with_pos_encoding(rng: &mut SimpleRng, pos_type: PosEncodingType) -> AttnModel {
     // Xavier init for patch projection.
     let limit_patch = (6.0f32 / (PATCH_DIM as f32 + D_MODEL as f32)).sqrt();
@@ -650,11 +692,42 @@ fn init_model_with_pos_encoding(rng: &mut SimpleRng, pos_type: PosEncodingType) 
 // The sinusoidal encoding provides structured spatial information that allows
 // the attention mechanism to learn meaningful relationships between patches
 // based on their 2D grid positions.
+/// Initializes an attention model using Transformer-style sinusoidal positional encodings.
+///
+/// The returned model has positional embeddings set to the sinusoidal scheme and other
+/// parameters initialized according to the module's standard defaults (e.g., Xavier-like
+/// weight initializations).
+///
+/// # Examples
+///
+/// ```ignore
+/// let mut rng = SimpleRng::new(); // create RNG (see SimpleRng API)
+/// let model = init_model(&mut rng);
+/// ```
 fn init_model(rng: &mut SimpleRng) -> AttnModel {
     init_model_with_pos_encoding(rng, PosEncodingType::Sinusoidal)
 }
 
 // Helper function to compute statistics for logging.
+/// Compute the minimum, maximum, and arithmetic mean of a slice of f32 values.
+///
+/// The function returns a tuple `(min, max, mean)` representing the smallest value,
+/// largest value, and the arithmetic mean of the input slice. If `data` is empty,
+/// the function returns `(0.0, 0.0, 0.0)`.
+///
+/// # Examples
+///
+/// ```
+/// let vals = [1.0f32, -2.5, 3.25, 0.0];
+/// let (min, max, mean) = compute_stats(&vals);
+/// assert_eq!(min, -2.5);
+/// assert_eq!(max, 3.25);
+/// // mean = (1.0 - 2.5 + 3.25 + 0.0) / 4 = 0.4375
+/// assert!((mean - 0.4375).abs() < 1e-6);
+///
+/// let empty: [f32; 0] = [];
+/// assert_eq!(compute_stats(&empty), (0.0, 0.0, 0.0));
+/// ```
 fn compute_stats(data: &[f32]) -> (f32, f32, f32) {
     if data.is_empty() {
         return (0.0, 0.0, 0.0);
@@ -677,6 +750,32 @@ fn compute_stats(data: &[f32]) -> (f32, f32, f32) {
 
 // Extract 4x4 patches from a contiguous batch of images.
 // patches shape: [batch_count * SEQ_LEN * PATCH_DIM]
+/// Extracts PATCH x PATCH patches from a batch of flattened images and writes them into a token-major buffer.
+///
+/// The input `batch_inputs` is expected to contain `batch_count` images laid out row-major and flattened
+/// (each image length = NUM_INPUTS, width = IMG_W). The output `patches` buffer is filled so that for each
+/// image `b` and each token index `t` (row-major patch grid: py then px) the corresponding patch occupies
+/// `(b * SEQ_LEN + t) * PATCH_DIM .. (b * SEQ_LEN + t + 1) * PATCH_DIM`. Within each patch the pixels are
+/// stored row-major (dy then dx).
+///
+/// - Does not modify image order or perform any normalization; it only copies pixel values.
+/// - Requires `batch_inputs.len() >= batch_count * NUM_INPUTS` and
+///   `patches.len() >= batch_count * SEQ_LEN * PATCH_DIM`.
+///
+/// # Examples
+///
+/// ```
+/// // Prepare a single image where the top-left pixel is 1.0 and the rest are 0.0.
+/// let batch_count = 1;
+/// let mut batch_inputs = vec![0.0_f32; batch_count * NUM_INPUTS];
+/// batch_inputs[0] = 1.0; // pixel at (0,0)
+///
+/// let mut patches = vec![0.0_f32; batch_count * SEQ_LEN * PATCH_DIM];
+/// extract_patches(&batch_inputs, batch_count, &mut patches);
+///
+/// // The first patch (top-left patch) first element corresponds to image (0,0).
+/// assert_eq!(patches[0], 1.0_f32);
+/// ```
 fn extract_patches(batch_inputs: &[f32], batch_count: usize, patches: &mut [f32]) {
     for b in 0..batch_count {
         let img_base = b * NUM_INPUTS;
@@ -700,6 +799,38 @@ fn extract_patches(batch_inputs: &[f32], batch_count: usize, patches: &mut [f32]
 }
 
 // Forward pass: patch -> token -> self-attention -> FFN -> classifier + loss.
+/// Performs a full forward pass of the attention model for a batch, populating
+/// the provided buffers with intermediate activations, predicted probabilities,
+/// and gradients with respect to the logits for backpropagation.
+///
+/// The function:
+/// - extracts 4×4 patches and projects them to token embeddings (with positional
+///   embeddings and ReLU),
+/// - computes Q/K/V projections and scaled dot-product self-attention,
+/// - applies a position-wise two-layer feed-forward network (with ReLU),
+/// - mean-pools token outputs to an image-level embedding,
+/// - computes classifier logits and softmax probabilities,
+/// - computes the cross-entropy loss (sum over the batch) and fills `buf.dlogits`
+///   with gradients of the loss w.r.t. the logits (already scaled by 1/batch_count).
+///
+/// Parameters:
+/// - `model`: model parameters (read-only).
+/// - `batch_inputs`: flattened input images for the batch (length = batch_count × 784).
+/// - `batch_labels`: ground-truth labels for the batch (length = batch_count).
+/// - `batch_count`: number of samples in this batch (may be ≤ configured batch size for final partial batch).
+/// - `buf`: mutable batch buffers; this function writes all forward activations,
+///   probabilities, and the `dlogits` gradient required by the backward pass.
+///
+/// Returns:
+/// The total cross-entropy loss summed over the batch (i.e., Σ -ln(p_true_class)).
+///
+/// # Examples
+///
+/// ```
+/// // Assume `model`, `inputs`, `labels`, `batch_size`, and `mut buf` are prepared.
+/// let loss = forward_batch(&model, &inputs, &labels, batch_size, &mut buf);
+/// assert!(loss >= 0.0);
+/// ```
 fn forward_batch(
     model: &AttnModel,
     batch_inputs: &[f32],
@@ -1236,6 +1367,22 @@ fn apply_sgd(model: &mut AttnModel, grads: &Grads, lr: f32) {
     }
 }
 
+/// Compute classification accuracy of `model` on the provided images and labels as a percentage.
+///
+/// Processes the dataset in batches and performs a forward pass (no loss/backprop) to obtain
+/// predicted classes, then compares predictions to `labels`.
+///
+/// # Examples
+///
+/// no_run:
+/// ```no_run
+/// let acc = test_accuracy(&model, &images, &labels);
+/// println!("Test accuracy: {:.2}%", acc);
+/// ```
+///
+/// # Returns
+///
+/// Accuracy as a percentage in the range [0.0, 100.0].
 fn test_accuracy(model: &AttnModel, images: &[f32], labels: &[u8]) -> f32 {
     let n = labels.len();
     let mut correct = 0usize;
@@ -1427,6 +1574,40 @@ fn test_accuracy(model: &AttnModel, images: &[f32], labels: &[u8]) -> f32 {
 }
 
 // Train model with specified configuration and return final accuracy and loss progression.
+/// Train the attention-based MNIST model using the given learning rate and positional encoding, returning final test accuracy and per-epoch metrics.
+///
+/// The function performs full training over EPOCHS epochs using mini-batch SGD with BATCH_SIZE, reusing internal buffers to avoid allocations. It initializes the model with the specified positional encoding, shuffles training indices each epoch, runs forward and backward passes for each batch, applies SGD updates, and evaluates accuracy on the test set after each epoch.
+///
+/// # Parameters
+///
+/// - `pos_type` — selects how token positional embeddings are initialized (see `PosEncodingType`).
+///
+/// # Returns
+///
+/// A tuple `(final_accuracy, epoch_losses, epoch_accs)`:
+/// - `final_accuracy`: test set accuracy (percentage) after the final epoch.
+/// - `epoch_losses`: vector of average training losses for each epoch (length EPOCHS).
+/// - `epoch_accs`: vector of test set accuracies (percentage) measured after each epoch (length EPOCHS).
+///
+/// # Examples
+///
+/// ```
+/// // assuming `train_images`, `train_labels`, `test_images`, `test_labels` are loaded slices,
+/// // and `rng` is a mutable SimpleRng:
+/// let lr = 0.01;
+/// let pos_type = PosEncodingType::Sinusoidal;
+/// let (final_acc, epoch_losses, epoch_accs) = train_model_with_config(
+///     &train_images,
+///     &train_labels,
+///     &test_images,
+///     &test_labels,
+///     lr,
+///     pos_type,
+///     &mut rng,
+/// );
+/// assert_eq!(epoch_losses.len(), EPOCHS);
+/// assert_eq!(epoch_accs.len(), EPOCHS);
+/// ```
 fn train_model_with_config(
     train_images: &[f32],
     train_labels: &[u8],
@@ -1497,6 +1678,51 @@ fn train_model_with_config(
 }
 
 // Backward compatibility wrapper for LR experiments.
+/// Trains the attention model with SmallRandom positional embeddings using the specified learning rate.
+
+///
+
+/// # Returns
+
+/// A tuple `(final_test_accuracy, epoch_losses, epoch_accuracies)`:
+
+/// - `final_test_accuracy`: final test set accuracy as a percentage.
+
+/// - `epoch_losses`: vector of average training losses per epoch.
+
+/// - `epoch_accuracies`: vector of test accuracies (percentages) per epoch.
+
+///
+
+/// # Examples
+
+///
+
+/// ```
+
+/// // Prepare `train_images`, `train_labels`, `test_images`, `test_labels` and a RNG before calling.
+
+/// let mut rng = SimpleRng::new(42);
+
+/// let (final_acc, losses, accs) = train_model_with_lr(
+
+///     &train_images,
+
+///     &train_labels,
+
+///     &test_images,
+
+///     &test_labels,
+
+///     0.01,
+
+///     &mut rng,
+
+/// );
+
+/// assert_eq!(losses.len(), accs.len());
+
+/// ```
 fn train_model_with_lr(
     train_images: &[f32],
     train_labels: &[u8],
@@ -1516,6 +1742,22 @@ fn train_model_with_lr(
     )
 }
 
+/// Entry point that trains and evaluates the patch-based single-head attention model on MNIST.
+///
+/// Loads MNIST data, initializes the model with Transformer-style sinusoidal positional
+/// embeddings, performs batched SGD training while logging per-epoch loss and test accuracy to
+/// ./logs/training_loss_attention.txt, and prints final test accuracy and timing information.
+///
+/// The function orchestrates data loading, model initialization, per-epoch shuffling and batching,
+/// forward/backward passes, parameter updates, periodic evaluation on the test set, and final
+/// reporting; it does not return a value.
+///
+/// # Examples
+///
+/// ```ignore
+/// // Run the full training/evaluation routine (invokes the program entrypoint).
+/// main();
+/// ```
 fn main() {
     let program_start = Instant::now();
 
