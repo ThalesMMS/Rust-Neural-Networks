@@ -1187,36 +1187,18 @@ fn test_accuracy(model: &AttnModel, images: &[f32], labels: &[u8]) -> f32 {
     100.0 * (correct as f32) / (n as f32)
 }
 
-fn main() {
-    println!("Loading MNIST...");
-    let train_images = read_mnist_images("./data/train-images.idx3-ubyte", TRAIN_SAMPLES);
-    let train_labels = read_mnist_labels("./data/train-labels.idx1-ubyte", TRAIN_SAMPLES);
-    let test_images = read_mnist_images("./data/t10k-images.idx3-ubyte", TEST_SAMPLES);
-    let test_labels = read_mnist_labels("./data/t10k-labels.idx1-ubyte", TEST_SAMPLES);
-
+// Train model with specified learning rate and return final accuracy and loss progression.
+fn train_model_with_lr(
+    train_images: &[f32],
+    train_labels: &[u8],
+    test_images: &[f32],
+    test_labels: &[u8],
+    lr: f32,
+    rng: &mut SimpleRng,
+) -> (f32, Vec<f32>, Vec<f32>) {
     let train_n = train_labels.len();
-    let test_n = test_labels.len();
-    println!("Train: {} | Test: {}", train_n, test_n);
 
-    // Training log file.
-    fs::create_dir_all("./logs").ok();
-    let log_file = File::create("./logs/training_loss_attention_mnist.txt").unwrap_or_else(|_| {
-        eprintln!("Could not create logs/training_loss_attention_mnist.txt");
-        process::exit(1);
-    });
-    let mut log = BufWriter::new(log_file);
-
-    // Debug log file for attention weights, gradients, and activations.
-    let debug_file = File::create("./logs/attention_debug.txt").unwrap_or_else(|_| {
-        eprintln!("Could not create logs/attention_debug.txt");
-        process::exit(1);
-    });
-    let mut debug_log = BufWriter::new(debug_file);
-
-    let mut rng = SimpleRng::new(1);
-    rng.reseed_from_time();
-
-    let mut model = init_model(&mut rng);
+    let mut model = init_model(rng);
 
     // Shuffled indices for mini-batch sampling.
     let mut indices: Vec<usize> = (0..train_n).collect();
@@ -1227,24 +1209,20 @@ fn main() {
     let mut buf = BatchBuffers::new();
     let mut grads = Grads::new();
 
-    println!(
-        "Training self-attention: D={} ff={} patch={} seq={} epochs={} batch={} lr={}",
-        D_MODEL, FF_DIM, PATCH, SEQ_LEN, EPOCHS, BATCH_SIZE, LEARNING_RATE
-    );
+    let mut epoch_losses = Vec::new();
+    let mut epoch_accs = Vec::new();
 
     for epoch in 0..EPOCHS {
-        let start_time = Instant::now();
         rng.shuffle_usize(&mut indices);
 
         let mut total_loss = 0.0f32;
-        let mut batch_idx = 0usize;
 
         for batch_start in (0..train_n).step_by(BATCH_SIZE) {
             let batch_count = (train_n - batch_start).min(BATCH_SIZE);
 
             gather_batch(
-                &train_images,
-                &train_labels,
+                train_images,
+                train_labels,
                 &indices,
                 batch_start,
                 batch_count,
@@ -1262,182 +1240,134 @@ fn main() {
             );
             total_loss += batch_loss;
 
-            // Debug logging for first batch of first epoch.
-            if epoch == 0 && batch_idx == 0 {
-                writeln!(debug_log, "=== DEBUG LOG: Epoch 1, Batch 1 ===").ok();
-                writeln!(debug_log, "").ok();
-
-                // Log token embeddings statistics.
-                let tok_len = batch_count * SEQ_LEN * D_MODEL;
-                let (tok_min, tok_max, tok_mean) = compute_stats(&buf.tok[..tok_len]);
-                writeln!(
-                    debug_log,
-                    "Token Embeddings (post-ReLU): min={:.6}, max={:.6}, mean={:.6}",
-                    tok_min, tok_max, tok_mean
-                )
-                .ok();
-
-                // Log Q, K, V statistics.
-                let (q_min, q_max, q_mean) = compute_stats(&buf.q[..tok_len]);
-                writeln!(
-                    debug_log,
-                    "Query (Q): min={:.6}, max={:.6}, mean={:.6}",
-                    q_min, q_max, q_mean
-                )
-                .ok();
-
-                let (k_min, k_max, k_mean) = compute_stats(&buf.k[..tok_len]);
-                writeln!(
-                    debug_log,
-                    "Key (K): min={:.6}, max={:.6}, mean={:.6}",
-                    k_min, k_max, k_mean
-                )
-                .ok();
-
-                let (v_min, v_max, v_mean) = compute_stats(&buf.v[..tok_len]);
-                writeln!(
-                    debug_log,
-                    "Value (V): min={:.6}, max={:.6}, mean={:.6}",
-                    v_min, v_max, v_mean
-                )
-                .ok();
-
-                // Log attention weights statistics (first sample, first row).
-                let attn_len = batch_count * SEQ_LEN * SEQ_LEN;
-                let (attn_min, attn_max, attn_mean) = compute_stats(&buf.attn[..attn_len]);
-                writeln!(
-                    debug_log,
-                    "Attention Weights: min={:.6}, max={:.6}, mean={:.6}",
-                    attn_min, attn_max, attn_mean
-                )
-                .ok();
-
-                // Log first row of attention matrix for sample 0.
-                writeln!(debug_log, "Attention Matrix (sample 0, token 0, first 10 values):").ok();
-                write!(debug_log, "  ").ok();
-                for j in 0..10.min(SEQ_LEN) {
-                    write!(debug_log, "{:.4} ", buf.attn[j]).ok();
-                }
-                writeln!(debug_log, "").ok();
-
-                // Log attention output statistics.
-                let (attn_out_min, attn_out_max, attn_out_mean) = compute_stats(&buf.attn_out[..tok_len]);
-                writeln!(
-                    debug_log,
-                    "Attention Output: min={:.6}, max={:.6}, mean={:.6}",
-                    attn_out_min, attn_out_max, attn_out_mean
-                )
-                .ok();
-
-                // Log FFN intermediate statistics.
-                let ffn1_len = batch_count * SEQ_LEN * FF_DIM;
-                let (ffn1_min, ffn1_max, ffn1_mean) = compute_stats(&buf.ffn1[..ffn1_len]);
-                writeln!(
-                    debug_log,
-                    "FFN Layer 1 (post-ReLU): min={:.6}, max={:.6}, mean={:.6}",
-                    ffn1_min, ffn1_max, ffn1_mean
-                )
-                .ok();
-
-                let (ffn2_min, ffn2_max, ffn2_mean) = compute_stats(&buf.ffn2[..tok_len]);
-                writeln!(
-                    debug_log,
-                    "FFN Layer 2: min={:.6}, max={:.6}, mean={:.6}",
-                    ffn2_min, ffn2_max, ffn2_mean
-                )
-                .ok();
-
-                writeln!(debug_log, "").ok();
-                writeln!(debug_log, "Batch Loss: {:.6}", batch_loss).ok();
-            }
-
             // Backward pass + SGD update.
             backward_batch(&model, batch_count, &mut buf, &mut grads);
-
-            // Debug logging for gradients on first batch of first epoch.
-            if epoch == 0 && batch_idx == 0 {
-                writeln!(debug_log, "").ok();
-                writeln!(debug_log, "=== GRADIENTS ===").ok();
-
-                // Log gradient statistics for key parameters.
-                let (dq_min, dq_max, dq_mean) = compute_stats(&grads.w_q);
-                writeln!(
-                    debug_log,
-                    "Grad w_q: min={:.6}, max={:.6}, mean={:.6}",
-                    dq_min, dq_max, dq_mean
-                )
-                .ok();
-
-                let (dk_min, dk_max, dk_mean) = compute_stats(&grads.w_k);
-                writeln!(
-                    debug_log,
-                    "Grad w_k: min={:.6}, max={:.6}, mean={:.6}",
-                    dk_min, dk_max, dk_mean
-                )
-                .ok();
-
-                let (dv_min, dv_max, dv_mean) = compute_stats(&grads.w_v);
-                writeln!(
-                    debug_log,
-                    "Grad w_v: min={:.6}, max={:.6}, mean={:.6}",
-                    dv_min, dv_max, dv_mean
-                )
-                .ok();
-
-                let (dff1_min, dff1_max, dff1_mean) = compute_stats(&grads.w_ff1);
-                writeln!(
-                    debug_log,
-                    "Grad w_ff1: min={:.6}, max={:.6}, mean={:.6}",
-                    dff1_min, dff1_max, dff1_mean
-                )
-                .ok();
-
-                let (dff2_min, dff2_max, dff2_mean) = compute_stats(&grads.w_ff2);
-                writeln!(
-                    debug_log,
-                    "Grad w_ff2: min={:.6}, max={:.6}, mean={:.6}",
-                    dff2_min, dff2_max, dff2_mean
-                )
-                .ok();
-
-                let (dcls_min, dcls_max, dcls_mean) = compute_stats(&grads.w_cls);
-                writeln!(
-                    debug_log,
-                    "Grad w_cls: min={:.6}, max={:.6}, mean={:.6}",
-                    dcls_min, dcls_max, dcls_mean
-                )
-                .ok();
-
-                let (dpos_min, dpos_max, dpos_mean) = compute_stats(&grads.pos);
-                writeln!(
-                    debug_log,
-                    "Grad pos: min={:.6}, max={:.6}, mean={:.6}",
-                    dpos_min, dpos_max, dpos_mean
-                )
-                .ok();
-
-                writeln!(debug_log, "").ok();
-                writeln!(debug_log, "=== END DEBUG LOG ===").ok();
-                debug_log.flush().ok();
-            }
-
-            apply_sgd(&mut model, &grads, LEARNING_RATE);
-            batch_idx += 1;
+            apply_sgd(&mut model, &grads, lr);
         }
 
-        let secs = start_time.elapsed().as_secs_f32();
         let avg_loss = total_loss / train_n as f32;
-        let acc = test_accuracy(&model, &test_images, &test_labels);
+        let acc = test_accuracy(&model, test_images, test_labels);
 
-        println!(
-            "Epoch {} | loss={:.6} | time={:.3}s | test_acc={:.2}%",
-            epoch + 1,
-            avg_loss,
-            secs,
-            acc
-        );
-        writeln!(log, "{},{},{}", epoch + 1, avg_loss, secs).ok();
+        epoch_losses.push(avg_loss);
+        epoch_accs.push(acc);
     }
 
-    println!("Final test accuracy: {:.2}%", test_accuracy(&model, &test_images, &test_labels));
+    let final_acc = test_accuracy(&model, test_images, test_labels);
+    (final_acc, epoch_losses, epoch_accs)
+}
+
+fn main() {
+    println!("Loading MNIST...");
+    let train_images = read_mnist_images("./data/train-images.idx3-ubyte", TRAIN_SAMPLES);
+    let train_labels = read_mnist_labels("./data/train-labels.idx1-ubyte", TRAIN_SAMPLES);
+    let test_images = read_mnist_images("./data/t10k-images.idx3-ubyte", TEST_SAMPLES);
+    let test_labels = read_mnist_labels("./data/t10k-labels.idx1-ubyte", TEST_SAMPLES);
+
+    let train_n = train_labels.len();
+    let test_n = test_labels.len();
+    println!("Train: {} | Test: {}", train_n, test_n);
+
+    // Create logs directory.
+    fs::create_dir_all("./logs").ok();
+
+    // Learning rate sweep experiment.
+    let learning_rates = vec![0.001, 0.003, 0.005, 0.01];
+
+    let sweep_file = File::create("./logs/attention_lr_sweep.txt").unwrap_or_else(|_| {
+        eprintln!("Could not create logs/attention_lr_sweep.txt");
+        process::exit(1);
+    });
+    let mut sweep_log = BufWriter::new(sweep_file);
+
+    writeln!(sweep_log, "=== LEARNING RATE SWEEP EXPERIMENT ===").ok();
+    writeln!(sweep_log, "").ok();
+    writeln!(sweep_log, "Hypothesis: Learning rate is too high (current LR = 0.01)").ok();
+    writeln!(sweep_log, "").ok();
+    writeln!(sweep_log, "Model configuration:").ok();
+    writeln!(sweep_log, "  D_MODEL: {}", D_MODEL).ok();
+    writeln!(sweep_log, "  FF_DIM: {}", FF_DIM).ok();
+    writeln!(sweep_log, "  PATCH: {}", PATCH).ok();
+    writeln!(sweep_log, "  SEQ_LEN: {}", SEQ_LEN).ok();
+    writeln!(sweep_log, "  EPOCHS: {}", EPOCHS).ok();
+    writeln!(sweep_log, "  BATCH_SIZE: {}", BATCH_SIZE).ok();
+    writeln!(sweep_log, "").ok();
+    writeln!(sweep_log, "Testing learning rates: {:?}", learning_rates).ok();
+    writeln!(sweep_log, "").ok();
+    writeln!(sweep_log, "===============================================").ok();
+    writeln!(sweep_log, "").ok();
+
+    println!("\nStarting learning rate sweep experiment...");
+    println!("Model: D={} ff={} patch={} seq={} epochs={} batch={}",
+        D_MODEL, FF_DIM, PATCH, SEQ_LEN, EPOCHS, BATCH_SIZE);
+    println!("Testing learning rates: {:?}\n", learning_rates);
+
+    for &lr in &learning_rates {
+        println!("Testing LR = {:.4}...", lr);
+        writeln!(sweep_log, "--- Learning Rate: {:.4} ---", lr).ok();
+        writeln!(sweep_log, "").ok();
+
+        let start_time = Instant::now();
+
+        // Use fixed seed for reproducibility across LR experiments.
+        let mut rng = SimpleRng::new(42);
+
+        let (final_acc, epoch_losses, epoch_accs) = train_model_with_lr(
+            &train_images,
+            &train_labels,
+            &test_images,
+            &test_labels,
+            lr,
+            &mut rng,
+        );
+
+        let elapsed = start_time.elapsed().as_secs_f32();
+
+        writeln!(sweep_log, "Training progress:").ok();
+        writeln!(sweep_log, "  Epoch | Loss     | Test Acc").ok();
+        writeln!(sweep_log, "  ------|----------|----------").ok();
+        for (i, (loss, acc)) in epoch_losses.iter().zip(epoch_accs.iter()).enumerate() {
+            writeln!(sweep_log, "  {:5} | {:.6} | {:6.2}%", i + 1, loss, acc).ok();
+        }
+        writeln!(sweep_log, "").ok();
+
+        writeln!(sweep_log, "Results:").ok();
+        writeln!(sweep_log, "  Final accuracy: {:.2}%", final_acc).ok();
+        writeln!(sweep_log, "  Initial loss: {:.6}", epoch_losses[0]).ok();
+        writeln!(sweep_log, "  Final loss: {:.6}", epoch_losses[epoch_losses.len() - 1]).ok();
+        writeln!(sweep_log, "  Loss improvement: {:.6}", epoch_losses[0] - epoch_losses[epoch_losses.len() - 1]).ok();
+        writeln!(sweep_log, "  Training time: {:.2}s", elapsed).ok();
+
+        // Calculate loss stability (variance of losses).
+        let mean_loss: f32 = epoch_losses.iter().sum::<f32>() / epoch_losses.len() as f32;
+        let variance: f32 = epoch_losses.iter().map(|&x| (x - mean_loss).powi(2)).sum::<f32>() / epoch_losses.len() as f32;
+        let stddev = variance.sqrt();
+        writeln!(sweep_log, "  Loss std dev: {:.6} (lower = more stable)", stddev).ok();
+
+        writeln!(sweep_log, "").ok();
+        writeln!(sweep_log, "===============================================").ok();
+        writeln!(sweep_log, "").ok();
+
+        println!("  Final accuracy: {:.2}%", final_acc);
+        println!("  Loss: {:.6} -> {:.6}", epoch_losses[0], epoch_losses[epoch_losses.len() - 1]);
+        println!("  Training time: {:.2}s\n", elapsed);
+
+        sweep_log.flush().ok();
+    }
+
+    writeln!(sweep_log, "=== SUMMARY ===").ok();
+    writeln!(sweep_log, "").ok();
+    writeln!(sweep_log, "Compare the results above to determine:").ok();
+    writeln!(sweep_log, "1. Which learning rate achieves the highest test accuracy?").ok();
+    writeln!(sweep_log, "2. Which learning rate shows the most stable training (lowest loss std dev)?").ok();
+    writeln!(sweep_log, "3. Which learning rate shows the best loss improvement?").ok();
+    writeln!(sweep_log, "").ok();
+    writeln!(sweep_log, "If a lower learning rate (0.001, 0.003, 0.005) outperforms 0.01,").ok();
+    writeln!(sweep_log, "then the hypothesis is confirmed: the learning rate was too high.").ok();
+    writeln!(sweep_log, "").ok();
+    writeln!(sweep_log, "=== END EXPERIMENT ===").ok();
+
+    sweep_log.flush().ok();
+
+    println!("\nLearning rate sweep complete!");
+    println!("Results saved to: ./logs/attention_lr_sweep.txt");
 }
