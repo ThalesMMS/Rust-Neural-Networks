@@ -110,15 +110,13 @@ pub fn softmax_rows(outputs: &mut [f32], rows: usize, cols: usize) {
 mod tests {
     use super::*;
 
-    #[cfg(feature = "shared_activations")]
-    const EPSILON: f32 = 1e-6; // Changed from f64 1e-10
     const EPSILON_F32: f32 = 1e-6;
 
     #[cfg(feature = "shared_activations")]
     #[test]
     fn test_sigmoid_zero() {
         let result = sigmoid(0.0);
-        assert!((result - 0.5).abs() < EPSILON);
+        assert!((result - 0.5).abs() < 1e-6);
     }
 
     #[cfg(feature = "shared_activations")]
@@ -139,7 +137,7 @@ mod tests {
     #[test]
     fn test_sigmoid_derivative_at_half() {
         let result = sigmoid_derivative(0.5);
-        assert!((result - 0.25).abs() < EPSILON);
+        assert!((result - 0.25).abs() < 1e-6);
     }
 
     #[test]

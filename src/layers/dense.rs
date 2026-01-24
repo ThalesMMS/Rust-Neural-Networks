@@ -418,10 +418,12 @@ impl Layer for DenseLayer {
         );
 
         let mut grad_w = self.grad_weights.borrow_mut();
-        debug_assert_eq!(
+        assert_eq!(
             grad_w.len(),
             self.input_size * self.output_size,
-            "grad_weights len mismatch"
+            "grad_weights len mismatch: expected {}, got {}",
+            self.input_size * self.output_size,
+            grad_w.len()
         );
 
         sgemm_wrapper(
@@ -452,7 +454,13 @@ impl Layer for DenseLayer {
         );
 
         let mut grad_b = self.grad_biases.borrow_mut();
-        debug_assert_eq!(grad_b.len(), self.output_size, "grad_biases len mismatch");
+        assert_eq!(
+            grad_b.len(),
+            self.output_size,
+            "grad_biases len mismatch: expected {}, got {}",
+            self.output_size,
+            grad_b.len()
+        );
 
         for (acc, g) in grad_b.iter_mut().zip(batch_bias_grad.iter()) {
             *acc += *g * scale;
@@ -462,10 +470,12 @@ impl Layer for DenseLayer {
         // grad_output: (batch_size × output_size)
         // weights: (input_size × output_size)
         // grad_input: (batch_size × input_size)
-        debug_assert_eq!(
+        assert_eq!(
             grad_input.len(),
             batch_size * self.input_size,
-            "grad_input len mismatch"
+            "grad_input len mismatch: expected {}, got {}",
+            batch_size * self.input_size,
+            grad_input.len()
         );
         sgemm_wrapper(
             batch_size,

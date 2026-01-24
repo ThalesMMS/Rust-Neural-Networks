@@ -226,7 +226,7 @@ impl Layer for DenseLayer {
 
                 for i in 0..self.input_size {
                     grad_w[i * self.output_size + j] += input[in_offset + i] * g * scale;
-                    grad_input[in_offset + i] += g * self.weights[i * self.output_size + j];
+                    grad_input[in_offset + i] += g * self.weights[i * self.output_size + j] * scale;
                 }
             }
         }
