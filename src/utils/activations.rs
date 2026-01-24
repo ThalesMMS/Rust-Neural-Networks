@@ -74,7 +74,15 @@ pub fn softmax_rows(outputs: &mut [f32], rows: usize, cols: usize) {
     if cols == 0 {
         return; // Or panic, but return is safe for empty columns
     }
-    assert_eq!(outputs.len(), rows * cols, "outputs length mismatch in softmax_rows");
+    assert_eq!(
+        outputs.len(),
+        rows * cols,
+        "outputs length mismatch in softmax_rows: len={}, rows={}, cols={}. Expected len={}",
+        outputs.len(),
+        rows,
+        cols,
+        rows * cols
+    );
 
     for row in outputs.chunks_exact_mut(cols).take(rows) {
         let mut max_value = row[0];

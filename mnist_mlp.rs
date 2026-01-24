@@ -440,6 +440,7 @@ fn train(
             // Forward: output layer.
             let a2_len = batch_count * NUM_OUTPUTS;
             nn.output_layer.forward(&a1, &mut a2, batch_count);
+            assert_eq!(a2[..a2_len].len(), batch_count * NUM_OUTPUTS, "Buffer size mismatch before softmax_rows");
             softmax_rows(&mut a2[..a2_len], batch_count, NUM_OUTPUTS);
 
             // Output delta and loss.
@@ -524,6 +525,7 @@ fn test(nn: &NeuralNetwork, images: &[f32], labels: &[u8], num_samples: usize) {
         // Forward: output layer.
         let a2_len = batch_count * NUM_OUTPUTS;
         nn.output_layer.forward(&a1, &mut a2, batch_count);
+        assert_eq!(a2[..a2_len].len(), batch_count * NUM_OUTPUTS, "Buffer size mismatch before softmax_rows in test");
         softmax_rows(&mut a2[..a2_len], batch_count, NUM_OUTPUTS);
 
         for row_idx in 0..batch_count {
