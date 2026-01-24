@@ -27,7 +27,11 @@ impl SimpleRng {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos() as u64;
-        self.state = if nanos == 0 { 0x9e3779b97f4a7c15 } else { nanos };
+        self.state = if nanos == 0 {
+            0x9e3779b97f4a7c15
+        } else {
+            nanos
+        };
     }
 
     // Generate a pseudo-random u32 (xorshift).
@@ -209,11 +213,7 @@ fn train(
 }
 
 // Simple evaluation on XOR samples.
-fn test(
-    nn: &NeuralNetwork,
-    inputs: &[[f64; NUM_INPUTS]],
-    expected_outputs: &[[f64; NUM_OUTPUTS]],
-) {
+fn test(nn: &NeuralNetwork, inputs: &[[f64; NUM_INPUTS]], expected_outputs: &[[f64; NUM_OUTPUTS]]) {
     println!("\nTesting the trained network:");
     for sample in 0..NUM_SAMPLES {
         let mut hidden_outputs = [0.0; NUM_HIDDEN];
@@ -225,10 +225,7 @@ fn test(
 
         println!(
             "Input: {:.1}, {:.1}, Expected Output: {:.1}, Predicted Output: {:.3}",
-            inputs[sample][0],
-            inputs[sample][1],
-            expected_outputs[sample][0],
-            output_outputs[0]
+            inputs[sample][0], inputs[sample][1], expected_outputs[sample][0], output_outputs[0]
         );
     }
 }
@@ -350,8 +347,15 @@ mod tests {
         let mut delta_hidden = [0.0; NUM_HIDDEN];
         let mut delta_output = [0.0; NUM_OUTPUTS];
 
-        backward(&nn, &inputs, &hidden_outputs, &output_outputs, &errors,
-                &mut delta_hidden, &mut delta_output);
+        backward(
+            &nn,
+            &inputs,
+            &hidden_outputs,
+            &output_outputs,
+            &errors,
+            &mut delta_hidden,
+            &mut delta_output,
+        );
 
         assert_ne!(delta_output[0], 0.0);
     }

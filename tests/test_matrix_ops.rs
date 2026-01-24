@@ -4,7 +4,7 @@
 extern crate blas_src;
 
 use approx::assert_relative_eq;
-use cblas::{Layout, Transpose, sgemm};
+use cblas::{sgemm, Layout, Transpose};
 
 // GEMM wrapper from mnist_mlp.rs.
 fn sgemm_wrapper(
@@ -417,7 +417,7 @@ mod tests {
     #[test]
     fn test_sum_rows_mixed_values() {
         let data = vec![
-            1.0, -2.0, 3.0,  // Row 1
+            1.0, -2.0, 3.0, // Row 1
             -4.0, 5.0, -6.0, // Row 2
         ];
         let mut out = vec![0.0; 3];

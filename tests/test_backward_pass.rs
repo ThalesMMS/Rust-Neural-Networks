@@ -611,9 +611,9 @@ mod tests {
         let batch_size = 3;
         let num_classes = 5;
 
-        let mut outputs = vec![1.0, 2.0, 3.0, 4.0, 5.0,
-                               5.0, 4.0, 3.0, 2.0, 1.0,
-                               2.0, 3.0, 4.0, 5.0, 6.0];
+        let mut outputs = vec![
+            1.0, 2.0, 3.0, 4.0, 5.0, 5.0, 4.0, 3.0, 2.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0,
+        ];
         softmax_rows(&mut outputs, batch_size, num_classes);
 
         let labels = vec![2, 1, 4];
@@ -670,17 +670,37 @@ mod tests {
         let b2 = vec![0.0f32; output_size];
 
         sgemm_wrapper(
-            batch_size, hidden_size, input_size,
-            &batch_inputs, input_size, &w1, hidden_size,
-            &mut a1, hidden_size, false, false, 1.0, 0.0,
+            batch_size,
+            hidden_size,
+            input_size,
+            &batch_inputs,
+            input_size,
+            &w1,
+            hidden_size,
+            &mut a1,
+            hidden_size,
+            false,
+            false,
+            1.0,
+            0.0,
         );
         add_bias(&mut a1, batch_size, hidden_size, &b1);
         relu_inplace(&mut a1);
 
         sgemm_wrapper(
-            batch_size, output_size, hidden_size,
-            &a1, hidden_size, &w2, output_size,
-            &mut a2, output_size, false, false, 1.0, 0.0,
+            batch_size,
+            output_size,
+            hidden_size,
+            &a1,
+            hidden_size,
+            &w2,
+            output_size,
+            &mut a2,
+            output_size,
+            false,
+            false,
+            1.0,
+            0.0,
         );
         add_bias(&mut a2, batch_size, output_size, &b2);
         softmax_rows(&mut a2, batch_size, output_size);
@@ -691,16 +711,36 @@ mod tests {
         let scale = 1.0f32 / batch_size as f32;
 
         sgemm_wrapper(
-            hidden_size, output_size, batch_size,
-            &a1, hidden_size, &dz2, output_size,
-            &mut grad_w2, output_size, true, false, scale, 0.0,
+            hidden_size,
+            output_size,
+            batch_size,
+            &a1,
+            hidden_size,
+            &dz2,
+            output_size,
+            &mut grad_w2,
+            output_size,
+            true,
+            false,
+            scale,
+            0.0,
         );
         sum_rows(&dz2, batch_size, output_size, &mut grad_b2);
 
         sgemm_wrapper(
-            batch_size, hidden_size, output_size,
-            &dz2, output_size, &w2, output_size,
-            &mut dz1, hidden_size, false, true, 1.0, 0.0,
+            batch_size,
+            hidden_size,
+            output_size,
+            &dz2,
+            output_size,
+            &w2,
+            output_size,
+            &mut dz1,
+            hidden_size,
+            false,
+            true,
+            1.0,
+            0.0,
         );
 
         for i in 0..batch_size * hidden_size {
@@ -710,9 +750,19 @@ mod tests {
         }
 
         sgemm_wrapper(
-            input_size, hidden_size, batch_size,
-            &batch_inputs, input_size, &dz1, hidden_size,
-            &mut grad_w1, hidden_size, true, false, scale, 0.0,
+            input_size,
+            hidden_size,
+            batch_size,
+            &batch_inputs,
+            input_size,
+            &dz1,
+            hidden_size,
+            &mut grad_w1,
+            hidden_size,
+            true,
+            false,
+            scale,
+            0.0,
         );
         sum_rows(&dz1, batch_size, hidden_size, &mut grad_b1);
 
@@ -755,17 +805,37 @@ mod tests {
         let b2 = vec![0.1f32; output_size];
 
         sgemm_wrapper(
-            batch_size, hidden_size, input_size,
-            &batch_inputs, input_size, &w1, hidden_size,
-            &mut a1, hidden_size, false, false, 1.0, 0.0,
+            batch_size,
+            hidden_size,
+            input_size,
+            &batch_inputs,
+            input_size,
+            &w1,
+            hidden_size,
+            &mut a1,
+            hidden_size,
+            false,
+            false,
+            1.0,
+            0.0,
         );
         add_bias(&mut a1, batch_size, hidden_size, &b1);
         relu_inplace(&mut a1);
 
         sgemm_wrapper(
-            batch_size, output_size, hidden_size,
-            &a1, hidden_size, &w2, output_size,
-            &mut a2, output_size, false, false, 1.0, 0.0,
+            batch_size,
+            output_size,
+            hidden_size,
+            &a1,
+            hidden_size,
+            &w2,
+            output_size,
+            &mut a2,
+            output_size,
+            false,
+            false,
+            1.0,
+            0.0,
         );
         add_bias(&mut a2, batch_size, output_size, &b2);
         softmax_rows(&mut a2, batch_size, output_size);
@@ -776,9 +846,19 @@ mod tests {
         let scale = 1.0f32 / batch_size as f32;
 
         sgemm_wrapper(
-            hidden_size, output_size, batch_size,
-            &a1, hidden_size, &dz2, output_size,
-            &mut grad_w2, output_size, true, false, scale, 0.0,
+            hidden_size,
+            output_size,
+            batch_size,
+            &a1,
+            hidden_size,
+            &dz2,
+            output_size,
+            &mut grad_w2,
+            output_size,
+            true,
+            false,
+            scale,
+            0.0,
         );
         sum_rows(&dz2, batch_size, output_size, &mut grad_b2);
 
@@ -826,9 +906,7 @@ mod tests {
         let cols = 4;
 
         let data = vec![
-            1.0, 2.0, 3.0, 4.0,
-            5.0, 6.0, 7.0, 8.0,
-            9.0, 10.0, 11.0, 12.0,
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
         ];
 
         let mut out = vec![0.0f32; cols];
@@ -855,9 +933,19 @@ mod tests {
         let b = vec![0.1, 0.2];
 
         sgemm_wrapper(
-            batch_size, output_size, input_size,
-            &batch_inputs, input_size, &w, output_size,
-            &mut a1, output_size, false, false, 1.0, 0.0,
+            batch_size,
+            output_size,
+            input_size,
+            &batch_inputs,
+            input_size,
+            &w,
+            output_size,
+            &mut a1,
+            output_size,
+            false,
+            false,
+            1.0,
+            0.0,
         );
         add_bias(&mut a1, batch_size, output_size, &b);
         softmax_rows(&mut a1, batch_size, output_size);
@@ -867,9 +955,19 @@ mod tests {
 
         let scale = 1.0f32 / batch_size as f32;
         sgemm_wrapper(
-            input_size, output_size, batch_size,
-            &batch_inputs, input_size, &delta, output_size,
-            &mut grad_w, output_size, true, false, scale, 0.0,
+            input_size,
+            output_size,
+            batch_size,
+            &batch_inputs,
+            input_size,
+            &delta,
+            output_size,
+            &mut grad_w,
+            output_size,
+            true,
+            false,
+            scale,
+            0.0,
         );
 
         for &g in &grad_w {
@@ -900,17 +998,37 @@ mod tests {
         let b2 = vec![0.1f32; output_size];
 
         sgemm_wrapper(
-            batch_size, hidden_size, input_size,
-            &batch_inputs, input_size, &w1, hidden_size,
-            &mut a1, hidden_size, false, false, 1.0, 0.0,
+            batch_size,
+            hidden_size,
+            input_size,
+            &batch_inputs,
+            input_size,
+            &w1,
+            hidden_size,
+            &mut a1,
+            hidden_size,
+            false,
+            false,
+            1.0,
+            0.0,
         );
         add_bias(&mut a1, batch_size, hidden_size, &b1);
         relu_inplace(&mut a1);
 
         sgemm_wrapper(
-            batch_size, output_size, hidden_size,
-            &a1, hidden_size, &w2, output_size,
-            &mut a2, output_size, false, false, 1.0, 0.0,
+            batch_size,
+            output_size,
+            hidden_size,
+            &a1,
+            hidden_size,
+            &w2,
+            output_size,
+            &mut a2,
+            output_size,
+            false,
+            false,
+            1.0,
+            0.0,
         );
         add_bias(&mut a2, batch_size, output_size, &b2);
         softmax_rows(&mut a2, batch_size, output_size);
@@ -924,16 +1042,36 @@ mod tests {
         let scale = 1.0f32 / batch_size as f32;
 
         sgemm_wrapper(
-            hidden_size, output_size, batch_size,
-            &a1, hidden_size, &dz2, output_size,
-            &mut grad_w2, output_size, true, false, scale, 0.0,
+            hidden_size,
+            output_size,
+            batch_size,
+            &a1,
+            hidden_size,
+            &dz2,
+            output_size,
+            &mut grad_w2,
+            output_size,
+            true,
+            false,
+            scale,
+            0.0,
         );
         sum_rows(&dz2, batch_size, output_size, &mut grad_b2);
 
         sgemm_wrapper(
-            batch_size, hidden_size, output_size,
-            &dz2, output_size, &w2, output_size,
-            &mut dz1, hidden_size, false, true, 1.0, 0.0,
+            batch_size,
+            hidden_size,
+            output_size,
+            &dz2,
+            output_size,
+            &w2,
+            output_size,
+            &mut dz1,
+            hidden_size,
+            false,
+            true,
+            1.0,
+            0.0,
         );
 
         for i in 0..batch_size * hidden_size {
@@ -943,9 +1081,19 @@ mod tests {
         }
 
         sgemm_wrapper(
-            input_size, hidden_size, batch_size,
-            &batch_inputs, input_size, &dz1, hidden_size,
-            &mut grad_w1, hidden_size, true, false, scale, 0.0,
+            input_size,
+            hidden_size,
+            batch_size,
+            &batch_inputs,
+            input_size,
+            &dz1,
+            hidden_size,
+            &mut grad_w1,
+            hidden_size,
+            true,
+            false,
+            scale,
+            0.0,
         );
         sum_rows(&dz1, batch_size, hidden_size, &mut grad_b1);
 

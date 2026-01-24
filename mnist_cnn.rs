@@ -56,7 +56,11 @@ impl SimpleRng {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos() as u64;
-        self.state = if nanos == 0 { 0x9e3779b97f4a7c15 } else { nanos };
+        self.state = if nanos == 0 {
+            0x9e3779b97f4a7c15
+        } else {
+            nanos
+        };
     }
 
     fn next_u32(&mut self) -> u32 {
@@ -259,12 +263,7 @@ fn init_cnn(rng: &mut SimpleRng) -> Cnn {
 
 // Forward conv + ReLU.
 // input: [batch * 784], conv_out: [batch * CONV_OUT * 28 * 28]
-fn conv_forward_relu(
-    model: &Cnn,
-    batch: usize,
-    input: &[f32],
-    conv_out: &mut [f32],
-) {
+fn conv_forward_relu(model: &Cnn, batch: usize, input: &[f32], conv_out: &mut [f32]) {
     let spatial = IMG_H * IMG_W;
     let out_spatial = spatial;
 
@@ -306,12 +305,7 @@ fn conv_forward_relu(
 // conv_act: [batch * C * 28 * 28] (post-ReLU)
 // pool_out: [batch * C * 14 * 14]
 // pool_idx: [batch * C * 14 * 14], stores argmax 0..3 (dy*2+dx)
-fn maxpool_forward(
-    batch: usize,
-    conv_act: &[f32],
-    pool_out: &mut [f32],
-    pool_idx: &mut [u8],
-) {
+fn maxpool_forward(batch: usize, conv_act: &[f32], pool_out: &mut [f32], pool_idx: &mut [u8]) {
     let conv_spatial = IMG_H * IMG_W;
     let pool_spatial = POOL_H * POOL_W;
 
@@ -405,7 +399,7 @@ fn fc_backward(
     model: &Cnn,
     batch: usize,
     x: &[f32],
-    delta: &[f32], // [batch*10]
+    delta: &[f32],      // [batch*10]
     grad_w: &mut [f32], // [FC_IN*10]
     grad_b: &mut [f32], // [10]
     d_x: &mut [f32],    // [batch*FC_IN]
@@ -455,7 +449,7 @@ fn fc_backward(
 // MaxPool backward: scatter grads to argmax positions, then apply ReLU mask.
 fn maxpool_backward_relu(
     batch: usize,
-    conv_act: &[f32], // post-ReLU
+    conv_act: &[f32],  // post-ReLU
     pool_grad: &[f32], // [batch*C*14*14]
     pool_idx: &[u8],
     conv_grad: &mut [f32], // [batch*C*28*28]
@@ -507,8 +501,8 @@ fn maxpool_backward_relu(
 fn conv_backward(
     model: &Cnn,
     batch: usize,
-    input: &[f32],     // [batch*784]
-    conv_grad: &[f32], // [batch*C*28*28]
+    input: &[f32],      // [batch*784]
+    conv_grad: &[f32],  // [batch*C*28*28]
     grad_w: &mut [f32], // [C*K*K]
     grad_b: &mut [f32], // [C]
 ) {
@@ -640,7 +634,10 @@ fn main() {
 
     let mut indices: Vec<usize> = (0..train_n).collect();
 
-    println!("Training CNN: epochs={} batch={} lr={}", EPOCHS, BATCH_SIZE, LEARNING_RATE);
+    println!(
+        "Training CNN: epochs={} batch={} lr={}",
+        EPOCHS, BATCH_SIZE, LEARNING_RATE
+    );
 
     for epoch in 0..EPOCHS {
         let start_time = Instant::now();
@@ -669,13 +666,29 @@ fn main() {
             fc_forward(&model, batch, &pool_out, &mut logits);
 
             // Softmax + loss + gradient at logits.
-            let batch_loss = softmax_xent_backward(&mut logits, &batch_labels, batch, &mut delta, scale);
+            let batch_loss =
+                softmax_xent_backward(&mut logits, &batch_labels, batch, &mut delta, scale);
             total_loss += batch_loss;
 
             // Backward: FC -> pool -> conv.
-            fc_backward(&model, batch, &pool_out, &delta, &mut grad_fc_w, &mut grad_fc_b, &mut d_pool);
+            fc_backward(
+                &model,
+                batch,
+                &pool_out,
+                &delta,
+                &mut grad_fc_w,
+                &mut grad_fc_b,
+                &mut d_pool,
+            );
             maxpool_backward_relu(batch, &conv_out, &d_pool, &pool_idx, &mut d_conv);
-            conv_backward(&model, batch, &batch_inputs, &d_conv, &mut grad_conv_w, &mut grad_conv_b);
+            conv_backward(
+                &model,
+                batch,
+                &batch_inputs,
+                &d_conv,
+                &mut grad_conv_w,
+                &mut grad_conv_b,
+            );
 
             // SGD update (no momentum, no weight decay).
             for i in 0..model.fc_w.len() {
@@ -694,7 +707,12 @@ fn main() {
 
         let secs = start_time.elapsed().as_secs_f32();
         let avg_loss = total_loss / train_n as f32;
-        println!("Epoch {} | loss={:.6} | time={:.3}s", epoch + 1, avg_loss, secs);
+        println!(
+            "Epoch {} | loss={:.6} | time={:.3}s",
+            epoch + 1,
+            avg_loss,
+            secs
+        );
         writeln!(log, "{},{},{}", epoch + 1, avg_loss, secs).ok();
     }
 

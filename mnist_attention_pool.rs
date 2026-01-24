@@ -92,9 +92,9 @@ const TRAIN_SAMPLES: usize = 60_000;
 const TEST_SAMPLES: usize = 10_000;
 
 // Patch grid and tokenization.
-const PATCH: usize = 4;               // Patch size: 4x4 pixels
-const GRID: usize = IMG_H / PATCH;    // 7x7 grid of patches
-const SEQ_LEN: usize = GRID * GRID;   // 49 tokens (sequence length for attention)
+const PATCH: usize = 4; // Patch size: 4x4 pixels
+const GRID: usize = IMG_H / PATCH; // 7x7 grid of patches
+const SEQ_LEN: usize = GRID * GRID; // 49 tokens (sequence length for attention)
 const PATCH_DIM: usize = PATCH * PATCH; // 16 features per patch
 
 // Model capacity (OPTIMIZED based on investigation findings).
@@ -142,7 +142,11 @@ impl SimpleRng {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos() as u64;
-        self.state = if nanos == 0 { 0x9e3779b97f4a7c15 } else { nanos };
+        self.state = if nanos == 0 {
+            0x9e3779b97f4a7c15
+        } else {
+            nanos
+        };
     }
 
     fn next_u32(&mut self) -> u32 {
@@ -381,31 +385,31 @@ impl Grads {
 
 struct BatchBuffers {
     // Forward buffers.
-    patches: Vec<f32>,   // [BATCH * SEQ * PATCH_DIM]
-    tok: Vec<f32>,       // [BATCH * SEQ * D_MODEL] (post-ReLU)
-    q: Vec<f32>,         // [BATCH * SEQ * D_MODEL]
-    k: Vec<f32>,         // [BATCH * SEQ * D_MODEL]
-    v: Vec<f32>,         // [BATCH * SEQ * D_MODEL]
-    attn: Vec<f32>,      // [BATCH * SEQ * SEQ]
-    attn_out: Vec<f32>,  // [BATCH * SEQ * D_MODEL]
-    ffn1: Vec<f32>,      // [BATCH * SEQ * FF_DIM] (post-ReLU)
-    ffn2: Vec<f32>,      // [BATCH * SEQ * D_MODEL]
-    pooled: Vec<f32>,    // [BATCH * D_MODEL]
-    logits: Vec<f32>,    // [BATCH * NUM_CLASSES]
-    probs: Vec<f32>,     // [BATCH * NUM_CLASSES]
+    patches: Vec<f32>,  // [BATCH * SEQ * PATCH_DIM]
+    tok: Vec<f32>,      // [BATCH * SEQ * D_MODEL] (post-ReLU)
+    q: Vec<f32>,        // [BATCH * SEQ * D_MODEL]
+    k: Vec<f32>,        // [BATCH * SEQ * D_MODEL]
+    v: Vec<f32>,        // [BATCH * SEQ * D_MODEL]
+    attn: Vec<f32>,     // [BATCH * SEQ * SEQ]
+    attn_out: Vec<f32>, // [BATCH * SEQ * D_MODEL]
+    ffn1: Vec<f32>,     // [BATCH * SEQ * FF_DIM] (post-ReLU)
+    ffn2: Vec<f32>,     // [BATCH * SEQ * D_MODEL]
+    pooled: Vec<f32>,   // [BATCH * D_MODEL]
+    logits: Vec<f32>,   // [BATCH * NUM_CLASSES]
+    probs: Vec<f32>,    // [BATCH * NUM_CLASSES]
 
     // Backward buffers.
-    dlogits: Vec<f32>,   // [BATCH * NUM_CLASSES]
-    dpooled: Vec<f32>,   // [BATCH * D_MODEL]
-    dffn2: Vec<f32>,     // [BATCH * SEQ * D_MODEL]
-    dffn1: Vec<f32>,     // [BATCH * SEQ * FF_DIM]
-    dattn: Vec<f32>,     // [BATCH * SEQ * D_MODEL]
-    dalpha: Vec<f32>,    // [BATCH * SEQ * SEQ]
-    dscores: Vec<f32>,   // [BATCH * SEQ * SEQ]
-    dq: Vec<f32>,        // [BATCH * SEQ * D_MODEL]
-    dk: Vec<f32>,        // [BATCH * SEQ * D_MODEL]
-    dv: Vec<f32>,        // [BATCH * SEQ * D_MODEL]
-    dtok: Vec<f32>,      // [BATCH * SEQ * D_MODEL]
+    dlogits: Vec<f32>, // [BATCH * NUM_CLASSES]
+    dpooled: Vec<f32>, // [BATCH * D_MODEL]
+    dffn2: Vec<f32>,   // [BATCH * SEQ * D_MODEL]
+    dffn1: Vec<f32>,   // [BATCH * SEQ * FF_DIM]
+    dattn: Vec<f32>,   // [BATCH * SEQ * D_MODEL]
+    dalpha: Vec<f32>,  // [BATCH * SEQ * SEQ]
+    dscores: Vec<f32>, // [BATCH * SEQ * SEQ]
+    dq: Vec<f32>,      // [BATCH * SEQ * D_MODEL]
+    dk: Vec<f32>,      // [BATCH * SEQ * D_MODEL]
+    dv: Vec<f32>,      // [BATCH * SEQ * D_MODEL]
+    dtok: Vec<f32>,    // [BATCH * SEQ * D_MODEL]
 }
 
 impl BatchBuffers {
@@ -481,11 +485,11 @@ impl BatchBuffers {
 // feature vectors. For vision tasks like MNIST, spatial relationships are crucial.
 #[derive(Debug, Clone, Copy)]
 enum PosEncodingType {
-    SmallRandom,    // [-0.1, 0.1] uniform random (original baseline)
-    LargerRandom,   // [-0.5, 0.5] uniform random
-    Sinusoidal,     // Sinusoidal encoding (Transformer-style) ← PRODUCTION DEFAULT
-    Zero,           // Zero initialization (learn from scratch)
-    Xavier,         // Xavier initialization
+    SmallRandom,  // [-0.1, 0.1] uniform random (original baseline)
+    LargerRandom, // [-0.5, 0.5] uniform random
+    Sinusoidal,   // Sinusoidal encoding (Transformer-style) ← PRODUCTION DEFAULT
+    Zero,         // Zero initialization (learn from scratch)
+    Xavier,       // Xavier initialization
 }
 
 /// Initializes an AttnModel with all learnable parameters and positional embeddings
@@ -565,9 +569,9 @@ fn init_model_with_pos_encoding(rng: &mut SimpleRng, pos_type: PosEncodingType) 
                     // Wavelength increases exponentially with dimension index
                     let angle = (t as f32) / 10000.0f32.powf((2 * (d / 2)) as f32 / D_MODEL as f32);
                     if d % 2 == 0 {
-                        pos[pos_base + d] = angle.sin();  // Even dimensions
+                        pos[pos_base + d] = angle.sin(); // Even dimensions
                     } else {
-                        pos[pos_base + d] = angle.cos();  // Odd dimensions
+                        pos[pos_base + d] = angle.cos(); // Odd dimensions
                     }
                 }
             }
@@ -677,8 +681,6 @@ fn init_model_with_pos_encoding(rng: &mut SimpleRng, pos_type: PosEncodingType) 
 fn init_model(rng: &mut SimpleRng) -> AttnModel {
     init_model_with_pos_encoding(rng, PosEncodingType::Sinusoidal)
 }
-
-
 
 // Extract 4x4 patches from a contiguous batch of images.
 // patches shape: [batch_count * SEQ_LEN * PATCH_DIM]
@@ -1584,13 +1586,8 @@ fn train_model_with_config(
             );
 
             // Forward pass + loss.
-            let batch_loss = forward_batch(
-                &model,
-                &batch_inputs,
-                &batch_labels,
-                batch_count,
-                &mut buf,
-            );
+            let batch_loss =
+                forward_batch(&model, &batch_inputs, &batch_labels, batch_count, &mut buf);
             total_loss += batch_loss;
 
             // Backward pass + SGD update.
@@ -1673,7 +1670,10 @@ fn main() {
     println!("  Model: D_MODEL={}, FF_DIM={}", D_MODEL, FF_DIM);
     println!("  Patches: {}x{} grid ({} tokens)", GRID, GRID, SEQ_LEN);
     println!("  Positional encoding: Sinusoidal (Transformer-style)");
-    println!("  Training: {} epochs, batch size {}, LR={}", EPOCHS, BATCH_SIZE, LEARNING_RATE);
+    println!(
+        "  Training: {} epochs, batch size {}, LR={}",
+        EPOCHS, BATCH_SIZE, LEARNING_RATE
+    );
     println!();
 
     println!("Loading MNIST data...");
@@ -1733,13 +1733,8 @@ fn main() {
             );
 
             // Forward pass + loss.
-            let batch_loss = forward_batch(
-                &model,
-                &batch_inputs,
-                &batch_labels,
-                batch_count,
-                &mut buf,
-            );
+            let batch_loss =
+                forward_batch(&model, &batch_inputs, &batch_labels, batch_count, &mut buf);
             total_loss += batch_loss;
 
             // Backward pass + SGD update.
@@ -1751,11 +1746,23 @@ fn main() {
         let acc = test_accuracy(&model, &test_images, &test_labels);
         let epoch_time = epoch_start.elapsed().as_secs_f32();
 
-        println!("  Epoch {:2}: loss={:.6} | test_acc={:5.2}% | time={:.2}s",
-            epoch + 1, avg_loss, acc, epoch_time);
+        println!(
+            "  Epoch {:2}: loss={:.6} | test_acc={:5.2}% | time={:.2}s",
+            epoch + 1,
+            avg_loss,
+            acc,
+            epoch_time
+        );
 
         // Log to file: epoch,loss,accuracy,time
-        if let Err(e) = writeln!(log, "{},{:.6},{:.2},{:.2}", epoch + 1, avg_loss, acc, epoch_time) {
+        if let Err(e) = writeln!(
+            log,
+            "{},{:.6},{:.2},{:.2}",
+            epoch + 1,
+            avg_loss,
+            acc,
+            epoch_time
+        ) {
             eprintln!("Warning: Failed to write to log file: {}", e);
         }
     }
@@ -1775,7 +1782,10 @@ fn main() {
     println!("Total time: {:.2}s", total_time);
     println!();
     println!("Training log saved to: ./logs/training_loss_attention.txt");
-    println!("Final test accuracy: {:.2}%", test_accuracy(&model, &test_images, &test_labels));
+    println!(
+        "Final test accuracy: {:.2}%",
+        test_accuracy(&model, &test_images, &test_labels)
+    );
 }
 
 #[cfg(test)]

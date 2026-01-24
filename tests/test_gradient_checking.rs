@@ -67,11 +67,7 @@ fn backward(
 }
 
 // Compute mean squared error for a single sample.
-fn compute_loss(
-    nn: &NeuralNetwork,
-    inputs: &[f64],
-    expected_outputs: &[f64],
-) -> f64 {
+fn compute_loss(nn: &NeuralNetwork, inputs: &[f64], expected_outputs: &[f64]) -> f64 {
     let mut hidden_outputs = vec![0.0; nn.hidden_layer.output_size];
     let mut output_outputs = vec![0.0; nn.output_layer.output_size];
 
@@ -247,7 +243,8 @@ mod tests {
 
         for i in 0..2 {
             for j in 0..1 {
-                let numerical_grad = numerical_gradient_weight(&nn, &inputs, &expected_outputs, 1, i, j, epsilon);
+                let numerical_grad =
+                    numerical_gradient_weight(&nn, &inputs, &expected_outputs, 1, i, j, epsilon);
                 let analytical_grad = grad_w2[i][j];
                 let rel_error = relative_error(numerical_grad, analytical_grad);
                 assert!(
@@ -296,7 +293,8 @@ mod tests {
         );
 
         for i in 0..1 {
-            let numerical_grad = numerical_gradient_bias(&nn, &inputs, &expected_outputs, 1, i, epsilon);
+            let numerical_grad =
+                numerical_gradient_bias(&nn, &inputs, &expected_outputs, 1, i, epsilon);
             let analytical_grad = grad_b2[i];
             let rel_error = relative_error(numerical_grad, analytical_grad);
             assert!(
@@ -345,7 +343,8 @@ mod tests {
 
         for i in 0..2 {
             for j in 0..2 {
-                let numerical_grad = numerical_gradient_weight(&nn, &inputs, &expected_outputs, 0, i, j, epsilon);
+                let numerical_grad =
+                    numerical_gradient_weight(&nn, &inputs, &expected_outputs, 0, i, j, epsilon);
                 let analytical_grad = grad_w1[i][j];
                 let rel_error = relative_error(numerical_grad, analytical_grad);
                 assert!(
@@ -394,7 +393,8 @@ mod tests {
         );
 
         for i in 0..2 {
-            let numerical_grad = numerical_gradient_bias(&nn, &inputs, &expected_outputs, 0, i, epsilon);
+            let numerical_grad =
+                numerical_gradient_bias(&nn, &inputs, &expected_outputs, 0, i, epsilon);
             let analytical_grad = grad_b1[i];
             let rel_error = relative_error(numerical_grad, analytical_grad);
             assert!(
@@ -443,7 +443,8 @@ mod tests {
 
         for i in 0..2 {
             for j in 0..1 {
-                let numerical_grad = numerical_gradient_weight(&nn, &inputs, &expected_outputs, 1, i, j, epsilon);
+                let numerical_grad =
+                    numerical_gradient_weight(&nn, &inputs, &expected_outputs, 1, i, j, epsilon);
                 let analytical_grad = grad_w2[i][j];
                 let rel_error = relative_error(numerical_grad, analytical_grad);
                 assert!(
@@ -493,7 +494,8 @@ mod tests {
 
         for i in 0..2 {
             for j in 0..3 {
-                let numerical_grad = numerical_gradient_weight(&nn, &inputs, &expected_outputs, 0, i, j, epsilon);
+                let numerical_grad =
+                    numerical_gradient_weight(&nn, &inputs, &expected_outputs, 0, i, j, epsilon);
                 let analytical_grad = grad_w1[i][j];
                 let rel_error = relative_error(numerical_grad, analytical_grad);
                 assert!(
@@ -543,7 +545,8 @@ mod tests {
 
         for i in 0..2 {
             for j in 0..1 {
-                let numerical_grad = numerical_gradient_weight(&nn, &inputs, &expected_outputs, 1, i, j, epsilon);
+                let numerical_grad =
+                    numerical_gradient_weight(&nn, &inputs, &expected_outputs, 1, i, j, epsilon);
                 let analytical_grad = grad_w2[i][j];
                 let rel_error = relative_error(numerical_grad, analytical_grad);
                 assert!(
@@ -602,7 +605,8 @@ mod tests {
 
         for i in 0..4 {
             for j in 0..2 {
-                let numerical_grad = numerical_gradient_weight(&nn, &inputs, &expected_outputs, 1, i, j, epsilon);
+                let numerical_grad =
+                    numerical_gradient_weight(&nn, &inputs, &expected_outputs, 1, i, j, epsilon);
                 let analytical_grad = grad_w2[i][j];
                 let rel_error = relative_error(numerical_grad, analytical_grad);
                 assert!(
@@ -652,7 +656,8 @@ mod tests {
 
         for i in 0..2 {
             for j in 0..2 {
-                let numerical_grad = numerical_gradient_weight(&nn, &inputs, &expected_outputs, 0, i, j, epsilon);
+                let numerical_grad =
+                    numerical_gradient_weight(&nn, &inputs, &expected_outputs, 0, i, j, epsilon);
                 let analytical_grad = grad_w1[i][j];
                 let rel_error = relative_error(numerical_grad, analytical_grad);
                 assert!(
@@ -714,7 +719,8 @@ mod tests {
 
         let sample_indices = [(0, 0), (2, 3), (3, 5)];
         for (i, j) in sample_indices.iter() {
-            let numerical_grad = numerical_gradient_weight(&nn, &inputs, &expected_outputs, 0, *i, *j, epsilon);
+            let numerical_grad =
+                numerical_gradient_weight(&nn, &inputs, &expected_outputs, 0, *i, *j, epsilon);
             let analytical_grad = grad_w1[*i][*j];
             let rel_error = relative_error(numerical_grad, analytical_grad);
             assert!(
@@ -764,7 +770,8 @@ mod tests {
 
         for i in 0..2 {
             for j in 0..2 {
-                let numerical_grad = numerical_gradient_weight(&nn, &inputs, &expected_outputs, 0, i, j, epsilon);
+                let numerical_grad =
+                    numerical_gradient_weight(&nn, &inputs, &expected_outputs, 0, i, j, epsilon);
                 let analytical_grad = grad_w1[i][j];
                 let rel_error = relative_error(numerical_grad, analytical_grad);
                 assert!(rel_error < max_rel_error);
@@ -772,7 +779,8 @@ mod tests {
         }
 
         for i in 0..2 {
-            let numerical_grad = numerical_gradient_bias(&nn, &inputs, &expected_outputs, 0, i, epsilon);
+            let numerical_grad =
+                numerical_gradient_bias(&nn, &inputs, &expected_outputs, 0, i, epsilon);
             let analytical_grad = grad_b1[i];
             let rel_error = relative_error(numerical_grad, analytical_grad);
             assert!(rel_error < max_rel_error);
@@ -780,7 +788,8 @@ mod tests {
 
         for i in 0..2 {
             for j in 0..1 {
-                let numerical_grad = numerical_gradient_weight(&nn, &inputs, &expected_outputs, 1, i, j, epsilon);
+                let numerical_grad =
+                    numerical_gradient_weight(&nn, &inputs, &expected_outputs, 1, i, j, epsilon);
                 let analytical_grad = grad_w2[i][j];
                 let rel_error = relative_error(numerical_grad, analytical_grad);
                 assert!(rel_error < max_rel_error);
@@ -788,7 +797,8 @@ mod tests {
         }
 
         for i in 0..1 {
-            let numerical_grad = numerical_gradient_bias(&nn, &inputs, &expected_outputs, 1, i, epsilon);
+            let numerical_grad =
+                numerical_gradient_bias(&nn, &inputs, &expected_outputs, 1, i, epsilon);
             let analytical_grad = grad_b2[i];
             let rel_error = relative_error(numerical_grad, analytical_grad);
             assert!(rel_error < max_rel_error);

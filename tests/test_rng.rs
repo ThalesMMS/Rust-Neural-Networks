@@ -21,7 +21,11 @@ impl SimpleRng {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos() as u64;
-        self.state = if nanos == 0 { 0x9e3779b97f4a7c15 } else { nanos };
+        self.state = if nanos == 0 {
+            0x9e3779b97f4a7c15
+        } else {
+            nanos
+        };
     }
 
     // Generate a pseudo-random u32 (xorshift).
@@ -92,7 +96,10 @@ mod tests {
                 break;
             }
         }
-        assert!(different, "Different seeds should produce different sequences");
+        assert!(
+            different,
+            "Different seeds should produce different sequences"
+        );
     }
 
     #[test]
@@ -535,6 +542,9 @@ mod tests {
 
         // After reseeding from time, sequence should be different
         // Note: There's a tiny chance they could be equal, but extremely unlikely
-        assert_ne!(first, second, "Reseeding from time should change the sequence");
+        assert_ne!(
+            first, second,
+            "Reseeding from time should change the sequence"
+        );
     }
 }

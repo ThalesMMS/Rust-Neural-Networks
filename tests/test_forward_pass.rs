@@ -290,9 +290,7 @@ mod tests {
         let output_size = 3;
 
         let inputs = vec![1.0, 2.0, 3.0, 4.0];
-        let weights = vec![
-            0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2,
-        ];
+        let weights = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2];
         let biases = vec![0.1, 0.2, 0.3];
 
         let mut outputs = vec![0.0f32; batch_size * output_size];
@@ -327,7 +325,9 @@ mod tests {
         let input_size = 3;
         let output_size = 2;
 
-        let inputs = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0];
+        let inputs = vec![
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
+        ];
         let weights = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
         let biases = vec![0.5, 1.0];
 
@@ -403,9 +403,7 @@ mod tests {
         let output_size = 4;
 
         let inputs = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-        let weights = vec![
-            0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2,
-        ];
+        let weights = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2];
         let biases = vec![0.1, 0.2, 0.3, 0.4];
 
         let mut outputs = vec![0.0f32; batch_size * output_size];
@@ -524,9 +522,7 @@ mod tests {
         let output_size = 2;
 
         let inputs = vec![1.0, 2.0, 3.0, 4.0];
-        let hidden_weights = vec![
-            0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2,
-        ];
+        let hidden_weights = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2];
         let hidden_biases = vec![0.1, 0.2, 0.3];
 
         let output_weights = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
