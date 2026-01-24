@@ -108,6 +108,16 @@ impl DenseLayer {
     pub fn parameter_count(&self) -> usize {
         self.weights.len() + self.biases.len()
     }
+
+    /// Get a reference to the layer's weights.
+    pub fn weights(&self) -> &[f32] {
+        &self.weights
+    }
+
+    /// Get a reference to the layer's biases.
+    pub fn biases(&self) -> &[f32] {
+        &self.biases
+    }
 }
 
 // Helper functions for BLAS operations
