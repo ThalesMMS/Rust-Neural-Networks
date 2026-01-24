@@ -13,13 +13,39 @@ pub struct SimpleRng {
 }
 
 impl SimpleRng {
-    /// Create a new RNG with explicit seed (if zero, use a fixed value).
+    /// Creates a new `SimpleRng` initialized from the provided seed.
+    ///
+    /// If `seed` is 0, a fixed non-zero seed (0x9e3779b97f4a7c15) is used instead to ensure
+    /// the internal state is never zero.
+    ///
+    /// # Parameters
+    ///
+    /// - `seed`: The explicit seed to initialize the generator. Zero is substituted with a fixed non-zero seed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut a = SimpleRng::new(42);
+    /// let mut b = SimpleRng::new(42);
+    /// assert_eq!(a.next_u32(), b.next_u32());
+    /// ```
     pub fn new(seed: u64) -> Self {
         let state = if seed == 0 { 0x9e3779b97f4a7c15 } else { seed };
         Self { state }
     }
 
-    /// Reseed based on the current time.
+    /// Reseeds the RNG's internal state using the current system time in nanoseconds.
+    ///
+    /// If the computed nanosecond timestamp is 0, a fixed non-zero seed `0x9e3779b97f4a7c15` is used instead.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut rng = SimpleRng::new(1);
+    /// rng.reseed_from_time();
+    /// // After reseeding, the RNG can produce values again.
+    /// let _v = rng.next_u32();
+    /// ```
     pub fn reseed_from_time(&mut self) {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -32,7 +58,20 @@ impl SimpleRng {
         };
     }
 
-    /// Basic xorshift to generate u32.
+    /// Generates the next pseudorandom 32-bit unsigned integer from the RNG state.
+    ///
+    /// # Returns
+    ///
+    /// A `u32` containing the next pseudorandom value derived from the generator's internal state.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut rng = crate::utils::rng::SimpleRng::new(123);
+    /// let v = rng.next_u32();
+    /// // v is a pseudorandom u32 deterministically derived from seed 123
+    /// assert!(v <= u32::MAX);
+    /// ```
     pub fn next_u32(&mut self) -> u32 {
         let mut x = self.state;
         x ^= x << 13;
@@ -42,17 +81,47 @@ impl SimpleRng {
         (x >> 32) as u32
     }
 
-    /// Convert to [0, 1).
+    /// Produces a floating-point sample in the range [0.0, 1.0].
+    ///
+    /// The result is obtained by scaling a 32-bit random integer to an `f32`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut rng = SimpleRng::new(1);
+    /// let v = rng.next_f32();
+    /// assert!(v >= 0.0 && v <= 1.0);
+    /// ```
     pub fn next_f32(&mut self) -> f32 {
         self.next_u32() as f32 / u32::MAX as f32
     }
 
-    /// Uniform sample in [low, high).
+    /// Samples a f32 uniformly from the half-open interval [low, high).
+    ///
+    /// The result is greater than or equal to `low` and less than `high`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut rng = SimpleRng::new(123);
+    /// let v = rng.gen_range_f32(-1.0, 1.0);
+    /// assert!(v >= -1.0 && v < 1.0);
+    /// ```
     pub fn gen_range_f32(&mut self, low: f32, high: f32) -> f32 {
         low + (high - low) * self.next_f32()
     }
 
-    /// Integer sample in [0, upper).
+    /// Samples a uniformly distributed `usize` in the half-open interval [0, upper).
+    ///
+    /// Returns `0` if `upper` is `0`, otherwise a value `v` such that `0 <= v < upper`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut rng = SimpleRng::new(123);
+    /// let v = rng.gen_usize(10);
+    /// assert!(v < 10);
+    /// ```
     pub fn gen_usize(&mut self, upper: usize) -> usize {
         if upper == 0 {
             0
@@ -61,7 +130,22 @@ impl SimpleRng {
         }
     }
 
-    /// Fisher-Yates shuffle for usize slices.
+    /// Performs an in-place Fisher–Yates shuffle of a slice of `usize`.
+    ///
+    /// Leaves slices with length 0 or 1 unchanged. Produces a uniformly random permutation
+    /// of the input elements using the RNG's current state.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut rng = SimpleRng::new(42);
+    /// let mut v = (0..5).collect::<Vec<usize>>();
+    /// rng.shuffle_usize(&mut v);
+    /// // same elements, order may differ
+    /// let mut sorted = v.clone();
+    /// sorted.sort();
+    /// assert_eq!(sorted, (0..5).collect::<Vec<usize>>());
+    /// ```
     pub fn shuffle_usize(&mut self, data: &mut [usize]) {
         if data.len() <= 1 {
             return;

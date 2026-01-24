@@ -23,6 +23,22 @@ struct NeuralNetwork {
 }
 
 // Network construction 784 -> 512 -> 10.
+/// Create a feedforward NeuralNetwork with randomized DenseLayer parameters.
+///
+/// The returned network contains a hidden DenseLayer sized NUM_INPUTS -> NUM_HIDDEN
+/// and an output DenseLayer sized NUM_HIDDEN -> NUM_OUTPUTS. Layer parameters
+/// are initialized using the provided RNG (the RNG is reseeded inside the function).
+///
+/// # Examples
+///
+/// ```
+/// let mut rng = SimpleRng::new();
+/// let nn = initialize_network(&mut rng);
+/// assert_eq!(nn.hidden_layer.input_size(), NUM_INPUTS);
+/// assert_eq!(nn.hidden_layer.output_size(), NUM_HIDDEN);
+/// assert_eq!(nn.output_layer.input_size(), NUM_HIDDEN);
+/// assert_eq!(nn.output_layer.output_size(), NUM_OUTPUTS);
+/// ```
 fn initialize_network(rng: &mut SimpleRng) -> NeuralNetwork {
     rng.reseed_from_time();
     let hidden_layer = DenseLayer::new(NUM_INPUTS, NUM_HIDDEN, rng);
@@ -34,6 +50,37 @@ fn initialize_network(rng: &mut SimpleRng) -> NeuralNetwork {
     }
 }
 
+/// Computes the total cross-entropy loss for a batch of softmax outputs and writes the corresponding gradient (softmax-backed deltas) into `delta`.
+///
+/// For each of the first `rows` samples, the function:
+/// - Accumulates negative log probability of the true class (using a small epsilon to avoid log(0)) into the returned loss.
+/// - Writes a gradient row into `delta` equal to the predicted probabilities with `1.0` subtracted at the true label index (i.e., `p_i` for i != y, and `p_y - 1.0` for the true class).
+///
+/// # Parameters
+///
+/// - `outputs`: Flattened row-major softmax output probabilities with length at least `rows * cols`.
+/// - `labels`: True class labels for the batch; only the first `rows` entries are used.
+/// - `rows`: Number of samples (rows) to process from `outputs` and `labels`.
+/// - `cols`: Number of classes (columns) per sample.
+/// - `delta`: Mutable flattened buffer where computed gradient rows are written; must have length at least `rows * cols`.
+///
+/// # Returns
+///
+/// Total cross-entropy loss summed over the processed `rows` samples.
+///
+/// # Examples
+///
+/// ```
+/// let outputs = [0.9f32, 0.1f32]; // one sample, two-class softmax
+/// let labels = [0u8];
+/// let mut delta = [0.0f32; 2];
+/// let loss = compute_delta_and_loss(&outputs, &labels, 1, 2, &mut delta);
+/// let expected_loss = -(0.9f32).ln();
+/// assert!((loss - expected_loss).abs() < 1e-6);
+/// // gradient: true class probability minus 1, other classes remain as probabilities
+/// assert!((delta[0] - (-0.1f32)).abs() < 1e-6);
+/// assert!((delta[1] - 0.1f32).abs() < 1e-6);
+/// ```
 fn compute_delta_and_loss(
     outputs: &[f32],
     labels: &[u8],
@@ -64,6 +111,26 @@ fn compute_delta_and_loss(
     total_loss
 }
 
+/// Copies a minibatch of images and labels selected by index into the provided output buffers.
+///
+/// Copies `count` samples whose indices are taken from `indices[start..start + count]`.
+/// Each image is NUM_INPUTS consecutive values in `images` and is copied into `out_inputs` at consecutive positions (batch-major).
+/// Corresponding labels are copied into `out_labels` in order.
+///
+/// The caller must ensure `out_inputs` has length at least `count * NUM_INPUTS`, `out_labels` has length at least `count`,
+/// and that `indices[start..start + count]` contains valid indices into `images` and `labels`.
+///
+/// # Examples
+///
+/// ```
+/// let images = vec![0f32; NUM_INPUTS * 2];
+/// let labels = vec![1u8, 2u8];
+/// let indices = vec![1usize, 0usize];
+/// let mut out_inputs = vec![0f32; NUM_INPUTS * 2];
+/// let mut out_labels = vec![0u8; 2];
+/// gather_batch(&images, &labels, &indices, 0, 2, &mut out_inputs, &mut out_labels);
+/// assert_eq!(out_labels, vec![1, 2]);
+/// ```
 fn gather_batch(
     images: &[f32],
     labels: &[u8],
@@ -86,6 +153,22 @@ fn gather_batch(
 }
 
 // Training with shuffling and minibatches.
+/// Trains the neural network using minibatch stochastic gradient descent, logging per-epoch loss and duration.
+///
+/// This function performs training for a fixed number of epochs using minibatches, updates the
+/// network parameters in-place, and appends per-epoch loss and elapsed time to ./logs/training_loss_c.txt.
+/// It also prints epoch-level loss and timing to standard output.
+///
+/// # Examples
+///
+/// ```
+/// // Construct a tiny example network and dataset, then run one training invocation.
+/// let mut rng = SimpleRng::new();
+/// let mut nn = initialize_network(&mut rng);
+/// let images = vec![0.0f32; NUM_INPUTS * 1]; // single example with zeroed pixels
+/// let labels = vec![0u8; 1]; // single label
+/// train(&mut nn, &images, &labels, 1, &mut rng);
+/// ```
 fn train(
     nn: &mut NeuralNetwork,
     images: &[f32],
@@ -190,6 +273,21 @@ fn train(
 }
 
 // Evaluate accuracy on the test set using batches.
+/// Evaluates a trained network on the provided dataset and prints the test accuracy.
+///
+/// The function processes the dataset in minibatches, performs forward passes (hidden ReLU, output softmax),
+/// selects the highest-probability class per sample, counts correct predictions, and prints accuracy as a percentage.
+///
+/// # Examples
+///
+/// ```
+/// // Assume `nn`, `images`, `labels`, and `num_samples` are prepared:
+/// // let mut rng = SimpleRng::new();
+/// // let nn = initialize_network(&mut rng);
+/// // let images: Vec<f32> = ...; // flattened images
+/// // let labels: Vec<u8> = ...; // one label per image
+/// test(&nn, &images, &labels, num_samples);
+/// ```
 fn test(nn: &NeuralNetwork, images: &[f32], labels: &[u8], num_samples: usize) {
     let mut correct_predictions = 0usize;
     let mut batch_inputs = vec![0.0f32; BATCH_SIZE * NUM_INPUTS];
@@ -234,6 +332,23 @@ fn test(nn: &NeuralNetwork, images: &[f32], labels: &[u8], num_samples: usize) {
 }
 
 // Save the model in binary (int + doubles, native endianness).
+/// Serializes the neural network to a binary file using native endianness.
+///
+/// The file contains, in order:
+/// 1. Three 32-bit integers: hidden layer input size, hidden layer output size, and output layer output size.
+/// 2. All hidden layer weights as 64-bit floats (row-major as provided by `DenseLayer::weights()`).
+/// 3. All hidden layer biases as 64-bit floats (in order from `DenseLayer::biases()`).
+/// 4. All output layer weights as 64-bit floats.
+/// 5. All output layer biases as 64-bit floats.
+///
+/// The function terminates the process with an error message if the file cannot be created or any write fails.
+///
+/// # Examples
+///
+/// ```
+/// // Serializes `nn` to "mnist_model.bin".
+/// save_model(&nn, "mnist_model.bin");
+/// ```
 fn save_model(nn: &NeuralNetwork, filename: &str) {
     let file = File::create(filename).unwrap_or_else(|_| {
         eprintln!("Could not open file {} for writing model", filename);

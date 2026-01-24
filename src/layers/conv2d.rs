@@ -51,36 +51,21 @@ pub struct Conv2DLayer {
 }
 
 impl Conv2DLayer {
-    /// Create a new Conv2DLayer with Xavier initialization.
+    /// Creates a Conv2DLayer initialized with Xavier (Glorot) weights and zero biases.
     ///
-    /// Weights are initialized using Xavier/Glorot initialization adapted for convolutions:
-    /// randomly sampled from uniform distribution [-limit, limit]
-    /// where limit = sqrt(6 / (fan_in + fan_out)).
-    /// For convolutions: fan_in = in_channels × kernel_size², fan_out = out_channels × kernel_size²
+    /// Weights are sampled uniformly from [-limit, limit] where
+    /// limit = sqrt(6 / (fan_in + fan_out)) and, for convolutions,
+    /// fan_in = in_channels × kernel_size², fan_out = out_channels × kernel_size².
     ///
-    /// Biases are initialized to zero.
+    /// # Examples
     ///
-    /// # Arguments
-    ///
-    /// * `in_channels` - Number of input channels
-    /// * `out_channels` - Number of output feature maps (filters)
-    /// * `kernel_size` - Size of square kernel (e.g., 3 for 3×3)
-    /// * `padding` - Zero-padding to apply
-    /// * `stride` - Stride for convolution
-    /// * `input_height` - Height of input feature map
-    /// * `input_width` - Width of input feature map
-    /// * `rng` - Random number generator for weight initialization
-    ///
-    /// # Returns
-    ///
-    /// A new Conv2DLayer with randomly initialized weights and zero biases
-    ///
-    /// # Example
-    ///
-    /// ```ignore
+    /// ```
     /// let mut rng = SimpleRng::new(42);
     /// // 1 input channel, 8 output channels, 3x3 kernel, padding=1, stride=1, 28x28 input
     /// let layer = Conv2DLayer::new(1, 8, 3, 1, 1, 28, 28, &mut rng);
+    /// assert_eq!(layer.in_channels(), 1);
+    /// assert_eq!(layer.out_channels(), 8);
+    /// assert_eq!(layer.kernel_size(), 3);
     /// ```
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -122,7 +107,11 @@ impl Conv2DLayer {
         }
     }
 
-    /// Get the number of input channels.
+    /// Number of input channels.
+    ///
+    /// # Returns
+    ///
+    /// `usize` number of input channels.
     pub fn in_channels(&self) -> usize {
         self.in_channels
     }
@@ -132,7 +121,16 @@ impl Conv2DLayer {
         self.out_channels
     }
 
-    /// Get the kernel size.
+    /// Provides the size (side length) of the square convolution kernel.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// // assume `SimpleRng` and `Conv2DLayer` are in scope
+    /// let mut rng = SimpleRng::seed_from_u64(42);
+    /// let layer = Conv2DLayer::new(1, 8, 3, 1, 1, 28, 28, &mut rng);
+    /// assert_eq!(layer.kernel_size(), 3);
+    /// ```
     pub fn kernel_size(&self) -> usize {
         self.kernel_size
     }
@@ -142,32 +140,76 @@ impl Conv2DLayer {
         self.padding
     }
 
-    /// Get the stride.
+    /// Number of input pixels the kernel moves between consecutive applications.
+    ///
+    /// # Returns
+    ///
+    /// The stride value (step size in pixels) used when sliding the convolutional kernel.
     pub fn stride(&self) -> usize {
         self.stride
     }
 
-    /// Get the output height after convolution.
+    /// Computes the output height of the layer's feature maps after applying the convolution.
     ///
-    /// Calculated as: (input_height + 2*padding - kernel_size) / stride + 1
+    /// The result is floor((input_height + 2*padding - kernel_size) / stride) + 1.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut rng = crate::rng::SimpleRng::new(0);
+    /// let layer = crate::layers::conv2d::Conv2DLayer::new(
+    ///     1, // in_channels
+    ///     8, // out_channels
+    ///     3, // kernel_size
+    ///     1, // padding
+    ///     1, // stride
+    ///     28, // input_height
+    ///     28, // input_width
+    ///     &mut rng,
+    /// );
+    /// assert_eq!(layer.output_height(), 28);
+    /// ```
     pub fn output_height(&self) -> usize {
         ((self.input_height as isize + 2 * self.padding - self.kernel_size as isize)
             / self.stride as isize
             + 1) as usize
     }
 
-    /// Get the output width after convolution.
+    /// Computes the spatial width of the output feature map produced by this layer.
     ///
-    /// Calculated as: (input_width + 2*padding - kernel_size) / stride + 1
+    /// The result is computed from the layer's input width, padding, kernel size, and stride:
+    /// (input_width + 2*padding - kernel_size) / stride + 1.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// // Construct a layer with input width 28, kernel 3, padding 1 and stride 1.
+    /// let mut rng = crate::utils::SimpleRng::seed(0);
+    /// let layer = crate::layers::conv2d::Conv2DLayer::new(1, 8, 3, 1, 1, 28, 28, &mut rng);
+    /// assert_eq!(layer.output_width(), 28);
+    /// ```
     pub fn output_width(&self) -> usize {
         ((self.input_width as isize + 2 * self.padding - self.kernel_size as isize)
             / self.stride as isize
             + 1) as usize
     }
 
-    /// Get the total number of trainable parameters.
+    /// Total number of trainable parameters in the layer.
     ///
-    /// Returns weights count + biases count
+    /// # Examples
+    ///
+    /// ```
+    /// use crate::layers::conv2d::Conv2DLayer;
+    /// use crate::utils::rng::SimpleRng;
+    ///
+    /// let mut rng = SimpleRng::new(0);
+    /// let layer = Conv2DLayer::new(1, 8, 3, 1, 1, 28, 28, &mut rng);
+    /// assert_eq!(layer.parameter_count(), 1 * 8 * 3 * 3 + 8);
+    /// ```
+    ///
+    /// # Returns
+    ///
+    /// The total number of trainable parameters (weights + biases).
     pub fn parameter_count(&self) -> usize {
         self.weights.len() + self.biases.len()
     }
@@ -176,6 +218,31 @@ impl Conv2DLayer {
 // Layer trait implementation
 
 impl Layer for Conv2DLayer {
+    /// Applies this convolutional layer to `input` and writes the computed feature maps into `output`.
+    ///
+    /// The expected memory layout for `input` and `output` is contiguous row-major with dimensions
+    /// [batch, channels, height, width]. `input` must have length `batch_size * layer.input_size()` and
+    /// `output` must have length `batch_size * layer.output_size()`. The method reads the layer's weights
+    /// and biases and computes a standard 2D convolution using the configured `padding` and `stride`.
+    ///
+    /// # Parameters
+    ///
+    /// - `input`: Flattened input tensor with layout [batch, in_channels, input_height, input_width].
+    /// - `output`: Mutable flattened output buffer with layout [batch, out_channels, output_height, output_width].
+    /// - `batch_size`: Number of examples in the batch.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// // Construct a layer (rng provided by the surrounding crate/test harness)
+    /// let mut rng = crate::rng::SimpleRng::new(42);
+    /// let layer = crate::layers::conv2d::Conv2DLayer::new(1, 8, 3, 1, 1, 28, 28, &mut rng);
+    /// let batch_size = 2;
+    /// let input = vec![0.0f32; batch_size * layer.input_size()];
+    /// let mut output = vec![0.0f32; batch_size * layer.output_size()];
+    /// layer.forward(&input, &mut output, batch_size);
+    /// assert_eq!(output.len(), batch_size * layer.output_size());
+    /// ```
     fn forward(&self, input: &[f32], output: &mut [f32], batch_size: usize) {
         let out_h = self.output_height();
         let out_w = self.output_width();
@@ -232,6 +299,30 @@ impl Layer for Conv2DLayer {
         }
     }
 
+    /// Computes and accumulates gradients for this convolutional layer and writes the input gradients.
+    ///
+    /// This method updates the layer's internal gradient accumulators (`grad_weights` and `grad_biases`) by
+    /// accumulating gradients from `grad_output` across the batch and spatial locations, scales those accumulators
+    /// by 1 / `batch_size`, and writes the gradient with respect to the layer input into `grad_input`.
+    ///
+    /// Parameters are expected in contiguous row-major layout with the ordering (batch, channel, height, width):
+    /// - `input`: length `batch_size * in_channels * input_height * input_width`.
+    /// - `grad_output`: length `batch_size * out_channels * output_height() * output_width()`.
+    /// - `grad_input`: mutable buffer with the same length and layout as `input`; it is overwritten with computed gradients.
+    /// - `batch_size`: number of examples in the first dimension of `input` and `grad_output`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut rng = SimpleRng::seed(42);
+    /// let layer = Conv2DLayer::new(1, 1, 3, 1, 1, 5, 5, &mut rng);
+    /// let batch = 1;
+    /// let input = vec![0.0f32; batch * layer.input_size()];
+    /// let grad_out = vec![1.0f32; batch * layer.output_size()];
+    /// let mut grad_in = vec![0.0f32; batch * layer.input_size()];
+    /// layer.backward(&input, &grad_out, &mut grad_in, batch);
+    /// assert!(grad_in.iter().any(|&v| v != 0.0));
+    /// ```
     fn backward(
         &self,
         input: &[f32],
@@ -355,6 +446,34 @@ impl Layer for Conv2DLayer {
         }
     }
 
+    /// Applies a gradient-descent step to the layer's parameters and resets accumulated gradients.
+    ///
+    /// Updates each weight and bias by subtracting `learning_rate * gradient` using the values
+    /// stored in the layer's internal gradient accumulators, then zeroes those accumulators.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// // Create a tiny layer and a deterministic RNG (types must be in scope).
+    /// let mut rng = SimpleRng::new(0);
+    /// let mut layer = Conv2DLayer::new(1, 1, 1, 0, 1, 1, 1, &mut rng);
+    ///
+    /// // Simulate accumulated gradients
+    /// {
+    ///     let mut gw = layer.grad_weights.borrow_mut();
+    ///     gw[0] = 0.5;
+    ///     let mut gb = layer.grad_biases.borrow_mut();
+    ///     gb[0] = 0.25;
+    /// }
+    ///
+    /// let old_w = layer.weights[0];
+    /// let old_b = layer.biases[0];
+    /// layer.update_parameters(0.1);
+    /// assert_eq!(layer.grad_weights.borrow()[0], 0.0);
+    /// assert_eq!(layer.grad_biases.borrow()[0], 0.0);
+    /// assert_eq!(layer.weights[0], old_w - 0.1 * 0.5);
+    /// assert_eq!(layer.biases[0], old_b - 0.1 * 0.25);
+    /// ```
     fn update_parameters(&mut self, learning_rate: f32) {
         let grad_w = self.grad_weights.borrow();
         let grad_b = self.grad_biases.borrow();
@@ -382,14 +501,47 @@ impl Layer for Conv2DLayer {
             .for_each(|g| *g = 0.0);
     }
 
+    /// Computes the total number of values in a single input example.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// // Demonstrates the calculation for a layer with 3 channels and 28x28 spatial size.
+    /// # struct Dummy { in_channels: usize, input_height: usize, input_width: usize }
+    /// # impl Dummy { fn input_size(&self) -> usize { self.in_channels * self.input_height * self.input_width } }
+    /// let layer = Dummy { in_channels: 3, input_height: 28, input_width: 28 };
+    /// assert_eq!(layer.input_size(), 3 * 28 * 28);
+    /// ```
     fn input_size(&self) -> usize {
         self.in_channels * self.input_height * self.input_width
     }
 
+    /// Compute the total number of scalar elements in a single output feature map.
+    ///
+    /// This is the product of the number of output channels and the spatial dimensions:
+    /// out_channels * output_height() * output_width().
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// // given an existing Conv2DLayer `layer`:
+    /// // let layer = Conv2DLayer::new(...);
+    /// let n = layer.output_size();
+    /// assert_eq!(n, layer.out_channels() * layer.output_height() * layer.output_width());
+    /// ```
     fn output_size(&self) -> usize {
         self.out_channels * self.output_height() * self.output_width()
     }
 
+    /// Return the total number of trainable parameters (weights and biases).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut rng = SimpleRng::seed(42);
+    /// let layer = Conv2DLayer::new(1, 8, 3, 1, 1, 28, 28, &mut rng);
+    /// assert_eq!(layer.parameter_count(), 1 * 8 * 3 * 3 + 8);
+    /// ```
     fn parameter_count(&self) -> usize {
         self.weights.len() + self.biases.len()
     }
