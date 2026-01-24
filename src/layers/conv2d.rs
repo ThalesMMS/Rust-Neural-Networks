@@ -170,6 +170,203 @@ impl Conv2DLayer {
     }
 }
 
+// Layer trait implementation
+
+impl Layer for Conv2DLayer {
+    fn forward(&self, input: &[f32], output: &mut [f32], batch_size: usize) {
+        let out_h = self.output_height();
+        let out_w = self.output_width();
+        let out_spatial = out_h * out_w;
+        let in_spatial = self.input_height * self.input_width;
+
+        for b in 0..batch_size {
+            let in_base = b * (self.in_channels * in_spatial);
+            let out_base_b = b * (self.out_channels * out_spatial);
+
+            for oc in 0..self.out_channels {
+                let bias = self.biases[oc];
+                let out_base = out_base_b + oc * out_spatial;
+
+                // For each output pixel, accumulate over input channels and kernel window
+                for oy in 0..out_h {
+                    for ox in 0..out_w {
+                        let mut sum = bias;
+
+                        // Accumulate over input channels
+                        for ic in 0..self.in_channels {
+                            let w_base = (oc * self.in_channels + ic) * self.kernel_size * self.kernel_size;
+                            let in_base_c = in_base + ic * in_spatial;
+
+                            // Convolve kernel over input
+                            for ky in 0..self.kernel_size {
+                                for kx in 0..self.kernel_size {
+                                    let iy = oy as isize * self.stride as isize + ky as isize - self.padding;
+                                    let ix = ox as isize * self.stride as isize + kx as isize - self.padding;
+
+                                    if iy >= 0 && iy < self.input_height as isize
+                                        && ix >= 0 && ix < self.input_width as isize
+                                    {
+                                        let iyy = iy as usize;
+                                        let ixx = ix as usize;
+                                        let in_idx = in_base_c + iyy * self.input_width + ixx;
+                                        let w_idx = w_base + ky * self.kernel_size + kx;
+                                        sum += input[in_idx] * self.weights[w_idx];
+                                    }
+                                }
+                            }
+                        }
+
+                        let out_idx = out_base + oy * out_w + ox;
+                        output[out_idx] = sum;
+                    }
+                }
+            }
+        }
+    }
+
+    fn backward(&self, input: &[f32], grad_output: &[f32], grad_input: &mut [f32], batch_size: usize) {
+        let scale = 1.0f32 / batch_size as f32;
+        let out_h = self.output_height();
+        let out_w = self.output_width();
+        let out_spatial = out_h * out_w;
+        let in_spatial = self.input_height * self.input_width;
+
+        // Clear gradient accumulators
+        let mut grad_w = self.grad_weights.borrow_mut();
+        let mut grad_b = self.grad_biases.borrow_mut();
+
+        // Accumulate gradients for weights and biases
+        for b in 0..batch_size {
+            let in_base = b * (self.in_channels * in_spatial);
+            let g_base_b = b * (self.out_channels * out_spatial);
+
+            for oc in 0..self.out_channels {
+                let g_base = g_base_b + oc * out_spatial;
+
+                // Accumulate bias gradient
+                for oy in 0..out_h {
+                    for ox in 0..out_w {
+                        let g = grad_output[g_base + oy * out_w + ox];
+                        grad_b[oc] += g;
+                    }
+                }
+
+                // Accumulate weight gradients
+                for ic in 0..self.in_channels {
+                    let w_base = (oc * self.in_channels + ic) * self.kernel_size * self.kernel_size;
+                    let in_base_c = in_base + ic * in_spatial;
+
+                    for oy in 0..out_h {
+                        for ox in 0..out_w {
+                            let g = grad_output[g_base + oy * out_w + ox];
+
+                            for ky in 0..self.kernel_size {
+                                for kx in 0..self.kernel_size {
+                                    let iy = oy as isize * self.stride as isize + ky as isize - self.padding;
+                                    let ix = ox as isize * self.stride as isize + kx as isize - self.padding;
+
+                                    if iy >= 0 && iy < self.input_height as isize
+                                        && ix >= 0 && ix < self.input_width as isize
+                                    {
+                                        let iyy = iy as usize;
+                                        let ixx = ix as usize;
+                                        let in_idx = in_base_c + iyy * self.input_width + ixx;
+                                        let w_idx = w_base + ky * self.kernel_size + kx;
+                                        grad_w[w_idx] += g * input[in_idx];
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Scale gradients by batch size
+        for g in grad_w.iter_mut() {
+            *g *= scale;
+        }
+        for g in grad_b.iter_mut() {
+            *g *= scale;
+        }
+
+        // Compute gradient with respect to input
+        for v in grad_input.iter_mut() {
+            *v = 0.0;
+        }
+
+        for b in 0..batch_size {
+            let in_base = b * (self.in_channels * in_spatial);
+            let g_base_b = b * (self.out_channels * out_spatial);
+
+            for ic in 0..self.in_channels {
+                let in_base_c = in_base + ic * in_spatial;
+
+                for oc in 0..self.out_channels {
+                    let g_base = g_base_b + oc * out_spatial;
+                    let w_base = (oc * self.in_channels + ic) * self.kernel_size * self.kernel_size;
+
+                    for oy in 0..out_h {
+                        for ox in 0..out_w {
+                            let g = grad_output[g_base + oy * out_w + ox];
+
+                            for ky in 0..self.kernel_size {
+                                for kx in 0..self.kernel_size {
+                                    let iy = oy as isize * self.stride as isize + ky as isize - self.padding;
+                                    let ix = ox as isize * self.stride as isize + kx as isize - self.padding;
+
+                                    if iy >= 0 && iy < self.input_height as isize
+                                        && ix >= 0 && ix < self.input_width as isize
+                                    {
+                                        let iyy = iy as usize;
+                                        let ixx = ix as usize;
+                                        let in_idx = in_base_c + iyy * self.input_width + ixx;
+                                        let w_idx = w_base + ky * self.kernel_size + kx;
+                                        grad_input[in_idx] += g * self.weights[w_idx];
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn update_parameters(&mut self, learning_rate: f32) {
+        let grad_w = self.grad_weights.borrow();
+        let grad_b = self.grad_biases.borrow();
+
+        // Update weights: weight = weight - learning_rate * gradient
+        for (weight, &gradient) in self.weights.iter_mut().zip(grad_w.iter()) {
+            *weight -= learning_rate * gradient;
+        }
+
+        // Update biases: bias = bias - learning_rate * gradient
+        for (bias, &gradient) in self.biases.iter_mut().zip(grad_b.iter()) {
+            *bias -= learning_rate * gradient;
+        }
+
+        // Clear gradients for next iteration
+        drop(grad_w);
+        drop(grad_b);
+        self.grad_weights.borrow_mut().iter_mut().for_each(|g| *g = 0.0);
+        self.grad_biases.borrow_mut().iter_mut().for_each(|g| *g = 0.0);
+    }
+
+    fn input_size(&self) -> usize {
+        self.in_channels * self.input_height * self.input_width
+    }
+
+    fn output_size(&self) -> usize {
+        self.out_channels * self.output_height() * self.output_width()
+    }
+
+    fn parameter_count(&self) -> usize {
+        self.weights.len() + self.biases.len()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

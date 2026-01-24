@@ -5,7 +5,9 @@
 
 mod r#trait;
 pub mod dense;
+pub mod conv2d;
 
 // Re-export the Layer trait for convenience
 pub use r#trait::Layer;
 pub use dense::DenseLayer;
+pub use conv2d::Conv2DLayer;
