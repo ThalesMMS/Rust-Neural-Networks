@@ -12,10 +12,12 @@
 //
 // Note: educational implementation (no BLAS/GEMM), so it is intentionally slow.
 
+use rust_neural_networks::layers::{Conv2DLayer, DenseLayer, Layer};
+use rust_neural_networks::utils::{relu_inplace, softmax_rows, SimpleRng};
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::process;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 // MNIST constants (images are flat 28x28 in row-major order).
 const IMG_H: usize = 28;
@@ -39,65 +41,6 @@ const FC_IN: usize = CONV_OUT * POOL_H * POOL_W; // 8*14*14 = 1568
 const LEARNING_RATE: f32 = 0.01;
 const EPOCHS: usize = 3;
 const BATCH_SIZE: usize = 32;
-
-// Tiny xorshift RNG for reproducible init without external crates.
-struct SimpleRng {
-    state: u64,
-}
-
-impl SimpleRng {
-    fn new(seed: u64) -> Self {
-        let state = if seed == 0 { 0x9e3779b97f4a7c15 } else { seed };
-        Self { state }
-    }
-
-    fn reseed_from_time(&mut self) {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos() as u64;
-        self.state = if nanos == 0 {
-            0x9e3779b97f4a7c15
-        } else {
-            nanos
-        };
-    }
-
-    fn next_u32(&mut self) -> u32 {
-        let mut x = self.state;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.state = x;
-        (x >> 32) as u32
-    }
-
-    fn next_f32(&mut self) -> f32 {
-        self.next_u32() as f32 / u32::MAX as f32
-    }
-
-    fn gen_range_f32(&mut self, low: f32, high: f32) -> f32 {
-        low + (high - low) * self.next_f32()
-    }
-
-    fn gen_usize(&mut self, upper: usize) -> usize {
-        if upper == 0 {
-            0
-        } else {
-            (self.next_u32() as usize) % upper
-        }
-    }
-
-    fn shuffle_usize(&mut self, data: &mut [usize]) {
-        if data.len() <= 1 {
-            return;
-        }
-        for i in (1..data.len()).rev() {
-            let j = self.gen_usize(i + 1);
-            data.swap(i, j);
-        }
-    }
-}
 
 // Read a big-endian u32 and advance the byte offset (IDX format uses BE).
 fn read_be_u32(data: &[u8], offset: &mut usize) -> u32 {
@@ -185,121 +128,33 @@ fn gather_batch(
     }
 }
 
-// In-place ReLU for a flat buffer.
-#[allow(dead_code)]
-fn relu_inplace(x: &mut [f32]) {
-    for v in x.iter_mut() {
-        if *v < 0.0 {
-            *v = 0.0;
-        }
-    }
-}
-
-// Softmax row-wise (in-place). Buffer layout: rows * cols.
-fn softmax_rows(data: &mut [f32], rows: usize, cols: usize) {
-    for r in 0..rows {
-        let base = r * cols;
-        let row = &mut data[base..base + cols];
-
-        let mut maxv = row[0];
-        for &v in row.iter().skip(1) {
-            if v > maxv {
-                maxv = v;
-            }
-        }
-
-        let mut sum = 0.0f32;
-        for v in row.iter_mut() {
-            *v = (*v - maxv).exp();
-            sum += *v;
-        }
-
-        let inv = 1.0f32 / sum;
-        for v in row.iter_mut() {
-            *v *= inv;
-        }
-    }
-}
-
-// CNN parameters stored in flat arrays for cache-friendly loops.
+// CNN with shared layer abstractions.
 struct Cnn {
-    // Conv: 1 -> CONV_OUT, kernel KERNELxKERNEL, pad=1, stride=1
-    conv_w: Vec<f32>, // [CONV_OUT * KERNEL * KERNEL]
-    conv_b: Vec<f32>, // [CONV_OUT]
-    // FC: FC_IN -> 10
-    fc_w: Vec<f32>, // [FC_IN * 10]
-    fc_b: Vec<f32>, // [10]
-}
-
-// Xavier/Glorot uniform init for stable signal magnitudes.
-fn xavier_init(limit: f32, rng: &mut SimpleRng, w: &mut [f32]) {
-    for v in w.iter_mut() {
-        *v = rng.gen_range_f32(-limit, limit);
-    }
+    conv_layer: Conv2DLayer,
+    fc_layer: DenseLayer,
 }
 
 fn init_cnn(rng: &mut SimpleRng) -> Cnn {
-    // Xavier limits based on approximate fan-in/out.
-    let fan_in = (KERNEL * KERNEL) as f32;
-    let fan_out = (KERNEL * KERNEL * CONV_OUT) as f32;
-    let conv_limit = (6.0f32 / (fan_in + fan_out)).sqrt();
+    // Conv: 1 input channel -> CONV_OUT output channels, 3x3 kernel, pad=1, stride=1
+    let conv_layer = Conv2DLayer::new(1, CONV_OUT, KERNEL, PAD, 1, IMG_H, IMG_W, rng);
 
-    let mut conv_w = vec![0.0f32; CONV_OUT * KERNEL * KERNEL];
-    let conv_b = vec![0.0f32; CONV_OUT];
-    xavier_init(conv_limit, rng, &mut conv_w);
-
-    // FC layer init.
-    let fc_limit = (6.0f32 / (FC_IN as f32 + NUM_CLASSES as f32)).sqrt();
-    let mut fc_w = vec![0.0f32; FC_IN * NUM_CLASSES];
-    let fc_b = vec![0.0f32; NUM_CLASSES];
-    xavier_init(fc_limit, rng, &mut fc_w);
+    // FC layer: FC_IN -> NUM_CLASSES
+    let fc_layer = DenseLayer::new(FC_IN, NUM_CLASSES, rng);
 
     Cnn {
-        conv_w,
-        conv_b,
-        fc_w,
-        fc_b,
+        conv_layer,
+        fc_layer,
     }
 }
 
 // Forward conv + ReLU.
 // input: [batch * 784], conv_out: [batch * CONV_OUT * 28 * 28]
-fn conv_forward_relu(model: &Cnn, batch: usize, input: &[f32], conv_out: &mut [f32]) {
-    let spatial = IMG_H * IMG_W;
-    let out_spatial = spatial;
+fn conv_forward_relu(model: &mut Cnn, batch: usize, input: &[f32], conv_out: &mut [f32]) {
+    // Use Conv2DLayer for forward pass
+    model.conv_layer.forward(input, conv_out, batch);
 
-    for b in 0..batch {
-        let in_base = b * NUM_INPUTS;
-        let out_base_b = b * (CONV_OUT * out_spatial);
-
-        for oc in 0..CONV_OUT {
-            let w_base = oc * (KERNEL * KERNEL);
-            let bias = model.conv_b[oc];
-            let out_base = out_base_b + oc * out_spatial;
-
-            // For each output pixel, accumulate a 3x3 window with zero-padding.
-            for oy in 0..IMG_H {
-                for ox in 0..IMG_W {
-                    let mut sum = bias;
-                    for ky in 0..KERNEL {
-                        for kx in 0..KERNEL {
-                            let iy = oy as isize + ky as isize - PAD;
-                            let ix = ox as isize + kx as isize - PAD;
-                            if iy >= 0 && iy < IMG_H as isize && ix >= 0 && ix < IMG_W as isize {
-                                let iyy = iy as usize;
-                                let ixx = ix as usize;
-                                let in_idx = in_base + iyy * IMG_W + ixx;
-                                let w_idx = w_base + ky * KERNEL + kx;
-                                sum += input[in_idx] * model.conv_w[w_idx];
-                            }
-                        }
-                    }
-                    let out_idx = out_base + oy * IMG_W + ox;
-                    conv_out[out_idx] = if sum > 0.0 { sum } else { 0.0 }; // ReLU activation
-                }
-            }
-        }
-    }
+    // Apply ReLU activation
+    relu_inplace(conv_out);
 }
 
 // MaxPool 2x2 stride 2.
@@ -351,18 +206,9 @@ fn maxpool_forward(batch: usize, conv_act: &[f32], pool_out: &mut [f32], pool_id
 
 // FC forward: logits = X*W + b.
 // X: [batch * FC_IN], logits: [batch * 10]
-fn fc_forward(model: &Cnn, batch: usize, x: &[f32], logits: &mut [f32]) {
-    for b in 0..batch {
-        let x_base = b * FC_IN;
-        let o_base = b * NUM_CLASSES;
-        for j in 0..NUM_CLASSES {
-            let mut sum = model.fc_b[j];
-            for i in 0..FC_IN {
-                sum += x[x_base + i] * model.fc_w[i * NUM_CLASSES + j];
-            }
-            logits[o_base + j] = sum;
-        }
-    }
+fn fc_forward(model: &mut Cnn, batch: usize, x: &[f32], logits: &mut [f32]) {
+    // Use DenseLayer for forward pass
+    model.fc_layer.forward(x, logits, batch);
 }
 
 // Softmax + cross-entropy: returns summed loss and writes delta = (probs - onehot) * scale.
@@ -397,54 +243,14 @@ fn softmax_xent_backward(
 
 // FC backward: compute gradW, gradB and dX.
 fn fc_backward(
-    model: &Cnn,
+    model: &mut Cnn,
     batch: usize,
     x: &[f32],
-    delta: &[f32],      // [batch*10]
-    grad_w: &mut [f32], // [FC_IN*10]
-    grad_b: &mut [f32], // [10]
-    d_x: &mut [f32],    // [batch*FC_IN]
+    delta: &[f32],   // [batch*10]
+    d_x: &mut [f32], // [batch*FC_IN]
 ) {
-    // Zero gradients (accumulated over batch).
-    for v in grad_w.iter_mut() {
-        *v = 0.0;
-    }
-    for v in grad_b.iter_mut() {
-        *v = 0.0;
-    }
-
-    // gradW and gradB.
-    for b in 0..batch {
-        let x_base = b * FC_IN;
-        let d_base = b * NUM_CLASSES;
-
-        for j in 0..NUM_CLASSES {
-            grad_b[j] += delta[d_base + j];
-        }
-
-        for i in 0..FC_IN {
-            let xi = x[x_base + i];
-            let w_row = i * NUM_CLASSES;
-            for j in 0..NUM_CLASSES {
-                grad_w[w_row + j] += xi * delta[d_base + j];
-            }
-        }
-    }
-
-    // dX = delta * W^T.
-    for b in 0..batch {
-        let d_base = b * NUM_CLASSES;
-        let out_base = b * FC_IN;
-
-        for i in 0..FC_IN {
-            let w_row = i * NUM_CLASSES;
-            let mut sum = 0.0f32;
-            for j in 0..NUM_CLASSES {
-                sum += delta[d_base + j] * model.fc_w[w_row + j];
-            }
-            d_x[out_base + i] = sum;
-        }
-    }
+    // Use DenseLayer for backward pass (gradients are accumulated internally)
+    model.fc_layer.backward(x, delta, d_x, batch);
 }
 
 // MaxPool backward: scatter grads to argmax positions, then apply ReLU mask.
@@ -500,58 +306,20 @@ fn maxpool_backward_relu(
 
 // Conv backward: gradW and gradB (no dInput since this is the first layer).
 fn conv_backward(
-    model: &Cnn,
+    model: &mut Cnn,
     batch: usize,
-    input: &[f32],      // [batch*784]
-    conv_grad: &[f32],  // [batch*C*28*28]
-    grad_w: &mut [f32], // [C*K*K]
-    grad_b: &mut [f32], // [C]
+    input: &[f32],           // [batch*784]
+    conv_grad: &[f32],       // [batch*C*28*28]
+    _grad_input: &mut [f32], // unused (first layer)
 ) {
-    for v in grad_w.iter_mut() {
-        *v = 0.0;
-    }
-    for v in grad_b.iter_mut() {
-        *v = 0.0;
-    }
-
-    let spatial = IMG_H * IMG_W;
-    for b in 0..batch {
-        let in_base = b * NUM_INPUTS;
-        let g_base_b = b * (CONV_OUT * spatial);
-
-        for (oc, grad_b_val) in grad_b.iter_mut().enumerate().take(CONV_OUT) {
-            let w_base = oc * (KERNEL * KERNEL);
-            let g_base = g_base_b + oc * spatial;
-
-            for oy in 0..IMG_H {
-                for ox in 0..IMG_W {
-                    let g = conv_grad[g_base + oy * IMG_W + ox];
-                    *grad_b_val += g;
-
-                    for ky in 0..KERNEL {
-                        for kx in 0..KERNEL {
-                            let iy = oy as isize + ky as isize - PAD;
-                            let ix = ox as isize + kx as isize - PAD;
-                            if iy >= 0 && iy < IMG_H as isize && ix >= 0 && ix < IMG_W as isize {
-                                let iyy = iy as usize;
-                                let ixx = ix as usize;
-                                let in_idx = in_base + iyy * IMG_W + ixx;
-                                let w_idx = w_base + ky * KERNEL + kx;
-                                grad_w[w_idx] += g * input[in_idx];
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Note: conv_grad already includes the 1/batch scale from delta.
-    // Therefore grad_w/grad_b are averages over the batch.
-    let _ = model;
+    // Use Conv2DLayer for backward pass (gradients are accumulated internally)
+    // Note: grad_input is unused since this is the first layer
+    model
+        .conv_layer
+        .backward(input, conv_grad, _grad_input, batch);
 }
 
-fn test_accuracy(model: &Cnn, images: &[f32], labels: &[u8]) -> f32 {
+fn test_accuracy(model: &mut Cnn, images: &[f32], labels: &[u8]) -> f32 {
     let num_samples = labels.len();
     let mut correct = 0usize;
 
@@ -627,11 +395,7 @@ fn main() {
 
     let mut d_pool = vec![0.0f32; BATCH_SIZE * FC_IN];
     let mut d_conv = vec![0.0f32; BATCH_SIZE * CONV_OUT * IMG_H * IMG_W];
-
-    let mut grad_fc_w = vec![0.0f32; FC_IN * NUM_CLASSES];
-    let mut grad_fc_b = vec![0.0f32; NUM_CLASSES];
-    let mut grad_conv_w = vec![0.0f32; CONV_OUT * KERNEL * KERNEL];
-    let mut grad_conv_b = vec![0.0f32; CONV_OUT];
+    let mut _grad_input = vec![0.0f32; BATCH_SIZE * NUM_INPUTS]; // unused (first layer)
 
     let mut indices: Vec<usize> = (0..train_n).collect();
 
@@ -662,9 +426,9 @@ fn main() {
             );
 
             // Forward: conv -> pool -> FC -> logits.
-            conv_forward_relu(&model, batch, &batch_inputs, &mut conv_out);
+            conv_forward_relu(&mut model, batch, &batch_inputs, &mut conv_out);
             maxpool_forward(batch, &conv_out, &mut pool_out, &mut pool_idx);
-            fc_forward(&model, batch, &pool_out, &mut logits);
+            fc_forward(&mut model, batch, &pool_out, &mut logits);
 
             // Softmax + loss + gradient at logits.
             let batch_loss =
@@ -672,38 +436,13 @@ fn main() {
             total_loss += batch_loss;
 
             // Backward: FC -> pool -> conv.
-            fc_backward(
-                &model,
-                batch,
-                &pool_out,
-                &delta,
-                &mut grad_fc_w,
-                &mut grad_fc_b,
-                &mut d_pool,
-            );
+            fc_backward(&mut model, batch, &pool_out, &delta, &mut d_pool);
             maxpool_backward_relu(batch, &conv_out, &d_pool, &pool_idx, &mut d_conv);
-            conv_backward(
-                &model,
-                batch,
-                &batch_inputs,
-                &d_conv,
-                &mut grad_conv_w,
-                &mut grad_conv_b,
-            );
+            conv_backward(&mut model, batch, &batch_inputs, &d_conv, &mut _grad_input);
 
-            // SGD update (no momentum, no weight decay).
-            for (model_w, grad_w) in model.fc_w.iter_mut().zip(grad_fc_w.iter()) {
-                *model_w -= LEARNING_RATE * grad_w;
-            }
-            for (model_b, grad_b) in model.fc_b.iter_mut().zip(grad_fc_b.iter()) {
-                *model_b -= LEARNING_RATE * grad_b;
-            }
-            for (model_w, grad_w) in model.conv_w.iter_mut().zip(grad_conv_w.iter()) {
-                *model_w -= LEARNING_RATE * grad_w;
-            }
-            for (model_b, grad_b) in model.conv_b.iter_mut().zip(grad_conv_b.iter()) {
-                *model_b -= LEARNING_RATE * grad_b;
-            }
+            // SGD update using Layer trait (no momentum, no weight decay).
+            model.fc_layer.update_parameters(LEARNING_RATE);
+            model.conv_layer.update_parameters(LEARNING_RATE);
         }
 
         let secs = start_time.elapsed().as_secs_f32();
@@ -718,83 +457,13 @@ fn main() {
     }
 
     println!("Testing...");
-    let acc = test_accuracy(&model, &test_images, &test_labels);
+    let acc = test_accuracy(&mut model, &test_images, &test_labels);
     println!("Test Accuracy: {:.2}%", acc);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_simple_rng_new() {
-        let rng1 = SimpleRng::new(42);
-        assert_eq!(rng1.state, 42);
-
-        let rng2 = SimpleRng::new(0);
-        assert_eq!(rng2.state, 0x9e3779b97f4a7c15);
-    }
-
-    #[test]
-    fn test_simple_rng_reproducibility() {
-        let mut rng1 = SimpleRng::new(123);
-        let mut rng2 = SimpleRng::new(123);
-
-        for _ in 0..10 {
-            assert_eq!(rng1.next_u32(), rng2.next_u32());
-        }
-    }
-
-    #[test]
-    fn test_simple_rng_next_f32() {
-        let mut rng = SimpleRng::new(42);
-        for _ in 0..100 {
-            let val = rng.next_f32();
-            assert!((0.0..1.0).contains(&val));
-        }
-    }
-
-    #[test]
-    fn test_simple_rng_gen_range_f32() {
-        let mut rng = SimpleRng::new(42);
-        for _ in 0..100 {
-            let val = rng.gen_range_f32(-1.0, 1.0);
-            assert!((-1.0..1.0).contains(&val));
-        }
-    }
-
-    #[test]
-    fn test_simple_rng_gen_usize() {
-        let mut rng = SimpleRng::new(42);
-        for _ in 0..100 {
-            let val = rng.gen_usize(10);
-            assert!(val < 10);
-        }
-
-        assert_eq!(rng.gen_usize(0), 0);
-    }
-
-    #[test]
-    fn test_simple_rng_shuffle() {
-        let mut rng = SimpleRng::new(42);
-        let mut data = vec![0, 1, 2, 3, 4];
-        let original = data.clone();
-
-        rng.shuffle_usize(&mut data);
-
-        assert_eq!(data.len(), original.len());
-        for &val in &original {
-            assert!(data.contains(&val));
-        }
-    }
-
-    #[test]
-    fn test_simple_rng_reseed_from_time() {
-        let mut rng = SimpleRng::new(42);
-        let original_state = rng.state;
-        rng.reseed_from_time();
-        assert_ne!(rng.state, original_state);
-    }
 
     #[test]
     fn test_read_be_u32() {
@@ -808,43 +477,24 @@ mod tests {
     }
 
     #[test]
-    fn test_relu_inplace() {
-        let mut data = vec![-1.0, 0.0, 1.0, -2.5, 3.5];
-        relu_inplace(&mut data);
+    fn test_gather_batch() {
+        let images = vec![1.0; 784 * 3]; // 3 images
+        let labels = vec![0u8, 1u8, 2u8];
+        let indices = vec![0, 1, 2];
+        let mut out_inputs = vec![0.0; 784 * 2]; // batch of 2
+        let mut out_labels = vec![0u8; 2];
 
-        assert_eq!(data[0], 0.0);
-        assert_eq!(data[1], 0.0);
-        assert_eq!(data[2], 1.0);
-        assert_eq!(data[3], 0.0);
-        assert_eq!(data[4], 3.5);
-    }
+        gather_batch(
+            &images,
+            &labels,
+            &indices,
+            0,
+            2,
+            &mut out_inputs,
+            &mut out_labels,
+        );
 
-    #[test]
-    fn test_softmax_rows() {
-        let mut data = vec![1.0, 2.0, 3.0, 1.0, 2.0, 3.0];
-        softmax_rows(&mut data, 2, 3);
-
-        let row1_sum: f32 = data[0..3].iter().sum();
-        let row2_sum: f32 = data[3..6].iter().sum();
-
-        assert!((row1_sum - 1.0).abs() < 1e-6);
-        assert!((row2_sum - 1.0).abs() < 1e-6);
-
-        for &val in &data {
-            assert!((0.0..=1.0).contains(&val));
-        }
-    }
-
-    #[test]
-    fn test_xavier_init() {
-        let mut rng = SimpleRng::new(42);
-        let mut weights = vec![0.0; 100];
-        let limit = 0.5;
-
-        xavier_init(limit, &mut rng, &mut weights);
-
-        for &w in &weights {
-            assert!(w >= -limit && w <= limit);
-        }
+        assert_eq!(out_labels[0], 0);
+        assert_eq!(out_labels[1], 1);
     }
 }

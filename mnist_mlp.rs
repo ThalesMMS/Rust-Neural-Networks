@@ -1,13 +1,9 @@
-#[cfg(target_os = "macos")]
-extern crate blas_src;
-#[cfg(any(target_os = "linux", target_os = "windows"))]
-extern crate openblas_src;
-
-use cblas::{sgemm, Layout, Transpose};
+use rust_neural_networks::layers::{DenseLayer, Layer};
+use rust_neural_networks::utils::{relu_inplace, softmax_rows, SimpleRng};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::process;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 // MLP with minibatches and GEMM (CPU) for MNIST (Rust port for study).
 const NUM_INPUTS: usize = 784;
@@ -20,197 +16,21 @@ const LEARNING_RATE: f32 = 0.01;
 const EPOCHS: usize = 10;
 const BATCH_SIZE: usize = 64;
 
-// Simple RNG for reproducibility without external crates.
-struct SimpleRng {
-    state: u64,
-}
-
-impl SimpleRng {
-    // Explicit seed (if zero, use a fixed value).
-    fn new(seed: u64) -> Self {
-        let state = if seed == 0 { 0x9e3779b97f4a7c15 } else { seed };
-        Self { state }
-    }
-
-    // Reseed based on the current time.
-    fn reseed_from_time(&mut self) {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos() as u64;
-        self.state = if nanos == 0 {
-            0x9e3779b97f4a7c15
-        } else {
-            nanos
-        };
-    }
-
-    // Basic xorshift to generate u32.
-    fn next_u32(&mut self) -> u32 {
-        let mut x = self.state;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.state = x;
-        (x >> 32) as u32
-    }
-
-    // Convert to [0, 1).
-    fn next_f32(&mut self) -> f32 {
-        self.next_u32() as f32 / u32::MAX as f32
-    }
-
-    // Uniform sample in [low, high).
-    fn gen_range_f32(&mut self, low: f32, high: f32) -> f32 {
-        low + (high - low) * self.next_f32()
-    }
-
-    // Integer sample in [0, upper).
-    fn gen_usize(&mut self, upper: usize) -> usize {
-        if upper == 0 {
-            0
-        } else {
-            (self.next_u32() as usize) % upper
-        }
-    }
-}
-
-// Dense layer: weights (input x output) and biases (row-major).
-struct LinearLayer {
-    input_size: usize,
-    output_size: usize,
-    weights: Vec<f32>,
-    biases: Vec<f32>,
-}
-
 // Network with one hidden layer and one output layer.
 struct NeuralNetwork {
-    hidden_layer: LinearLayer,
-    output_layer: LinearLayer,
-}
-
-// Initialize a layer with Xavier and zero biases.
-fn initialize_layer(input_size: usize, output_size: usize, rng: &mut SimpleRng) -> LinearLayer {
-    let mut weights = vec![0.0f32; input_size * output_size];
-    let limit = (6.0f32 / (input_size + output_size) as f32).sqrt();
-    for value in &mut weights {
-        *value = rng.gen_range_f32(-limit, limit);
-    }
-
-    LinearLayer {
-        input_size,
-        output_size,
-        weights,
-        biases: vec![0.0f32; output_size],
-    }
+    hidden_layer: DenseLayer,
+    output_layer: DenseLayer,
 }
 
 // Network construction 784 -> 512 -> 10.
 fn initialize_network(rng: &mut SimpleRng) -> NeuralNetwork {
     rng.reseed_from_time();
-    let hidden_layer = initialize_layer(NUM_INPUTS, NUM_HIDDEN, rng);
-    let output_layer = initialize_layer(NUM_HIDDEN, NUM_OUTPUTS, rng);
+    let hidden_layer = DenseLayer::new(NUM_INPUTS, NUM_HIDDEN, rng);
+    let output_layer = DenseLayer::new(NUM_HIDDEN, NUM_OUTPUTS, rng);
 
     NeuralNetwork {
         hidden_layer,
         output_layer,
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn sgemm_wrapper(
-    m: usize,
-    n: usize,
-    k: usize,
-    a: &[f32],
-    lda: usize,
-    b: &[f32],
-    ldb: usize,
-    c: &mut [f32],
-    ldc: usize,
-    transpose_a: bool,
-    transpose_b: bool,
-    alpha: f32,
-    beta: f32,
-) {
-    let trans_a = if transpose_a {
-        Transpose::Ordinary
-    } else {
-        Transpose::None
-    };
-    let trans_b = if transpose_b {
-        Transpose::Ordinary
-    } else {
-        Transpose::None
-    };
-
-    unsafe {
-        sgemm(
-            Layout::RowMajor,
-            trans_a,
-            trans_b,
-            m as i32,
-            n as i32,
-            k as i32,
-            alpha,
-            a,
-            lda as i32,
-            b,
-            ldb as i32,
-            beta,
-            c,
-            ldc as i32,
-        );
-    }
-}
-
-fn add_bias(data: &mut [f32], rows: usize, cols: usize, bias: &[f32]) {
-    for row in data.chunks_exact_mut(cols).take(rows) {
-        for (value, b) in row.iter_mut().zip(bias) {
-            *value += *b;
-        }
-    }
-}
-
-fn relu_inplace(data: &mut [f32]) {
-    for value in data.iter_mut() {
-        if *value < 0.0 {
-            *value = 0.0;
-        }
-    }
-}
-
-fn softmax_rows(outputs: &mut [f32], rows: usize, cols: usize) {
-    for row in outputs.chunks_exact_mut(cols).take(rows) {
-        let mut max_value = row[0];
-        for &value in row.iter().skip(1) {
-            if value > max_value {
-                max_value = value;
-            }
-        }
-
-        let mut sum = 0.0f32;
-        for value in row.iter_mut() {
-            *value = (*value - max_value).exp();
-            sum += *value;
-        }
-
-        let inv_sum = 1.0f32 / sum;
-        for value in row.iter_mut() {
-            *value *= inv_sum;
-        }
-    }
-}
-
-fn sum_rows(data: &[f32], rows: usize, cols: usize, out: &mut [f32]) {
-    for value in out.iter_mut().take(cols) {
-        *value = 0.0;
-    }
-
-    for row in data.chunks_exact(cols).take(rows) {
-        for (value, sum) in row.iter().zip(out.iter_mut()) {
-            *sum += *value;
-        }
     }
 }
 
@@ -265,12 +85,6 @@ fn gather_batch(
     }
 }
 
-fn apply_sgd_update(weights: &mut [f32], grads: &[f32]) {
-    for (w, g) in weights.iter_mut().zip(grads.iter()) {
-        *w -= LEARNING_RATE * *g;
-    }
-}
-
 // Training with shuffling and minibatches.
 fn train(
     nn: &mut NeuralNetwork,
@@ -291,10 +105,6 @@ fn train(
     let mut a2 = vec![0.0f32; BATCH_SIZE * NUM_OUTPUTS];
     let mut dz2 = vec![0.0f32; BATCH_SIZE * NUM_OUTPUTS];
     let mut dz1 = vec![0.0f32; BATCH_SIZE * NUM_HIDDEN];
-    let mut grad_w1 = vec![0.0f32; NUM_INPUTS * NUM_HIDDEN];
-    let mut grad_w2 = vec![0.0f32; NUM_HIDDEN * NUM_OUTPUTS];
-    let mut grad_b1 = vec![0.0f32; NUM_HIDDEN];
-    let mut grad_b2 = vec![0.0f32; NUM_OUTPUTS];
 
     let mut indices: Vec<usize> = (0..num_samples).collect();
 
@@ -312,7 +122,6 @@ fn train(
 
         for batch_start in (0..num_samples).step_by(BATCH_SIZE) {
             let batch_count = (num_samples - batch_start).min(BATCH_SIZE);
-            let scale = 1.0f32 / batch_count as f32;
 
             gather_batch(
                 images,
@@ -325,53 +134,13 @@ fn train(
             );
 
             // Forward: hidden layer.
-            sgemm_wrapper(
-                batch_count,
-                NUM_HIDDEN,
-                NUM_INPUTS,
-                &batch_inputs,
-                NUM_INPUTS,
-                &nn.hidden_layer.weights,
-                NUM_HIDDEN,
-                &mut a1,
-                NUM_HIDDEN,
-                false,
-                false,
-                1.0,
-                0.0,
-            );
             let a1_len = batch_count * NUM_HIDDEN;
-            add_bias(
-                &mut a1[..a1_len],
-                batch_count,
-                NUM_HIDDEN,
-                &nn.hidden_layer.biases,
-            );
+            nn.hidden_layer.forward(&batch_inputs, &mut a1, batch_count);
             relu_inplace(&mut a1[..a1_len]);
 
             // Forward: output layer.
-            sgemm_wrapper(
-                batch_count,
-                NUM_OUTPUTS,
-                NUM_HIDDEN,
-                &a1,
-                NUM_HIDDEN,
-                &nn.output_layer.weights,
-                NUM_OUTPUTS,
-                &mut a2,
-                NUM_OUTPUTS,
-                false,
-                false,
-                1.0,
-                0.0,
-            );
             let a2_len = batch_count * NUM_OUTPUTS;
-            add_bias(
-                &mut a2[..a2_len],
-                batch_count,
-                NUM_OUTPUTS,
-                &nn.output_layer.biases,
-            );
+            nn.output_layer.forward(&a1, &mut a2, batch_count);
             softmax_rows(&mut a2[..a2_len], batch_count, NUM_OUTPUTS);
 
             // Output delta and loss.
@@ -384,43 +153,10 @@ fn train(
             );
             total_loss += batch_loss;
 
-            // Output-layer gradients: dW2 = A1^T * dZ2.
-            sgemm_wrapper(
-                NUM_HIDDEN,
-                NUM_OUTPUTS,
-                batch_count,
-                &a1,
-                NUM_HIDDEN,
-                &dz2,
-                NUM_OUTPUTS,
-                &mut grad_w2,
-                NUM_OUTPUTS,
-                true,
-                false,
-                scale,
-                0.0,
-            );
-            sum_rows(&dz2[..a2_len], batch_count, NUM_OUTPUTS, &mut grad_b2);
-            for value in grad_b2.iter_mut() {
-                *value *= scale;
-            }
+            // Backward: output layer.
+            nn.output_layer.backward(&a1, &dz2, &mut dz1, batch_count);
 
-            // Hidden-layer gradient: dZ1 = dZ2 * W2^T.
-            sgemm_wrapper(
-                batch_count,
-                NUM_HIDDEN,
-                NUM_OUTPUTS,
-                &dz2,
-                NUM_OUTPUTS,
-                &nn.output_layer.weights,
-                NUM_OUTPUTS,
-                &mut dz1,
-                NUM_HIDDEN,
-                false,
-                true,
-                1.0,
-                0.0,
-            );
+            // Apply ReLU derivative to hidden layer gradient.
             let dz1_len = batch_count * NUM_HIDDEN;
             for i in 0..dz1_len {
                 if a1[i] <= 0.0 {
@@ -428,31 +164,14 @@ fn train(
                 }
             }
 
-            // Hidden-layer gradients: dW1 = X^T * dZ1.
-            sgemm_wrapper(
-                NUM_INPUTS,
-                NUM_HIDDEN,
-                batch_count,
-                &batch_inputs,
-                NUM_INPUTS,
-                &dz1,
-                NUM_HIDDEN,
-                &mut grad_w1,
-                NUM_HIDDEN,
-                true,
-                false,
-                scale,
-                0.0,
-            );
-            sum_rows(&dz1[..dz1_len], batch_count, NUM_HIDDEN, &mut grad_b1);
-            for value in grad_b1.iter_mut() {
-                *value *= scale;
-            }
+            // Backward: hidden layer.
+            let mut unused_grad = vec![0.0f32; batch_count * NUM_INPUTS];
+            nn.hidden_layer
+                .backward(&batch_inputs, &dz1, &mut unused_grad, batch_count);
 
-            apply_sgd_update(&mut nn.output_layer.weights, &grad_w2);
-            apply_sgd_update(&mut nn.output_layer.biases, &grad_b2);
-            apply_sgd_update(&mut nn.hidden_layer.weights, &grad_w1);
-            apply_sgd_update(&mut nn.hidden_layer.biases, &grad_b1);
+            // Update parameters.
+            nn.output_layer.update_parameters(LEARNING_RATE);
+            nn.hidden_layer.update_parameters(LEARNING_RATE);
         }
 
         let duration = start_time.elapsed().as_secs_f32();
@@ -483,52 +202,14 @@ fn test(nn: &NeuralNetwork, images: &[f32], labels: &[u8], num_samples: usize) {
         let input_start = batch_start * NUM_INPUTS;
         batch_inputs[..input_len].copy_from_slice(&images[input_start..input_start + input_len]);
 
-        sgemm_wrapper(
-            batch_count,
-            NUM_HIDDEN,
-            NUM_INPUTS,
-            &batch_inputs,
-            NUM_INPUTS,
-            &nn.hidden_layer.weights,
-            NUM_HIDDEN,
-            &mut a1,
-            NUM_HIDDEN,
-            false,
-            false,
-            1.0,
-            0.0,
-        );
+        // Forward: hidden layer.
         let a1_len = batch_count * NUM_HIDDEN;
-        add_bias(
-            &mut a1[..a1_len],
-            batch_count,
-            NUM_HIDDEN,
-            &nn.hidden_layer.biases,
-        );
+        nn.hidden_layer.forward(&batch_inputs, &mut a1, batch_count);
         relu_inplace(&mut a1[..a1_len]);
 
-        sgemm_wrapper(
-            batch_count,
-            NUM_OUTPUTS,
-            NUM_HIDDEN,
-            &a1,
-            NUM_HIDDEN,
-            &nn.output_layer.weights,
-            NUM_OUTPUTS,
-            &mut a2,
-            NUM_OUTPUTS,
-            false,
-            false,
-            1.0,
-            0.0,
-        );
+        // Forward: output layer.
         let a2_len = batch_count * NUM_OUTPUTS;
-        add_bias(
-            &mut a2[..a2_len],
-            batch_count,
-            NUM_OUTPUTS,
-            &nn.output_layer.biases,
-        );
+        nn.output_layer.forward(&a1, &mut a2, batch_count);
         softmax_rows(&mut a2[..a2_len], batch_count, NUM_OUTPUTS);
 
         for row_idx in 0..batch_count {
@@ -573,21 +254,21 @@ fn save_model(nn: &NeuralNetwork, filename: &str) {
         });
     };
 
-    write_i32(&mut writer, nn.hidden_layer.input_size as i32);
-    write_i32(&mut writer, nn.hidden_layer.output_size as i32);
-    write_i32(&mut writer, nn.output_layer.output_size as i32);
+    write_i32(&mut writer, nn.hidden_layer.input_size() as i32);
+    write_i32(&mut writer, nn.hidden_layer.output_size() as i32);
+    write_i32(&mut writer, nn.output_layer.output_size() as i32);
 
-    for value in &nn.hidden_layer.weights {
-        write_f64(&mut writer, *value as f64);
+    for &value in nn.hidden_layer.weights() {
+        write_f64(&mut writer, value as f64);
     }
-    for value in &nn.hidden_layer.biases {
-        write_f64(&mut writer, *value as f64);
+    for &value in nn.hidden_layer.biases() {
+        write_f64(&mut writer, value as f64);
     }
-    for value in &nn.output_layer.weights {
-        write_f64(&mut writer, *value as f64);
+    for &value in nn.output_layer.weights() {
+        write_f64(&mut writer, value as f64);
     }
-    for value in &nn.output_layer.biases {
-        write_f64(&mut writer, *value as f64);
+    for &value in nn.output_layer.biases() {
+        write_f64(&mut writer, value as f64);
     }
 
     println!("Model saved to {}", filename);
@@ -707,130 +388,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_simple_rng_new() {
-        let rng1 = SimpleRng::new(42);
-        assert_eq!(rng1.state, 42);
-
-        let rng2 = SimpleRng::new(0);
-        assert_eq!(rng2.state, 0x9e3779b97f4a7c15);
-    }
-
-    #[test]
-    fn test_simple_rng_reproducibility() {
-        let mut rng1 = SimpleRng::new(123);
-        let mut rng2 = SimpleRng::new(123);
-
-        for _ in 0..10 {
-            assert_eq!(rng1.next_u32(), rng2.next_u32());
-        }
-    }
-
-    #[test]
-    fn test_simple_rng_next_f32() {
-        let mut rng = SimpleRng::new(42);
-        for _ in 0..100 {
-            let val = rng.next_f32();
-            assert!((0.0..1.0).contains(&val));
-        }
-    }
-
-    #[test]
-    fn test_simple_rng_gen_range_f32() {
-        let mut rng = SimpleRng::new(42);
-        for _ in 0..100 {
-            let val = rng.gen_range_f32(-1.0, 1.0);
-            assert!((-1.0..1.0).contains(&val));
-        }
-    }
-
-    #[test]
-    fn test_simple_rng_gen_usize() {
-        let mut rng = SimpleRng::new(42);
-        for _ in 0..100 {
-            let val = rng.gen_usize(10);
-            assert!(val < 10);
-        }
-
-        assert_eq!(rng.gen_usize(0), 0);
-    }
-
-    #[test]
-    fn test_simple_rng_reseed_from_time() {
-        let mut rng = SimpleRng::new(42);
-        let original_state = rng.state;
-        rng.reseed_from_time();
-        assert_ne!(rng.state, original_state);
-    }
-
-    #[test]
-    fn test_initialize_layer() {
-        let mut rng = SimpleRng::new(42);
-        let layer = initialize_layer(10, 5, &mut rng);
-
-        assert_eq!(layer.input_size, 10);
-        assert_eq!(layer.output_size, 5);
-        assert_eq!(layer.weights.len(), 50);
-        assert_eq!(layer.biases.len(), 5);
-
-        for &bias in &layer.biases {
-            assert_eq!(bias, 0.0);
-        }
-    }
-
-    #[test]
-    fn test_add_bias() {
-        let mut data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-        let bias = vec![0.5, 0.1, 0.2];
-
-        add_bias(&mut data, 2, 3, &bias);
-
-        assert!((data[0] - 1.5).abs() < 1e-6);
-        assert!((data[1] - 2.1).abs() < 1e-6);
-        assert!((data[2] - 3.2).abs() < 1e-6);
-        assert!((data[3] - 4.5).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_relu_inplace() {
-        let mut data = vec![-1.0, 0.0, 1.0, -2.5, 3.5];
-        relu_inplace(&mut data);
-
-        assert_eq!(data[0], 0.0);
-        assert_eq!(data[1], 0.0);
-        assert_eq!(data[2], 1.0);
-        assert_eq!(data[3], 0.0);
-        assert_eq!(data[4], 3.5);
-    }
-
-    #[test]
-    fn test_softmax_rows() {
-        let mut outputs = vec![1.0, 2.0, 3.0, 1.0, 2.0, 3.0];
-        softmax_rows(&mut outputs, 2, 3);
-
-        let row1_sum: f32 = outputs[0..3].iter().sum();
-        let row2_sum: f32 = outputs[3..6].iter().sum();
-
-        assert!((row1_sum - 1.0).abs() < 1e-6);
-        assert!((row2_sum - 1.0).abs() < 1e-6);
-
-        for &val in &outputs {
-            assert!((0.0..=1.0).contains(&val));
-        }
-    }
-
-    #[test]
-    fn test_sum_rows() {
-        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-        let mut out = vec![0.0; 3];
-
-        sum_rows(&data, 2, 3, &mut out);
-
-        assert!((out[0] - 5.0).abs() < 1e-6);
-        assert!((out[1] - 7.0).abs() < 1e-6);
-        assert!((out[2] - 9.0).abs() < 1e-6);
-    }
-
-    #[test]
     fn test_compute_delta_and_loss() {
         let outputs = vec![0.1, 0.2, 0.7, 0.3, 0.4, 0.3];
         let labels = vec![2, 1];
@@ -840,32 +397,6 @@ mod tests {
 
         assert!(loss > 0.0);
         assert!((delta[2] - (0.7 - 1.0)).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_apply_sgd_update() {
-        let mut weights = vec![1.0, 2.0, 3.0];
-        let grads = vec![0.1, 0.2, 0.3];
-
-        apply_sgd_update(&mut weights, &grads);
-
-        assert!((weights[0] - (1.0 - LEARNING_RATE * 0.1)).abs() < 1e-6);
-        assert!((weights[1] - (2.0 - LEARNING_RATE * 0.2)).abs() < 1e-6);
-        assert!((weights[2] - (3.0 - LEARNING_RATE * 0.3)).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_sgemm_wrapper() {
-        let a = vec![1.0, 2.0, 3.0, 4.0];
-        let b = vec![1.0, 0.0, 0.0, 1.0];
-        let mut c = vec![0.0; 4];
-
-        sgemm_wrapper(2, 2, 2, &a, 2, &b, 2, &mut c, 2, false, false, 1.0, 0.0);
-
-        assert!((c[0] - 1.0).abs() < 1e-5);
-        assert!((c[1] - 2.0).abs() < 1e-5);
-        assert!((c[2] - 3.0).abs() < 1e-5);
-        assert!((c[3] - 4.0).abs() < 1e-5);
     }
 
     #[test]
@@ -899,9 +430,9 @@ mod tests {
         let mut rng = SimpleRng::new(42);
         let nn = initialize_network(&mut rng);
 
-        assert_eq!(nn.hidden_layer.input_size, NUM_INPUTS);
-        assert_eq!(nn.hidden_layer.output_size, NUM_HIDDEN);
-        assert_eq!(nn.output_layer.input_size, NUM_HIDDEN);
-        assert_eq!(nn.output_layer.output_size, NUM_OUTPUTS);
+        assert_eq!(nn.hidden_layer.input_size(), NUM_INPUTS);
+        assert_eq!(nn.hidden_layer.output_size(), NUM_HIDDEN);
+        assert_eq!(nn.output_layer.input_size(), NUM_HIDDEN);
+        assert_eq!(nn.output_layer.output_size(), NUM_OUTPUTS);
     }
 }

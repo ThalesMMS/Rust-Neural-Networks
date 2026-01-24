@@ -15,7 +15,9 @@ The design and binary model format are inspired by https://github.com/djbyrne/ml
 
 Source code (Rust):
 
-- `mnist_mlp.rs`, `mnist_cnn.rs`, `mnist_attention_pool.rs`, `mlp_simple.rs`
+- Binaries: `mnist_mlp.rs`, `mnist_cnn.rs`, `mnist_attention_pool.rs`, `mlp_simple.rs`
+- Shared library: `src/lib.rs`, `src/layers/`, `src/utils/`
+- Tests: `tests/` (integration tests)
 - `Cargo.toml` / `Cargo.lock`
 
 Scripts (Python):
@@ -29,6 +31,66 @@ Data and outputs:
 - `data/` (MNIST IDX files)
 - `logs/` (training loss logs)
 - `mnist_model.bin` (saved model)
+
+Documentation:
+
+- `docs/layer_abstraction_design.md` (detailed architecture guide)
+- `CLAUDE.md` (development guidelines)
+
+## Architecture
+
+This project uses a **shared library architecture** with the `rust_neural_networks` library providing reusable layer abstractions and utilities. Each binary (`mnist_mlp`, `mnist_cnn`, `mlp_simple`, `mnist_attention_pool`) imports layers and utilities from the shared library instead of duplicating code.
+
+### Layer Trait
+
+All layer types implement the `Layer` trait (`src/layers/trait.rs`), which provides a common interface:
+
+```rust
+pub trait Layer {
+    fn forward(&self, input: &[f32], output: &mut [f32], batch_size: usize);
+    fn backward(&self, input: &[f32], grad_output: &[f32],
+                grad_input: &mut [f32], batch_size: usize);
+    fn update_parameters(&mut self, learning_rate: f32);
+
+    fn input_size(&self) -> usize;
+    fn output_size(&self) -> usize;
+    fn parameter_count(&self) -> usize;
+}
+```
+
+### Layer Implementations
+
+**DenseLayer** (`src/layers/dense.rs`):
+- Fully connected (linear) layer with BLAS acceleration
+- Xavier/Glorot initialization for stable training
+- Used in all MLP models and as final classifier in CNN
+
+**Conv2DLayer** (`src/layers/conv2d.rs`):
+- 2D convolutional layer for spatial feature extraction
+- Configurable kernel size, padding, and stride
+- Manual loop implementation for educational clarity
+- Used in CNN model
+
+### Shared Utilities
+
+**SimpleRng** (`src/utils/rng.rs`):
+- Xorshift PRNG for reproducible weight initialization
+- No external dependencies, consistent across all models
+
+**Activation Functions** (`src/utils/activations.rs`):
+- `sigmoid`, `sigmoid_derivative` - Used in XOR example
+- `relu_inplace` - Rectified Linear Unit for hidden layers
+- `softmax_rows` - Softmax for multi-class classification
+
+### Benefits
+
+- **~500 lines of code eliminated** through shared abstractions
+- **Single source of truth** for layer implementations and utilities
+- **Consistent behavior** across all models
+- **Easier testing** with comprehensive shared test suite
+- **Faster development** of new models by composing existing layers
+
+For detailed architecture documentation, see `docs/layer_abstraction_design.md`.
 
 ## MNIST MLP model
 
