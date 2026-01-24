@@ -11,7 +11,7 @@
 
 Through systematic hypothesis testing, we identified the **primary root cause** of the attention model's low accuracy:
 
-**🎯 Poor Positional Embedding Initialization**
+### 🎯 Poor Positional Embedding Initialization
 
 By implementing sinusoidal positional encoding (as used in the original Transformer paper), we achieved **83.45% accuracy** (+45.72 percentage points improvement from baseline), nearly meeting the 85% target with minimal changes.
 
@@ -79,7 +79,7 @@ The current learning rate (0.01) is actually optimal among tested values. Higher
 ## Detailed Experimental Results
 
 ### Experiment 1: Baseline Reproduction
-```
+```text
 Configuration:
   D_MODEL: 16
   FF_DIM: 32
@@ -97,7 +97,7 @@ Results:
 ```
 
 ### Experiment 2: Increased Model Capacity
-```
+```text
 Configuration:
   D_MODEL: 64 (4× increase)
   FF_DIM: 128 (4× increase)
@@ -113,7 +113,7 @@ Assessment: Helps, but insufficient alone
 ```
 
 ### Experiment 3: Learning Rate Sweep
-```
+```text
 Results Summary:
   LR=0.001: 18.98% (loss: 2.250 → 1.806, Δ=0.444)
   LR=0.003: 22.88% (loss: 2.240 → 1.788, Δ=0.452)
@@ -124,7 +124,7 @@ Conclusion: LR=0.01 is optimal
 ```
 
 ### Experiment 4: Positional Encoding Strategies ⭐
-```
+```text
 Configuration: D_MODEL=64, FF_DIM=128, LR=0.01
 
 Strategy 1: SmallRandom [-0.1, 0.1] (original)
@@ -254,7 +254,7 @@ If accuracy still doesn't reach 85% after Priority 1-3, consider:
 ## Expected Accuracy Improvement
 
 ### Conservative Estimate (Priority 1 Only)
-```
+```text
 Baseline:                   37.73%
 + Sinusoidal encoding:      +45.72 pp
 Expected final accuracy:    ~83.45%
@@ -262,7 +262,7 @@ Expected final accuracy:    ~83.45%
 ✅ **Approaches 85% target (1.55 pp below)**
 
 ### Optimistic Estimate (Priority 1 + Priority 2 + Priority 3)
-```
+```text
 Baseline:                   37.73%
 + Larger model:             +6.69 pp
 + Sinusoidal encoding:      +38.56 pp (on top of larger model)

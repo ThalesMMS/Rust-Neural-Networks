@@ -671,7 +671,7 @@ fn init_model_with_pos_encoding(rng: &mut SimpleRng, pos_type: PosEncodingType) 
 /// # Examples
 ///
 /// ```ignore
-/// let mut rng = SimpleRng::new(); // create RNG (see SimpleRng API)
+/// let mut rng = SimpleRng::new(42); // create RNG (see SimpleRng API)
 /// let model = init_model(&mut rng);
 /// ```
 fn init_model(rng: &mut SimpleRng) -> AttnModel {
@@ -1565,7 +1565,7 @@ fn train_model_with_config(
     let mut epoch_losses = Vec::new();
     let mut epoch_accs = Vec::new();
 
-    for epoch in 0..EPOCHS {
+    for _epoch in 0..EPOCHS {
         rng.shuffle_usize(&mut indices);
 
         let mut total_loss = 0.0f32;
@@ -1610,7 +1610,7 @@ fn train_model_with_config(
 }
 
 // Backward compatibility wrapper for LR experiments.
-/// Trains the attention model with SmallRandom positional embeddings using the specified learning rate.
+/// Trains the attention model with Sinusoidal positional embeddings using the specified learning rate.
 /// # Returns
 /// A tuple `(final_test_accuracy, epoch_losses, epoch_accuracies)`:
 /// - `final_test_accuracy`: final test set accuracy as a percentage.
