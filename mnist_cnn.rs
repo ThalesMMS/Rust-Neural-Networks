@@ -466,6 +466,19 @@ impl Layer for Conv2DLayer {
 // ============================================================================
 
 // Read a big-endian u32 and advance the byte offset (IDX format uses BE).
+/// Reads a 32-bit unsigned integer encoded in big-endian order from `data` at `offset` and advances `offset` by 4.
+///
+/// Returns the 32-bit unsigned integer assembled from the four bytes starting at `offset` in big-endian order.
+///
+/// # Examples
+///
+/// ```
+/// let buf = [0x00, 0x00, 0x01, 0x02, 0xff];
+/// let mut off = 0usize;
+/// let v = read_be_u32(&buf, &mut off);
+/// assert_eq!(v, 0x00000102);
+/// assert_eq!(off, 4);
+/// ```
 fn read_be_u32(data: &[u8], offset: &mut usize) -> u32 {
     let b0 = (data[*offset] as u32) << 24;
     let b1 = (data[*offset + 1] as u32) << 16;
@@ -532,6 +545,43 @@ fn read_mnist_labels(filename: &str, num_labels: usize) -> Vec<u8> {
 }
 
 // Copy a subset of images/labels into contiguous batch buffers.
+/// Copies a contiguous mini-batch of examples and their labels into preallocated output buffers.
+///
+/// The function reads `count` examples by mapping `indices[start..start+count]` into `images` and
+/// `labels`, copying each example's NUM_INPUTS floats into `out_inputs` and the corresponding label
+/// into `out_labels` in batch order.
+///
+/// # Parameters
+///
+/// - `images`: flat slice of all images laid out as consecutive blocks of `NUM_INPUTS` floats.
+/// - `labels`: slice of labels corresponding to `images`.
+/// - `indices`: permutation or index list used to select examples from the dataset.
+/// - `start`: starting offset in `indices` for this batch.
+/// - `count`: number of examples to copy into the outputs.
+/// - `out_inputs`: destination buffer for the batch inputs; must have length at least `count * NUM_INPUTS`.
+/// - `out_labels`: destination buffer for the batch labels; must have length at least `count`.
+///
+/// # Examples
+///
+/// ```
+/// // prepare a tiny dataset with NUM_INPUTS per example
+/// let mut images = vec![0.0f32; NUM_INPUTS * 3];
+/// // fill example 1 and 2 with distinguishable values
+/// for i in 0..NUM_INPUTS { images[i] = 1.0; images[NUM_INPUTS * 2 + i] = 3.0; }
+/// let labels = vec![0u8, 1u8, 2u8];
+/// let indices = vec![2usize, 0, 1];
+///
+/// let mut batch_inputs = vec![0.0f32; NUM_INPUTS * 2];
+/// let mut batch_labels = vec![0u8; 2];
+///
+/// // gather two examples starting from indices[0] => picks examples 2 and 0
+/// gather_batch(&images, &labels, &indices, 0, 2, &mut batch_inputs, &mut batch_labels);
+///
+/// // verify the labels and a couple of input values
+/// assert_eq!(batch_labels, vec![2u8, 0u8]);
+/// assert_eq!(batch_inputs[0], 3.0);
+/// assert_eq!(batch_inputs[NUM_INPUTS], 1.0);
+/// ```
 fn gather_batch(
     images: &[f32],
     labels: &[u8],
@@ -557,6 +607,47 @@ struct Cnn {
     fc_layer: DenseLayer,
 }
 
+/// Constructs a Cnn with initialized convolutional and fully connected layers.
+
+///
+
+/// The provided RNG is used to randomly initialize layer weights and biases.
+
+///
+
+/// # Parameters
+
+///
+
+/// - `rng`: mutable random number generator used to initialize layer parameters.
+
+///
+
+/// # Returns
+
+///
+
+/// A `Cnn` whose `conv_layer` and `fc_layer` have been allocated and randomized.
+
+///
+
+/// # Examples
+
+///
+
+/// ```
+
+/// use rust_neural_networks::utils::SimpleRng;
+
+/// // create an RNG and initialize the model
+
+/// let mut rng = SimpleRng::new(1234);
+
+/// let model = init_cnn(&mut rng);
+
+/// // model is ready for use (forward/backward passes)
+
+/// ```
 fn init_cnn(rng: &mut SimpleRng) -> Cnn {
     // Conv: 1 input channel -> CONV_OUT output channels, 3x3 kernel, pad=1, stride=1
     let conv_layer = Conv2DLayer::new(1, CONV_OUT, KERNEL, PAD, 1, IMG_H, IMG_W, rng);
@@ -572,6 +663,31 @@ fn init_cnn(rng: &mut SimpleRng) -> Cnn {
 
 // Forward conv + ReLU.
 // input: [batch * 784], conv_out: [batch * CONV_OUT * 28 * 28]
+/// Runs the convolutional layer forward for a batch and applies ReLU to the outputs in place.
+///
+/// conv_out is written with the layer's activated outputs for the specified batch index.
+///
+/// # Parameters
+///
+/// - `model`: CNN containing the convolutional layer to run.
+/// - `batch`: index of the batch within the input buffer to process.
+/// - `input`: flattened input batch slice (contains all batch elements).
+/// - `conv_out`: writable slice where the convolutional activations for the batch will be stored; values are clamped to be >= 0 by ReLU.
+///
+/// # Examples
+///
+/// ```
+/// let mut rng = SimpleRng::seed_from_u64(123);
+/// let mut model = init_cnn(&mut rng);
+/// let batch = 0usize;
+/// let mut inputs = vec![0f32; BATCH_SIZE * NUM_INPUTS];
+/// let mut conv_out = vec![0f32; BATCH_SIZE * CONV_OUT * CONV_H * CONV_W];
+/// // populate inputs[batch * NUM_INPUTS .. (batch+1) * NUM_INPUTS] as needed
+/// conv_forward_relu(&mut model, batch, &inputs, &mut conv_out);
+/// // after call, conv_out values for the batch are non-negative due to ReLU
+/// let start = batch * CONV_OUT * CONV_H * CONV_W;
+/// assert!(conv_out[start..start + CONV_OUT * CONV_H * CONV_W].iter().all(|&v| v >= 0.0));
+/// ```
 fn conv_forward_relu(model: &mut Cnn, batch: usize, input: &[f32], conv_out: &mut [f32]) {
     // Use Conv2DLayer for forward pass
     model.conv_layer.forward(input, conv_out, batch);
@@ -629,6 +745,24 @@ fn maxpool_forward(batch: usize, conv_act: &[f32], pool_out: &mut [f32], pool_id
 
 // FC forward: logits = X*W + b.
 // X: [batch * FC_IN], logits: [batch * 10]
+/// Runs the fully connected (dense) layer forward for a batch, writing per-sample class logits.
+///
+/// `x` must contain `batch * FC_IN` contiguous input features (row-major per sample).
+/// `logits` must be sized to hold `batch * NUM_CLASSES` output values and will be overwritten.
+///
+/// # Examples
+///
+/// ```
+/// use crate::{init_cnn, fc_forward, SimpleRng, FC_IN, NUM_CLASSES};
+///
+/// let mut rng = SimpleRng::new(123);
+/// let mut model = init_cnn(&mut rng);
+/// let batch = 1usize;
+/// let x = vec![0.0f32; batch * FC_IN];
+/// let mut logits = vec![0.0f32; batch * NUM_CLASSES];
+/// fc_forward(&mut model, batch, &x, &mut logits);
+/// assert_eq!(logits.len(), batch * NUM_CLASSES);
+/// ```
 fn fc_forward(model: &mut Cnn, batch: usize, x: &[f32], logits: &mut [f32]) {
     // Use DenseLayer for forward pass
     model.fc_layer.forward(x, logits, batch);
@@ -665,6 +799,47 @@ fn softmax_xent_backward(
 }
 
 // FC backward: compute gradW, gradB and dX.
+/// Performs the backward pass for the fully connected (dense) layer, accumulating parameter gradients in the model
+
+/// and writing the input-space gradients for the batch.
+
+///
+
+/// - `batch` is the number of examples in the current minibatch.
+
+/// - `x` is the input feature buffer to the dense layer with length `batch * FC_IN`.
+
+/// - `delta` is the gradient w.r.t. the dense layer outputs with length `batch * NUM_CLASSES`.
+
+/// - `d_x` is the output buffer that will receive the gradient w.r.t. `x` (length `batch * FC_IN`).
+
+///
+
+/// # Examples
+
+///
+
+/// ```no_run
+
+/// // Prepare model, batch size and buffers (sizes are illustrative)
+
+/// let mut model = init_cnn(&mut SimpleRng::new(123));
+
+/// let batch = 2;
+
+/// let mut x = vec![0f32; batch * FC_IN];
+
+/// let delta = vec![0f32; batch * NUM_CLASSES];
+
+/// let mut d_x = vec![0f32; batch * FC_IN];
+
+///
+
+/// // Compute backward pass for the dense layer
+
+/// fc_backward(&mut model, batch, &x, &delta, &mut d_x);
+
+/// ```
 fn fc_backward(
     model: &mut Cnn,
     batch: usize,
@@ -728,6 +903,57 @@ fn maxpool_backward_relu(
 }
 
 // Conv backward: gradW and gradB (no dInput since this is the first layer).
+/// Backpropagates gradients through the convolutional layer and accumulates its parameter gradients.
+
+///
+
+/// The function invokes the convolution layer's backward pass using the provided per-example
+
+/// gradients with respect to the convolution pre-activations. Gradients for layer parameters
+
+/// (kernels and biases) are accumulated inside the layer instance. The `grad_input` buffer is
+
+/// accepted for API compatibility but is unused when this layer is the network's first layer.
+
+///
+
+/// # Parameters
+
+///
+
+/// - `model`: mutable reference to the CNN containing the convolution layer.
+
+/// - `batch`: number of examples in the current mini-batch.
+
+/// - `input`: flattened input batch with length `batch * NUM_INPUTS`.
+
+/// - `conv_grad`: gradients w.r.t. convolution pre-activations, layout `batch * CONV_OUT * IMAGE_H * IMAGE_W`.
+
+/// - `_grad_input`: destination buffer for gradients w.r.t. this layer's inputs; unused for the first layer.
+
+///
+
+/// # Examples
+
+///
+
+/// ```
+
+/// let mut rng = SimpleRng::new(123);
+
+/// let mut model = init_cnn(&mut rng);
+
+/// let batch = 1;
+
+/// let input = vec![0.0f32; batch * NUM_INPUTS];
+
+/// let conv_grad = vec![0.0f32; batch * CONV_OUT * IMAGE_H * IMAGE_W];
+
+/// let mut grad_input = vec![0.0f32; batch * NUM_INPUTS];
+
+/// conv_backward(&mut model, batch, &input, &conv_grad, &mut grad_input);
+
+/// ```
 fn conv_backward(
     model: &mut Cnn,
     batch: usize,
@@ -742,6 +968,24 @@ fn conv_backward(
         .backward(input, conv_grad, _grad_input, batch);
 }
 
+/// Compute the model's classification accuracy as a percentage on the given dataset.
+///
+/// Processes the dataset in batches and runs the model's forward pass to produce predictions.
+///
+/// # Returns
+///
+/// The accuracy as a percentage between `0.0` and `100.0`.
+///
+/// # Examples
+///
+/// ```
+/// // `model`, `images`, and `labels` are prepared elsewhere:
+/// // let mut model = init_cnn(&mut rng);
+/// // let images: Vec<f32> = ...; // length = num_samples * NUM_INPUTS
+/// // let labels: Vec<u8> = ...;  // length = num_samples
+/// let acc = test_accuracy(&mut model, &images, &labels);
+/// assert!(acc >= 0.0 && acc <= 100.0);
+/// ```
 fn test_accuracy(model: &mut Cnn, images: &[f32], labels: &[u8]) -> f32 {
     let num_samples = labels.len();
     let mut correct = 0usize;
@@ -782,6 +1026,26 @@ fn test_accuracy(model: &mut Cnn, images: &[f32], labels: &[u8]) -> f32 {
     100.0 * (correct as f32) / (num_samples as f32)
 }
 
+/// Entry point for training and evaluating a minimal CNN on the MNIST dataset.
+///
+/// This program loads MNIST IDX files from ./data, trains a small convolutional
+/// neural network on the training set while logging epoch loss to ./logs/training_loss_cnn.txt,
+/// and prints final test accuracy. It expects the following files to exist:
+/// - ./data/train-images.idx3-ubyte
+/// - ./data/train-labels.idx1-ubyte
+/// - ./data/t10k-images.idx3-ubyte
+/// - ./data/t10k-labels.idx1-ubyte
+///
+/// The training uses a simple SGD update loop over configurable epochs and batch size,
+/// and runs entirely on the CPU with explicit loops (educational, non-BLAS implementation).
+///
+/// # Examples
+///
+/// ```no_run
+/// // Place MNIST IDX files in ./data and run the binary.
+/// // Calling `main()` will start training and print progress and final test accuracy.
+/// main();
+/// ```
 fn main() {
     println!("Loading MNIST...");
     let train_images = read_mnist_images("./data/train-images.idx3-ubyte", TRAIN_SAMPLES);

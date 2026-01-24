@@ -49,29 +49,19 @@ pub struct DenseLayer {
 }
 
 impl DenseLayer {
-    /// Create a new DenseLayer with Xavier initialization.
+    /// Creates a dense (fully connected) layer with Xavier-initialized weights and zero biases.
     ///
-    /// Weights are initialized using Xavier/Glorot initialization:
-    /// randomly sampled from uniform distribution [-limit, limit]
-    /// where limit = sqrt(6 / (input_size + output_size)).
+    /// Weights are sampled uniformly from [-limit, limit], where
+    /// `limit = sqrt(6.0 / (input_size + output_size))`. Biases and gradient accumulators
+    /// are initialized to zero.
     ///
-    /// Biases are initialized to zero.
-    ///
-    /// # Arguments
-    ///
-    /// * `input_size` - Number of input features
-    /// * `output_size` - Number of output features
-    /// * `rng` - Random number generator for weight initialization
-    ///
-    /// # Returns
-    ///
-    /// A new DenseLayer with randomly initialized weights and zero biases
-    ///
-    /// # Example
+    /// # Examples
     ///
     /// ```ignore
     /// let mut rng = SimpleRng::new(42);
     /// let layer = DenseLayer::new(128, 64, &mut rng);
+    /// assert_eq!(layer.input_size(), 128);
+    /// assert_eq!(layer.output_size(), 64);
     /// ```
     pub fn new(input_size: usize, output_size: usize, rng: &mut SimpleRng) -> Self {
         // Xavier initialization: limit = sqrt(6 / (fan_in + fan_out))
@@ -97,24 +87,71 @@ impl DenseLayer {
         self.input_size
     }
 
-    /// Get the output size of the layer.
+    /// Reports the number of output features produced by the layer.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rust_neural_networks::layers::dense::DenseLayer;
+/// use rust_neural_networks::utils::rng::SimpleRng;
+/// let mut rng = SimpleRng::new(42);
+    /// let layer = DenseLayer::new(4, 8, &mut rng);
+    /// assert_eq!(layer.output_size(), 8);
+    /// ```
     pub fn output_size(&self) -> usize {
         self.output_size
     }
 
-    /// Get the number of trainable parameters.
+    /// Return the total number of trainable parameters in the layer.
     ///
-    /// Returns input_size × output_size (weights) + output_size (biases).
+    /// This equals input_size × output_size (weights) plus output_size (biases).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rust_neural_networks::layers::dense::DenseLayer;
+/// use rust_neural_networks::utils::rng::SimpleRng;
+/// let mut rng = SimpleRng::new(42);
+    /// let layer = DenseLayer::new(3, 4, &mut rng);
+    /// assert_eq!(layer.parameter_count(), 3 * 4 + 4);
+    /// ```
     pub fn parameter_count(&self) -> usize {
         self.weights.len() + self.biases.len()
     }
 
-    /// Get a reference to the layer's weights.
+    /// Immutable view of the layer's weight values.
+    ///
+    /// The returned slice contains weights in row-major order with length equal to
+    /// `input_size * output_size`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rust_neural_networks::layers::dense::DenseLayer;
+/// use rust_neural_networks::utils::rng::SimpleRng;
+/// let mut rng = SimpleRng::new(0);
+    /// let layer = DenseLayer::new(2, 3, &mut rng);
+    /// assert_eq!(layer.weights().len(), 2 * 3);
+    /// ```
     pub fn weights(&self) -> &[f32] {
         &self.weights
     }
 
-    /// Get a reference to the layer's biases.
+    /// Provides a slice view of the layer's bias vector.
+    ///
+    /// # Returns
+    /// A slice containing the bias for each output feature.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rust_neural_networks::layers::dense::DenseLayer;
+/// use rust_neural_networks::utils::rng::SimpleRng;
+/// let mut rng = SimpleRng::new(0);
+    /// let layer = DenseLayer::new(4, 3, &mut rng);
+    /// let b = layer.biases();
+    /// assert_eq!(b.len(), 3);
+    /// ```
     pub fn biases(&self) -> &[f32] {
         &self.biases
     }
@@ -122,6 +159,27 @@ impl DenseLayer {
 
 // Helper functions for BLAS operations
 
+/// Performs a single-precision general matrix-matrix multiplication using the BLAS `sgemm`
+/// routine with row-major layout.
+///
+/// The function computes: C := alpha * op(A) * op(B) + beta * C, where `op(X)` is either
+/// the matrix `X` or its transpose depending on the corresponding transpose flag.
+///
+/// # Examples
+///
+/// ```ignore
+/// // Multiply 2x2 matrices: result = A * B
+/// let m = 2usize;
+/// let n = 2usize;
+/// let k = 2usize;
+/// let a: [f32; 4] = [1.0, 2.0, 3.0, 4.0]; // row-major 2x2: [[1,2],[3,4]]
+/// let b: [f32; 4] = [5.0, 6.0, 7.0, 8.0]; // row-major 2x2: [[5,6],[7,8]]
+/// let mut c: [f32; 4] = [0.0; 4];
+/// // leading dimensions for row-major layout are the number of columns
+/// sgemm_wrapper(m, n, k, &a, 2, &b, 2, &mut c, 2, false, false, 1.0, 0.0);
+/// // Expected C = [[19,22],[43,50]]
+/// assert_eq!(c, [19.0, 22.0, 43.0, 50.0]);
+/// ```
 #[allow(clippy::too_many_arguments)]
 fn sgemm_wrapper(
     m: usize,
@@ -169,6 +227,21 @@ fn sgemm_wrapper(
     }
 }
 
+/// Adds a bias vector to each row of a row-major matrix in place.
+///
+/// The `data` slice represents a matrix with `rows` rows and `cols` columns in row-major order.
+/// Each element of `bias` is added to the corresponding column of every row. `bias.len()` must
+/// equal `cols`.
+///
+/// # Examples
+///
+/// ```ignore
+/// let mut data = vec![0.0f32, 1.0, 2.0,   // row 0
+///                     3.0, 4.0, 5.0];  // row 1
+/// let bias = vec![1.0f32, 10.0, 100.0];
+/// add_bias(&mut data, 2, 3, &bias);
+/// assert_eq!(data, vec![1.0, 11.0, 102.0,  4.0, 14.0, 105.0]);
+/// ```
 fn add_bias(data: &mut [f32], rows: usize, cols: usize, bias: &[f32]) {
     for row in data.chunks_exact_mut(cols).take(rows) {
         for (value, b) in row.iter_mut().zip(bias) {
@@ -177,6 +250,23 @@ fn add_bias(data: &mut [f32], rows: usize, cols: usize, bias: &[f32]) {
     }
 }
 
+/// Sums each column of a row-major matrix and stores the column-wise sums in `out`.
+///
+/// `data` is interpreted as a matrix with `rows` rows and `cols` columns in row-major order.
+/// The function overwrites the first `cols` elements of `out` with the sum of each column.
+/// `out` must have length at least `cols`.
+///
+/// # Examples
+///
+/// ```ignore
+/// let data: Vec<f32> = vec![
+///     1.0, 2.0, 3.0, // row 0
+///     4.0, 5.0, 6.0, // row 1
+/// ];
+/// let mut out = vec![0.0; 3];
+/// sum_rows(&data, 2, 3, &mut out);
+/// assert_eq!(out, vec![5.0, 7.0, 9.0]);
+/// ```
 fn sum_rows(data: &[f32], rows: usize, cols: usize, out: &mut [f32]) {
     for value in out.iter_mut().take(cols) {
         *value = 0.0;
@@ -192,6 +282,26 @@ fn sum_rows(data: &[f32], rows: usize, cols: usize, out: &mut [f32]) {
 // Layer trait implementation
 
 impl Layer for DenseLayer {
+    /// Computes the layer's linear output for a batch: output = input × weights + biases.
+    ///
+    /// Expects `input` to be a row-major matrix with shape (batch_size × input_size)
+    /// and `output` to be a row-major buffer with shape (batch_size × output_size).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// // Given a DenseLayer `layer` with input_size = 2 and output_size = 3,
+    /// // call `forward` with a single-row batch:
+    /// use rust_neural_networks::layers::dense::DenseLayer;
+    /// use rust_neural_networks::layers::Layer;
+/// use rust_neural_networks::utils::rng::SimpleRng;
+/// let mut rng = SimpleRng::new(0);
+    /// let layer = DenseLayer::new(2, 3, &mut rng);
+    /// let input = [0.5f32, -1.0f32]; // 1 × 2
+    /// let mut output = vec![0f32; 3]; // 1 × 3
+    /// layer.forward(&input, &mut output, 1);
+    /// assert_eq!(output.len(), 3);
+    /// ```
     fn forward(&self, input: &[f32], output: &mut [f32], batch_size: usize) {
         // Perform matrix multiplication: output = input × weights
         // input: (batch_size × input_size)
@@ -223,6 +333,29 @@ impl Layer for DenseLayer {
         add_bias(output, batch_size, self.output_size, &self.biases);
     }
 
+    /// Computes and accumulates gradients for this layer given a batch of inputs and output gradients,
+    /// and writes the gradient with respect to the inputs into `grad_input`.
+    ///
+    /// The method updates the layer's internal gradient accumulators:
+    /// - accumulates weight gradients (input^T × grad_output) averaged by `batch_size`,
+    /// - computes bias gradients as the column-wise sum of `grad_output` averaged by `batch_size`.
+    /// It also computes `grad_input = grad_output × weights^T`.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::mem::MaybeUninit;
+/// use rust_neural_networks::layers::Layer;
+/// use rust_neural_networks::layers::dense::DenseLayer;
+    ///
+    /// let batch_size = 2usize;
+    /// // Create zeroed DenseLayer for example purposes only (do not use in production).
+    /// let layer: DenseLayer = unsafe { MaybeUninit::zeroed().assume_init() };
+    /// let input = vec![0.0f32; batch_size * layer.input_size()];
+    /// let grad_output = vec![0.0f32; batch_size * layer.output_size()];
+    /// let mut grad_input = vec![0.0f32; batch_size * layer.input_size()];
+    /// layer.backward(&input, &grad_output, &mut grad_input, batch_size);
+    /// ```
     fn backward(
         &self,
         input: &[f32],
@@ -288,6 +421,35 @@ impl Layer for DenseLayer {
         );
     }
 
+    /// Applies a gradient-descent update to the layer's parameters and clears accumulated gradients.
+    ///
+    /// The stored weight and bias gradients are scaled by `learning_rate` and subtracted from the
+    /// corresponding parameters. After the update, gradient accumulators are reset to zero.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// # use crate::layers::dense::DenseLayer;
+    /// # use crate::utils::rng::SimpleRng;
+    /// use rust_neural_networks::layers::dense::DenseLayer;
+/// use rust_neural_networks::utils::rng::SimpleRng;
+/// let mut rng = SimpleRng::new(0);
+    /// let mut layer = DenseLayer::new(2, 3, &mut rng);
+    ///
+    /// // simulate accumulated gradients
+    /// {
+    ///     let mut gw = layer.grad_weights.borrow_mut();
+    ///     for g in gw.iter_mut() { *g = 0.1; }
+    ///     let mut gb = layer.grad_biases.borrow_mut();
+    ///     for g in gb.iter_mut() { *g = 0.2; }
+    /// }
+    ///
+    /// let before_w = layer.weights()[0];
+    /// let before_b = layer.biases()[0];
+    /// layer.update_parameters(0.5);
+    /// assert_eq!(layer.weights()[0], before_w - 0.5 * 0.1);
+    /// assert_eq!(layer.biases()[0], before_b - 0.5 * 0.2);
+    /// ```
     fn update_parameters(&mut self, learning_rate: f32) {
         let grad_w = self.grad_weights.borrow();
         let grad_b = self.grad_biases.borrow();
@@ -315,14 +477,51 @@ impl Layer for DenseLayer {
             .for_each(|g| *g = 0.0);
     }
 
+    /// Number of input features expected by the layer.
+    ///
+    /// # Returns
+    ///
+    /// The number of input features.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rust_neural_networks::layers::dense::DenseLayer;
+/// use rust_neural_networks::utils::rng::SimpleRng;
+/// let mut rng = SimpleRng::new(0);
+    /// let layer = DenseLayer::new(4, 2, &mut rng);
+    /// assert_eq!(layer.input_size(), 4);
+    /// ```
     fn input_size(&self) -> usize {
         self.input_size
     }
 
+    /// Number of output features produced by the layer.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rust_neural_networks::layers::dense::DenseLayer;
+/// use rust_neural_networks::utils::rng::SimpleRng;
+/// let mut rng = SimpleRng::new(42);
+    /// let layer = DenseLayer::new(4, 8, &mut rng);
+    /// assert_eq!(layer.output_size(), 8);
+    /// ```
     fn output_size(&self) -> usize {
         self.output_size
     }
 
+    /// Returns the total number of trainable parameters (weights plus biases) in the layer.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rust_neural_networks::layers::dense::DenseLayer;
+/// use rust_neural_networks::utils::rng::SimpleRng;
+/// let mut rng = SimpleRng::new(0);
+    /// let layer = DenseLayer::new(2, 3, &mut rng);
+    /// assert_eq!(layer.parameter_count(), 2 * 3 + 3);
+    /// ```
     fn parameter_count(&self) -> usize {
         self.weights.len() + self.biases.len()
     }
@@ -389,6 +588,7 @@ mod tests {
         assert_eq!(layer1.weights, layer2.weights);
         assert_eq!(layer1.biases, layer2.biases);
     }
+
 
     #[test]
     fn test_add_bias() {
@@ -509,3 +709,4 @@ mod tests {
         assert_eq!(layer.biases().len(), 3);
     }
 }
+

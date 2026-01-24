@@ -178,11 +178,69 @@ impl Layer for DenseLayer {
 // ============================================================================
 
 // Sigmoid activation function (f32 version for XOR).
+/// Computes the logistic sigmoid of a 32-bit float.
+///
+/// The result is constrained between 0.0 and 1.0 and approaches 0.0 for large
+/// negative inputs and 1.0 for large positive inputs.
+///
+/// # Returns
+///
+/// `f32` — the sigmoid(x), a value between 0.0 and 1.0.
+///
+/// # Examples
+///
+/// ```
+/// let y = sigmoid(0.0);
+/// assert!((y - 0.5).abs() < 1e-6);
+/// let y_pos = sigmoid(10.0);
+/// assert!(y_pos > 0.9);
+/// let y_neg = sigmoid(-10.0);
+/// assert!(y_neg < 0.1);
+/// ```
 fn sigmoid(x: f32) -> f32 {
     1.0 / (1.0 + (-x).exp())
 }
 
 // Sigmoid derivative assuming x = sigmoid(z).
+/// Computes the derivative of the logistic sigmoid function given the sigmoid output.
+
+///
+
+/// This function expects `x` to be the value of the sigmoid activation (i.e., in the range 0.0 to 1.0)
+
+/// and returns the derivative d/dz sigmoid(z) = x * (1 - x).
+
+///
+
+/// # Parameters
+
+///
+
+/// - `x`: The sigmoid output value for which to compute the derivative.
+
+///
+
+/// # Returns
+
+///
+
+/// The derivative of the sigmoid at the corresponding pre-activation value.
+
+///
+
+/// # Examples
+
+///
+
+/// ```
+
+/// let s = 0.5_f32; // sigmoid(0.0)
+
+/// let d = sigmoid_derivative(s);
+
+/// assert!((d - 0.25).abs() < 1e-6);
+
+/// ```
 fn sigmoid_derivative(x: f32) -> f32 {
     x * (1.0 - x)
 }
@@ -194,6 +252,31 @@ struct NeuralNetwork {
 }
 
 // Create the full network with fixed XOR sizes.
+/// Creates and initializes a two-layer neural network with random weights and biases.
+///
+/// The provided RNG is reseeded from the current time before it is used to
+/// initialize the hidden and output DenseLayer parameters.
+///
+/// # Arguments
+///
+/// * `rng` - Mutable random number generator which will be reseeded and used to
+///   initialize layer weights and biases.
+///
+/// # Returns
+///
+/// A `NeuralNetwork` containing an initialized hidden layer (NUM_INPUTS → NUM_HIDDEN)
+/// and output layer (NUM_HIDDEN → NUM_OUTPUTS).
+///
+/// # Examples
+///
+/// ```
+/// let mut rng = SimpleRng::new(42);
+/// let nn = initialize_network(&mut rng);
+/// assert_eq!(nn.hidden_layer.input_size(), NUM_INPUTS);
+/// assert_eq!(nn.hidden_layer.output_size(), NUM_HIDDEN);
+/// assert_eq!(nn.output_layer.input_size(), NUM_HIDDEN);
+/// assert_eq!(nn.output_layer.output_size(), NUM_OUTPUTS);
+/// ```
 fn initialize_network(rng: &mut SimpleRng) -> NeuralNetwork {
     rng.reseed_from_time();
     let hidden_layer = DenseLayer::new(NUM_INPUTS, NUM_HIDDEN, rng);
@@ -206,6 +289,22 @@ fn initialize_network(rng: &mut SimpleRng) -> NeuralNetwork {
 }
 
 // Forward pass through a layer with sigmoid activation.
+/// Performs a forward pass through a dense layer and applies the sigmoid activation to each output.
+///
+/// # Examples
+///
+/// ```
+/// use rust_neural_networks::layers::DenseLayer;
+/// use rust_neural_networks::utils::SimpleRng;
+///
+/// let mut rng = SimpleRng::new(42);
+/// let layer = DenseLayer::new(2, 1, &mut rng);
+/// let inputs = [0.0f32, 1.0f32];
+/// let mut outputs = [0.0f32];
+///
+/// forward_with_sigmoid(&layer, &inputs, &mut outputs);
+/// assert!(outputs[0] >= 0.0 && outputs[0] <= 1.0);
+/// ```
 fn forward_with_sigmoid(layer: &DenseLayer, inputs: &[f32], outputs: &mut [f32]) {
     // Use the Layer trait's forward method (which does linear transformation).
     layer.forward(inputs, outputs, 1);
@@ -216,6 +315,30 @@ fn forward_with_sigmoid(layer: &DenseLayer, inputs: &[f32], outputs: &mut [f32])
 }
 
 // Training with mean squared error per sample.
+/// Trains the neural network on the provided dataset using per-sample gradient updates.
+///
+/// Trains `nn` in-place for the configured number of epochs, performing a forward pass,
+/// computing errors, backpropagating gradients, and updating layer parameters using the
+/// module's learning rate. Progress is printed every 1000 epochs.
+///
+/// # Parameters
+///
+/// - `nn`: Mutable reference to the `NeuralNetwork` to train; its layers are updated in-place.
+/// - `inputs`: Array of `NUM_SAMPLES` input vectors, each of length `NUM_INPUTS`.
+/// - `expected_outputs`: Array of `NUM_SAMPLES` expected output vectors, each of length `NUM_OUTPUTS`.
+///
+/// # Examples
+///
+/// ```
+/// # fn run() {
+/// # use crate::{initialize_network, SimpleRng, train};
+/// let mut rng = SimpleRng::new(42);
+/// let mut nn = initialize_network(&mut rng);
+/// let inputs = [ [0.0f32, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0] ];
+/// let expected = [ [0.0f32], [1.0], [1.0], [0.0] ];
+/// train(&mut nn, &inputs, &expected);
+/// # }
+/// ```
 fn train(
     nn: &mut NeuralNetwork,
     inputs: &[[f32; NUM_INPUTS]],
@@ -298,6 +421,23 @@ fn train(
 }
 
 // Simple evaluation on XOR samples.
+/// Prints each input sample, its expected output, and the network's predicted output.
+///
+/// This performs a forward pass through the hidden and output layers using the sigmoid
+/// activation and displays a formatted line per sample.
+///
+/// # Parameters
+///
+/// - `nn`: Reference to the neural network to evaluate.
+/// - `inputs`: Array of input samples; each sample must have `NUM_INPUTS` elements.
+/// - `expected_outputs`: Array of expected outputs; each sample must have `NUM_OUTPUTS` elements.
+///
+/// # Examples
+///
+/// ```
+/// // Assuming `nn`, `inputs`, and `expected_outputs` are already defined:
+/// // test(&nn, &inputs, &expected_outputs);
+/// ```
 fn test(nn: &NeuralNetwork, inputs: &[[f32; NUM_INPUTS]], expected_outputs: &[[f32; NUM_OUTPUTS]]) {
     println!("\nTesting the trained network:");
     for sample in 0..NUM_SAMPLES {
@@ -315,6 +455,21 @@ fn test(nn: &NeuralNetwork, inputs: &[[f32; NUM_INPUTS]], expected_outputs: &[[f
     }
 }
 
+/// Trains a small neural network on the XOR dataset and prints predictions for each input.
+///
+/// The program initializes the network with a fixed RNG seed for partial reproducibility,
+/// trains it on the four classical XOR samples, and then prints each input alongside its
+/// expected and predicted output.
+///
+/// # Examples
+///
+/// ```no_run
+/// // Run the binary to train and evaluate the XOR network.
+/// fn main() {
+///     // Executing the program trains the network and displays test results.
+///     crate::main();
+/// }
+/// ```
 fn main() {
     // Fixed initial seed for partial reproducibility.
     let mut rng = SimpleRng::new(42);
