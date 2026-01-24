@@ -74,15 +74,23 @@ fn train(
 
             // Backward pass (compute gradients but don't update yet).
             // 1. Compute gradient for output layer through sigmoid activation.
+            // Note: DenseLayer uses weight -= lr * gradient convention, so we negate the error
+            // (error = expected - output, gradient = output - expected for gradient descent)
             let mut grad_output = vec![0.0f32; NUM_OUTPUTS];
             for (i, (&error, &output)) in errors.iter().zip(output_outputs.iter()).enumerate() {
-                grad_output[i] = error * sigmoid_derivative(output);
+                grad_output[i] = -error * sigmoid_derivative(output);
             }
 
             // 2. Backpropagate to hidden layer (BEFORE updating output layer weights).
             let mut grad_hidden_outputs = vec![0.0f32; NUM_HIDDEN];
             nn.output_layer
                 .backward(&hidden_outputs, &grad_output, &mut grad_hidden_outputs, 1);
+
+            // CRITICAL FIX: Apply sigmoid derivative for hidden layer activation
+            // This applies the chain rule for the hidden layer's sigmoid activation
+            for i in 0..NUM_HIDDEN {
+                grad_hidden_outputs[i] *= sigmoid_derivative(hidden_outputs[i]);
+            }
 
             // 3. Compute gradient for hidden layer.
             let mut grad_hidden_input = vec![0.0f32; NUM_INPUTS];
