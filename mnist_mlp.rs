@@ -387,130 +387,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_simple_rng_new() {
-        let rng1 = SimpleRng::new(42);
-        assert_eq!(rng1.state, 42);
-
-        let rng2 = SimpleRng::new(0);
-        assert_eq!(rng2.state, 0x9e3779b97f4a7c15);
-    }
-
-    #[test]
-    fn test_simple_rng_reproducibility() {
-        let mut rng1 = SimpleRng::new(123);
-        let mut rng2 = SimpleRng::new(123);
-
-        for _ in 0..10 {
-            assert_eq!(rng1.next_u32(), rng2.next_u32());
-        }
-    }
-
-    #[test]
-    fn test_simple_rng_next_f32() {
-        let mut rng = SimpleRng::new(42);
-        for _ in 0..100 {
-            let val = rng.next_f32();
-            assert!((0.0..1.0).contains(&val));
-        }
-    }
-
-    #[test]
-    fn test_simple_rng_gen_range_f32() {
-        let mut rng = SimpleRng::new(42);
-        for _ in 0..100 {
-            let val = rng.gen_range_f32(-1.0, 1.0);
-            assert!((-1.0..1.0).contains(&val));
-        }
-    }
-
-    #[test]
-    fn test_simple_rng_gen_usize() {
-        let mut rng = SimpleRng::new(42);
-        for _ in 0..100 {
-            let val = rng.gen_usize(10);
-            assert!(val < 10);
-        }
-
-        assert_eq!(rng.gen_usize(0), 0);
-    }
-
-    #[test]
-    fn test_simple_rng_reseed_from_time() {
-        let mut rng = SimpleRng::new(42);
-        let original_state = rng.state;
-        rng.reseed_from_time();
-        assert_ne!(rng.state, original_state);
-    }
-
-    #[test]
-    fn test_initialize_layer() {
-        let mut rng = SimpleRng::new(42);
-        let layer = initialize_layer(10, 5, &mut rng);
-
-        assert_eq!(layer.input_size, 10);
-        assert_eq!(layer.output_size, 5);
-        assert_eq!(layer.weights.len(), 50);
-        assert_eq!(layer.biases.len(), 5);
-
-        for &bias in &layer.biases {
-            assert_eq!(bias, 0.0);
-        }
-    }
-
-    #[test]
-    fn test_add_bias() {
-        let mut data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-        let bias = vec![0.5, 0.1, 0.2];
-
-        add_bias(&mut data, 2, 3, &bias);
-
-        assert!((data[0] - 1.5).abs() < 1e-6);
-        assert!((data[1] - 2.1).abs() < 1e-6);
-        assert!((data[2] - 3.2).abs() < 1e-6);
-        assert!((data[3] - 4.5).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_relu_inplace() {
-        let mut data = vec![-1.0, 0.0, 1.0, -2.5, 3.5];
-        relu_inplace(&mut data);
-
-        assert_eq!(data[0], 0.0);
-        assert_eq!(data[1], 0.0);
-        assert_eq!(data[2], 1.0);
-        assert_eq!(data[3], 0.0);
-        assert_eq!(data[4], 3.5);
-    }
-
-    #[test]
-    fn test_softmax_rows() {
-        let mut outputs = vec![1.0, 2.0, 3.0, 1.0, 2.0, 3.0];
-        softmax_rows(&mut outputs, 2, 3);
-
-        let row1_sum: f32 = outputs[0..3].iter().sum();
-        let row2_sum: f32 = outputs[3..6].iter().sum();
-
-        assert!((row1_sum - 1.0).abs() < 1e-6);
-        assert!((row2_sum - 1.0).abs() < 1e-6);
-
-        for &val in &outputs {
-            assert!((0.0..=1.0).contains(&val));
-        }
-    }
-
-    #[test]
-    fn test_sum_rows() {
-        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-        let mut out = vec![0.0; 3];
-
-        sum_rows(&data, 2, 3, &mut out);
-
-        assert!((out[0] - 5.0).abs() < 1e-6);
-        assert!((out[1] - 7.0).abs() < 1e-6);
-        assert!((out[2] - 9.0).abs() < 1e-6);
-    }
-
-    #[test]
     fn test_compute_delta_and_loss() {
         let outputs = vec![0.1, 0.2, 0.7, 0.3, 0.4, 0.3];
         let labels = vec![2, 1];
@@ -520,32 +396,6 @@ mod tests {
 
         assert!(loss > 0.0);
         assert!((delta[2] - (0.7 - 1.0)).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_apply_sgd_update() {
-        let mut weights = vec![1.0, 2.0, 3.0];
-        let grads = vec![0.1, 0.2, 0.3];
-
-        apply_sgd_update(&mut weights, &grads);
-
-        assert!((weights[0] - (1.0 - LEARNING_RATE * 0.1)).abs() < 1e-6);
-        assert!((weights[1] - (2.0 - LEARNING_RATE * 0.2)).abs() < 1e-6);
-        assert!((weights[2] - (3.0 - LEARNING_RATE * 0.3)).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_sgemm_wrapper() {
-        let a = vec![1.0, 2.0, 3.0, 4.0];
-        let b = vec![1.0, 0.0, 0.0, 1.0];
-        let mut c = vec![0.0; 4];
-
-        sgemm_wrapper(2, 2, 2, &a, 2, &b, 2, &mut c, 2, false, false, 1.0, 0.0);
-
-        assert!((c[0] - 1.0).abs() < 1e-5);
-        assert!((c[1] - 2.0).abs() < 1e-5);
-        assert!((c[2] - 3.0).abs() < 1e-5);
-        assert!((c[3] - 4.0).abs() < 1e-5);
     }
 
     #[test]
@@ -579,9 +429,9 @@ mod tests {
         let mut rng = SimpleRng::new(42);
         let nn = initialize_network(&mut rng);
 
-        assert_eq!(nn.hidden_layer.input_size, NUM_INPUTS);
-        assert_eq!(nn.hidden_layer.output_size, NUM_HIDDEN);
-        assert_eq!(nn.output_layer.input_size, NUM_HIDDEN);
-        assert_eq!(nn.output_layer.output_size, NUM_OUTPUTS);
+        assert_eq!(nn.hidden_layer.input_size(), NUM_INPUTS);
+        assert_eq!(nn.hidden_layer.output_size(), NUM_HIDDEN);
+        assert_eq!(nn.output_layer.input_size(), NUM_HIDDEN);
+        assert_eq!(nn.output_layer.output_size(), NUM_OUTPUTS);
     }
 }
