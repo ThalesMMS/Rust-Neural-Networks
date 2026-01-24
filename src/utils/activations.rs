@@ -1,27 +1,42 @@
-//! Activation functions for neural networks
-//!
-//! This module provides common activation functions used across different models:
-//! - Sigmoid (f64 version for XOR/simple networks)
-//! - ReLU (f32 version for MNIST networks)
-//! - Softmax (f32 version for output layers)
-
-/// Sigmoid activation function (f64 version).
+/// Computes the logistic sigmoid of an input.
 ///
-/// Returns the sigmoid of the input: 1 / (1 + exp(-x))
+/// Returns the value 1 / (1 + exp(-x)), which maps any real-valued input to the range (0, 1).
+///
+/// # Examples
+///
+/// ```
+/// let s = sigmoid(0.0);
+/// assert!((s - 0.5).abs() < 1e-12);
+/// ```
 pub fn sigmoid(x: f64) -> f64 {
     1.0 / (1.0 + (-x).exp())
 }
 
-/// Sigmoid derivative assuming x = sigmoid(z).
+/// Computes the derivative of the logistic sigmoid given its output `x` (i.e., `x = sigmoid(z)`).
 ///
-/// Returns the derivative: x * (1 - x)
+/// The derivative equals `x * (1.0 - x)`.
+///
+/// # Examples
+///
+/// ```
+/// let d = sigmoid_derivative(0.5);
+/// assert!((d - 0.25).abs() < 1e-12);
+/// ```
 pub fn sigmoid_derivative(x: f64) -> f64 {
     x * (1.0 - x)
 }
 
-/// ReLU activation function (f32 version) applied in-place.
+/// Applies the Rectified Linear Unit (ReLU) activation to each element of the slice in place.
 ///
-/// Sets all negative values to 0.0, keeps positive values unchanged.
+/// Each element less than 0.0 is set to 0.0; other values are left unchanged.
+///
+/// # Examples
+///
+/// ```
+/// let mut v = [-1.0f32, 0.0, 2.5];
+/// relu_inplace(&mut v);
+/// assert_eq!(v, [0.0, 0.0, 2.5]);
+/// ```
 pub fn relu_inplace(data: &mut [f32]) {
     for value in data.iter_mut() {
         if *value < 0.0 {
@@ -30,15 +45,27 @@ pub fn relu_inplace(data: &mut [f32]) {
     }
 }
 
-/// Softmax activation function (f32 version) applied row-wise.
+/// Applies the softmax function to each row of a row-major flat matrix in place.
 ///
-/// Converts logits to probabilities for each row. Uses the max-subtraction
-/// trick for numerical stability to avoid overflow with large values.
+/// Each row of `outputs` is transformed from logits to probabilities that sum to 1.
+///
+/// The function uses the max-subtraction trick for numerical stability before exponentiation.
+/// `outputs` is expected to have at least `rows * cols` elements; extra elements after that are ignored.
 ///
 /// # Arguments
-/// * `outputs` - Flat array containing row-major matrix data
-/// * `rows` - Number of rows in the matrix
-/// * `cols` - Number of columns in the matrix
+///
+/// * `outputs` - Mutable flat array containing row-major matrix data.
+/// * `rows` - Number of rows to process from the start of `outputs`.
+/// * `cols` - Number of columns per row.
+///
+/// # Examples
+///
+/// ```
+/// let mut data = vec![1.0f32, 2.0, 3.0];
+/// softmax_rows(&mut data, 1, 3);
+/// let sum: f32 = data.iter().sum();
+/// assert!((sum - 1.0).abs() < 1e-6);
+/// ```
 pub fn softmax_rows(outputs: &mut [f32], rows: usize, cols: usize) {
     for row in outputs.chunks_exact_mut(cols).take(rows) {
         let mut max_value = row[0];
