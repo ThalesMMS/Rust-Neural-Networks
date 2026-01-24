@@ -3,6 +3,10 @@ name = "rust_neural_networks"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "rust_neural_networks"
+path = "src/lib.rs"
+
 [dependencies]
 cblas = "0.5"
 
