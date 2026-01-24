@@ -9,6 +9,14 @@ cblas = "0.5"
 [target.'cfg(target_os = "macos")'.dependencies]
 blas-src = { version = "0.14", features = ["accelerate"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+openblas-src = { version = "0.10", features = ["static", "cblas"] }
+
+# NOTE: Windows requires OpenBLAS to be installed via vcpkg or system package.
+# Install with: vcpkg install openblas:x64-windows
+[target.'cfg(target_os = "windows")'.dependencies]
+openblas-src = { version = "0.10", features = ["system", "cblas"] }
+
 [[bin]]
 name = "mnist_mlp"
 path = "mnist_mlp.rs"

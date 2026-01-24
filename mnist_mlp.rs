@@ -114,6 +114,7 @@ fn initialize_network(rng: &mut SimpleRng) -> NeuralNetwork {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn sgemm_wrapper(
     m: usize,
     n: usize,
@@ -220,9 +221,9 @@ fn compute_delta_and_loss(
     let mut total_loss = 0.0f32;
     let epsilon = 1e-9f32;
 
-    for row_idx in 0..rows {
+    for (row_idx, &label) in labels.iter().enumerate().take(rows) {
         let row_start = row_idx * cols;
-        let label = labels[row_idx] as usize;
+        let label = label as usize;
         let prob = outputs[row_start + label].max(epsilon);
         total_loss -= prob.ln();
 

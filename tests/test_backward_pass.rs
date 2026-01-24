@@ -33,12 +33,12 @@ struct NeuralNetwork {
 
 // Layer forward: z = W*x + b, followed by sigmoid.
 fn forward_propagation(layer: &LinearLayer, inputs: &[f64], outputs: &mut [f64]) {
-    for i in 0..layer.output_size {
+    for (i, out) in outputs.iter_mut().enumerate().take(layer.output_size) {
         let mut activation = layer.biases[i];
-        for j in 0..layer.input_size {
-            activation += inputs[j] * layer.weights[j][i];
+        for (j, inp) in inputs.iter().enumerate().take(layer.input_size) {
+            activation += inp * layer.weights[j][i];
         }
-        outputs[i] = sigmoid(activation);
+        *out = sigmoid(activation);
     }
 }
 
@@ -52,18 +52,18 @@ fn backward(
     delta_hidden: &mut [f64],
     delta_output: &mut [f64],
 ) {
-    for i in 0..nn.output_layer.output_size {
+    for (i, d_out) in delta_output.iter_mut().enumerate().take(nn.output_layer.output_size) {
         // delta_out = error * activation derivative.
-        delta_output[i] = errors[i] * sigmoid_derivative(output_outputs[i]);
+        *d_out = errors[i] * sigmoid_derivative(output_outputs[i]);
     }
 
-    for i in 0..nn.hidden_layer.output_size {
+    for (i, d_hid) in delta_hidden.iter_mut().enumerate().take(nn.hidden_layer.output_size) {
         // Error backpropagated from output to hidden layer.
         let mut error = 0.0;
-        for j in 0..nn.output_layer.output_size {
-            error += delta_output[j] * nn.output_layer.weights[i][j];
+        for (j, d_out) in delta_output.iter().enumerate().take(nn.output_layer.output_size) {
+            error += d_out * nn.output_layer.weights[i][j];
         }
-        delta_hidden[i] = error * sigmoid_derivative(hidden_outputs[i]);
+        *d_hid = error * sigmoid_derivative(hidden_outputs[i]);
     }
 }
 
@@ -74,14 +74,14 @@ fn update_weights_biases(
     deltas: &[f64],
     learning_rate: f64,
 ) {
-    for i in 0..layer.input_size {
-        for j in 0..layer.output_size {
-            layer.weights[i][j] += learning_rate * deltas[j] * inputs[i];
+    for (i, inp) in inputs.iter().enumerate().take(layer.input_size) {
+        for (j, delta) in deltas.iter().enumerate().take(layer.output_size) {
+            layer.weights[i][j] += learning_rate * delta * inp;
         }
     }
 
-    for i in 0..layer.output_size {
-        layer.biases[i] += learning_rate * deltas[i];
+    for (i, delta) in deltas.iter().enumerate().take(layer.output_size) {
+        layer.biases[i] += learning_rate * delta;
     }
 }
 

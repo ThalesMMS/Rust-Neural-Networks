@@ -16,7 +16,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         rust: [stable]
 
     steps:
@@ -51,7 +51,7 @@ jobs:
       run: cargo fmt -- --check
 
     - name: Run clippy
-      run: cargo clippy --all-targets --all-features -- -W warnings
+      run: cargo clippy --all-targets --all-features -- -D warnings
 
     - name: Build
       run: cargo build --verbose
@@ -98,6 +98,7 @@ jobs:
       uses: codecov/codecov-action@v4
       with:
         files: ./cobertura.xml
+        token: ${{ secrets.CODECOV_TOKEN }}
         fail_ci_if_error: false
         verbose: true
 
@@ -105,7 +106,17 @@ jobs:
       run: |
         # Note: 15% threshold reflects coverage of testable code in binary-only architecture.
         # Main functions, I/O code, and training loops are excluded as they require data files.
-        COVERAGE=$(cargo tarpaulin --out Stdout | grep -oP '\d+\.\d+(?=% coverage)' || echo "0")
-        echo "Current coverage: $COVERAGE%"
-        # Use Python for cross-platform floating point comparison
-        python3 -c "import sys; coverage = float('$COVERAGE'); sys.exit(1) if coverage < 15.0 else print('Coverage meets 15% threshold')"
+        # Parse cobertura.xml in Python for cross-platform compatibility (BSD grep lacks -P)
+        python3 - <<'PY'
+        import sys, xml.etree.ElementTree as ET
+        try:
+            root = ET.parse("cobertura.xml").getroot()
+            coverage = float(root.attrib.get("line-rate", "0")) * 100
+        except Exception:
+            coverage = 0.0
+        print(f"Current coverage: {coverage:.2f}%")
+        if coverage < 15.0:
+            print("Coverage does NOT meet 15% threshold")
+            sys.exit(1)
+        print("Coverage meets 15% threshold")
+        PY

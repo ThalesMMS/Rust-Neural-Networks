@@ -762,7 +762,7 @@ fn extract_patches(batch_inputs: &[f32], batch_count: usize, patches: &mut [f32]
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// // Assume `model`, `inputs`, `labels`, `batch_size`, and `mut buf` are prepared.
 /// let loss = forward_batch(&model, &inputs, &labels, batch_size, &mut buf);
 /// assert!(loss >= 0.0);

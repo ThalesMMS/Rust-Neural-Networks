@@ -258,7 +258,7 @@ mod tests {
         let mut rng = SimpleRng::new(42);
         for _ in 0..100 {
             let value = rng.gen_range_f64(-1.0, 0.0);
-            assert!(value >= -1.0 && value < 0.0);
+            assert!((-1.0..0.0).contains(&value));
         }
     }
 

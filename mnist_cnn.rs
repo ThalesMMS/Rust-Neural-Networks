@@ -377,9 +377,9 @@ fn softmax_xent_backward(
     softmax_rows(probs_inplace, batch, NUM_CLASSES);
 
     let mut loss = 0.0f32;
-    for b in 0..batch {
+    for (b, &label) in labels.iter().enumerate().take(batch) {
         let base = b * NUM_CLASSES;
-        let y = labels[b] as usize;
+        let y = label as usize;
 
         let p = probs_inplace[base + y].max(eps);
         loss += -p.ln();
