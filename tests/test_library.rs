@@ -8,9 +8,7 @@
 
 use approx::assert_relative_eq;
 use rust_neural_networks::layers::{Conv2DLayer, DenseLayer, Layer};
-use rust_neural_networks::utils::activations::{
-    relu_inplace, softmax_rows,
-};
+use rust_neural_networks::utils::activations::{relu_inplace, softmax_rows};
 use rust_neural_networks::utils::rng::SimpleRng;
 
 // ============================================================================
