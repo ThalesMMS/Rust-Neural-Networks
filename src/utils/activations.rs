@@ -110,6 +110,7 @@ pub fn softmax_rows(outputs: &mut [f32], rows: usize, cols: usize) {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "shared_activations")]
     const EPSILON: f32 = 1e-6; // Changed from f64 1e-10
     const EPSILON_F32: f32 = 1e-6;
 

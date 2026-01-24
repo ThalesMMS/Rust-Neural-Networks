@@ -3,13 +3,13 @@
 //! This file tests the public API of the library including:
 //! - DenseLayer: creation, forward, backward, parameter updates
 //! - Conv2DLayer: creation, forward, backward, parameter updates
-//! - Activation functions: sigmoid, relu, softmax
+//! - Activation functions: relu, softmax
 //! - SimpleRng: random number generation
 
 use approx::assert_relative_eq;
 use rust_neural_networks::layers::{Conv2DLayer, DenseLayer, Layer};
 use rust_neural_networks::utils::activations::{
-    relu_inplace, sigmoid, sigmoid_derivative, softmax_rows,
+    relu_inplace, softmax_rows,
 };
 use rust_neural_networks::utils::rng::SimpleRng;
 
@@ -537,8 +537,10 @@ mod conv2d_layer_tests {
 // Activation Function Tests
 // ============================================================================
 
+#[cfg(feature = "shared_activations")]
 mod activation_tests {
     use super::*;
+    use rust_neural_networks::utils::activations::{sigmoid, sigmoid_derivative};
 
     // Sigmoid tests
     #[test]
