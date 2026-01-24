@@ -1,39 +1,39 @@
 {
-  "sandbox": {
-    "enabled": true,
-    "autoAllowBashIfSandboxed": true
-  },
-  "permissions": {
-    "defaultMode": "acceptEdits",
-    "allow": [
-      "Read(./**)",
-      "Write(./**)",
-      "Edit(./**)",
-      "Glob(./**)",
-      "Grep(./**)",
-      "Read(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/worktrees/tasks/016-create-shared-layer-abstractions/**)",
-      "Write(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/worktrees/tasks/016-create-shared-layer-abstractions/**)",
-      "Edit(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/worktrees/tasks/016-create-shared-layer-abstractions/**)",
-      "Glob(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/worktrees/tasks/016-create-shared-layer-abstractions/**)",
-      "Grep(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/worktrees/tasks/016-create-shared-layer-abstractions/**)",
-      "Read(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/worktrees/tasks/016-create-shared-layer-abstractions/.auto-claude/specs/016-create-shared-layer-abstractions/**)",
-      "Write(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/worktrees/tasks/016-create-shared-layer-abstractions/.auto-claude/specs/016-create-shared-layer-abstractions/**)",
-      "Edit(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/worktrees/tasks/016-create-shared-layer-abstractions/.auto-claude/specs/016-create-shared-layer-abstractions/**)",
-      "Read(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/**)",
-      "Write(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/**)",
-      "Edit(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/**)",
-      "Glob(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/**)",
-      "Grep(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/**)",
-      "Bash(*)",
-      "WebFetch(*)",
-      "WebSearch(*)",
-      "mcp__context7__resolve-library-id(*)",
-      "mcp__context7__get-library-docs(*)",
-      "mcp__graphiti-memory__search_nodes(*)",
-      "mcp__graphiti-memory__search_facts(*)",
-      "mcp__graphiti-memory__add_episode(*)",
-      "mcp__graphiti-memory__get_episodes(*)",
-      "mcp__graphiti-memory__get_entity_edge(*)"
-    ]
-  }
+    "sandbox": {
+        "enabled": true,
+        "autoAllowBashIfSandboxed": true
+    },
+    "permissions": {
+        "defaultMode": "acceptEdits",
+        "allow": [
+            "Read(./**)",
+            "Write(./**)",
+            "Edit(./**)",
+            "Glob(./**)",
+            "Grep(./**)",
+            "Read(./.auto-claude/worktrees/tasks/016-create-shared-layer-abstractions/**)",
+            "Write(./.auto-claude/worktrees/tasks/016-create-shared-layer-abstractions/**)",
+            "Edit(./.auto-claude/worktrees/tasks/016-create-shared-layer-abstractions/**)",
+            "Glob(./.auto-claude/worktrees/tasks/016-create-shared-layer-abstractions/**)",
+            "Grep(./.auto-claude/worktrees/tasks/016-create-shared-layer-abstractions/**)",
+            "Read(./.auto-claude/worktrees/tasks/016-create-shared-layer-abstractions/.auto-claude/specs/016-create-shared-layer-abstractions/**)",
+            "Write(./.auto-claude/worktrees/tasks/016-create-shared-layer-abstractions/.auto-claude/specs/016-create-shared-layer-abstractions/**)",
+            "Edit(./.auto-claude/worktrees/tasks/016-create-shared-layer-abstractions/.auto-claude/specs/016-create-shared-layer-abstractions/**)",
+            "Read(./.auto-claude/**)",
+            "Write(./.auto-claude/**)",
+            "Edit(./.auto-claude/**)",
+            "Glob(./.auto-claude/**)",
+            "Grep(./.auto-claude/**)",
+            "Bash(*)",
+            "WebFetch(*)",
+            "WebSearch(*)",
+            "mcp__context7__resolve-library-id(*)",
+            "mcp__context7__get-library-docs(*)",
+            "mcp__graphiti-memory__search_nodes(*)",
+            "mcp__graphiti-memory__search_facts(*)",
+            "mcp__graphiti-memory__add_episode(*)",
+            "mcp__graphiti-memory__get_episodes(*)",
+            "mcp__graphiti-memory__get_entity_edge(*)"
+        ]
+    }
 }
