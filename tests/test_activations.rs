@@ -24,6 +24,14 @@ fn relu_inplace(data: &mut [f32]) {
 
 // Softmax activation function (f32 version from mnist_mlp.rs).
 fn softmax_rows(outputs: &mut [f32], rows: usize, cols: usize) {
+    if cols == 0 {
+        return;
+    }
+    assert_eq!(
+        outputs.len(),
+        rows * cols,
+        "outputs length mismatch in softmax_rows"
+    );
     for row in outputs.chunks_exact_mut(cols).take(rows) {
         let mut max_value = row[0];
         for &value in row.iter().skip(1) {

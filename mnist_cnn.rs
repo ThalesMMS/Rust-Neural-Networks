@@ -712,16 +712,25 @@ fn init_cnn(rng: &mut SimpleRng) -> Cnn {
 /// # Examples
 ///
 /// ```
-/// let mut rng = SimpleRng::seed_from_u64(123);
+/// use crate::{init_cnn, conv_forward_relu, SimpleRng, Cnn};
+///
+/// let mut rng = SimpleRng::new(123);
 /// let mut model = init_cnn(&mut rng);
 /// let batch = 0usize;
-/// let mut inputs = vec![0f32; BATCH_SIZE * NUM_INPUTS];
-/// let mut conv_out = vec![0f32; BATCH_SIZE * CONV_OUT * CONV_H * CONV_W];
+/// // Dimensions: BATCH_SIZE=32, NUM_INPUTS=784, CONV_OUT=8, IMG_H=28, IMG_W=28
+/// let batch_size = 32;
+/// let num_inputs = 784;
+/// let conv_out = 8;
+/// let img_h = 28;
+/// let img_w = 28;
+///
+/// let mut inputs = vec![0f32; batch_size * num_inputs];
+/// let mut conv_out_buf = vec![0f32; batch_size * conv_out * img_h * img_w];
 /// // populate inputs[batch * NUM_INPUTS .. (batch+1) * NUM_INPUTS] as needed
-/// conv_forward_relu(&mut model, batch, &inputs, &mut conv_out);
+/// conv_forward_relu(&mut model, batch, &inputs, &mut conv_out_buf);
 /// // after call, conv_out values for the batch are non-negative due to ReLU
-/// let start = batch * CONV_OUT * CONV_H * CONV_W;
-/// assert!(conv_out[start..start + CONV_OUT * CONV_H * CONV_W].iter().all(|&v| v >= 0.0));
+/// let start = batch * conv_out * img_h * img_w;
+/// assert!(conv_out_buf[start..start + conv_out * img_h * img_w].iter().all(|&v| v >= 0.0));
 /// ```
 fn conv_forward_relu(model: &mut Cnn, batch_size: usize, input: &[f32], conv_out: &mut [f32]) {
     // Use Conv2DLayer for forward pass
@@ -1134,7 +1143,7 @@ fn main() {
 
         for batch_start in (0..train_n).step_by(BATCH_SIZE) {
             let batch = (train_n - batch_start).min(BATCH_SIZE);
-            let scale = 1.0f32 / batch as f32;
+            let scale = 1.0f32;
 
             // Gather a random mini-batch into contiguous buffers.
             gather_batch(
