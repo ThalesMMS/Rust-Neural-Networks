@@ -178,7 +178,7 @@ impl Layer for DenseLayer {
         for b in 0..batch_size {
             let in_offset = b * self.input_size;
             let out_offset = b * self.output_size;
-            
+
             for j in 0..self.output_size {
                 let mut sum = self.biases[j];
                 for i in 0..self.input_size {
@@ -201,7 +201,9 @@ impl Layer for DenseLayer {
         let mut grad_b = self.grad_biases.borrow_mut();
 
         // Zero out grad_input first as we accumulate into it
-        for v in grad_input.iter_mut() { *v = 0.0; }
+        for v in grad_input.iter_mut() {
+            *v = 0.0;
+        }
 
         for b in 0..batch_size {
             let in_offset = b * self.input_size;
@@ -230,13 +232,23 @@ impl Layer for DenseLayer {
             *b -= learning_rate * g;
         }
 
-        for g in grad_w.iter_mut() { *g = 0.0; }
-        for g in grad_b.iter_mut() { *g = 0.0; }
+        for g in grad_w.iter_mut() {
+            *g = 0.0;
+        }
+        for g in grad_b.iter_mut() {
+            *g = 0.0;
+        }
     }
 
-    fn input_size(&self) -> usize { self.input_size }
-    fn output_size(&self) -> usize { self.output_size }
-    fn parameter_count(&self) -> usize { self.weights.len() + self.biases.len() }
+    fn input_size(&self) -> usize {
+        self.input_size
+    }
+    fn output_size(&self) -> usize {
+        self.output_size
+    }
+    fn parameter_count(&self) -> usize {
+        self.weights.len() + self.biases.len()
+    }
 }
 
 /// 2D Convolutional layer (Manual implementation).
@@ -376,7 +388,9 @@ impl Layer for Conv2DLayer {
         let mut grad_b = self.grad_biases.borrow_mut();
 
         // Zero grad_input
-        for v in grad_input.iter_mut() { *v = 0.0; }
+        for v in grad_input.iter_mut() {
+            *v = 0.0;
+        }
 
         for b in 0..batch_size {
             let in_base = b * (self.in_channels * in_spatial);
@@ -418,7 +432,7 @@ impl Layer for Conv2DLayer {
                                         let ixx = ix as usize;
                                         let in_idx = in_base_c + iyy * self.input_width + ixx;
                                         let w_idx = w_base + ky * self.kernel_size + kx;
-                                        
+
                                         // Accumulate weight grad
                                         grad_w[w_idx] += g * input[in_idx] * scale;
                                         // Accumulate input grad
@@ -444,8 +458,12 @@ impl Layer for Conv2DLayer {
             *b -= learning_rate * g;
         }
 
-        for g in grad_w.iter_mut() { *g = 0.0; }
-        for g in grad_b.iter_mut() { *g = 0.0; }
+        for g in grad_w.iter_mut() {
+            *g = 0.0;
+        }
+        for g in grad_b.iter_mut() {
+            *g = 0.0;
+        }
     }
 
     fn input_size(&self) -> usize {

@@ -64,8 +64,8 @@ impl Conv2DLayer {
     /// ```
     /// use rust_neural_networks::layers::conv2d::Conv2DLayer;
     /// use rust_neural_networks::layers::Layer;
-/// use rust_neural_networks::utils::rng::SimpleRng;
-/// let mut rng = SimpleRng::new(42);
+    /// use rust_neural_networks::utils::rng::SimpleRng;
+    /// let mut rng = SimpleRng::new(42);
     /// // 1 input channel, 8 output channels, 3x3 kernel, padding=1, stride=1, 28x28 input
     /// let layer = Conv2DLayer::new(1, 8, 3, 1, 1, 28, 28, &mut rng);
     /// assert_eq!(layer.in_channels(), 1);
@@ -183,8 +183,8 @@ impl Conv2DLayer {
     /// ```
     /// use rust_neural_networks::layers::conv2d::Conv2DLayer;
     /// use rust_neural_networks::layers::Layer;
-/// use rust_neural_networks::utils::rng::SimpleRng;
-/// let mut rng = SimpleRng::new(0);
+    /// use rust_neural_networks::utils::rng::SimpleRng;
+    /// let mut rng = SimpleRng::new(0);
     /// let layer = Conv2DLayer::new(
     ///     1, // in_channels
     ///     8, // out_channels
@@ -214,8 +214,8 @@ impl Conv2DLayer {
     /// // Construct a layer with input width 28, kernel 3, padding 1 and stride 1.
     /// use rust_neural_networks::layers::conv2d::Conv2DLayer;
     /// use rust_neural_networks::layers::Layer;
-/// use rust_neural_networks::utils::rng::SimpleRng;
-/// let mut rng = SimpleRng::new(0);
+    /// use rust_neural_networks::utils::rng::SimpleRng;
+    /// let mut rng = SimpleRng::new(0);
     /// let layer = Conv2DLayer::new(1, 8, 3, 1, 1, 28, 28, &mut rng);
     /// assert_eq!(layer.output_width(), 28);
     /// ```
@@ -269,8 +269,8 @@ impl Layer for Conv2DLayer {
     /// // Construct a layer (rng provided by the surrounding crate/test harness)
     /// use rust_neural_networks::layers::conv2d::Conv2DLayer;
     /// use rust_neural_networks::layers::Layer;
-/// use rust_neural_networks::utils::rng::SimpleRng;
-/// let mut rng = SimpleRng::new(42);
+    /// use rust_neural_networks::utils::rng::SimpleRng;
+    /// let mut rng = SimpleRng::new(42);
     /// let layer = Conv2DLayer::new(1, 8, 3, 1, 1, 28, 28, &mut rng);
     /// let batch_size = 2;
     /// let input = vec![0.0f32; batch_size * layer.input_size()];
@@ -351,8 +351,8 @@ impl Layer for Conv2DLayer {
     /// ```
     /// use rust_neural_networks::layers::conv2d::Conv2DLayer;
     /// use rust_neural_networks::layers::Layer;
-/// use rust_neural_networks::utils::rng::SimpleRng;
-/// let mut rng = SimpleRng::new(42);
+    /// use rust_neural_networks::utils::rng::SimpleRng;
+    /// let mut rng = SimpleRng::new(42);
     /// let layer = Conv2DLayer::new(1, 1, 3, 1, 1, 5, 5, &mut rng);
     /// let batch = 1;
     /// let input = vec![0.0f32; batch * layer.input_size()];
@@ -580,8 +580,8 @@ impl Layer for Conv2DLayer {
     ///
     /// ```
     /// use rust_neural_networks::layers::conv2d::Conv2DLayer;
-/// use rust_neural_networks::utils::rng::SimpleRng;
-/// let mut rng = SimpleRng::new(42);
+    /// use rust_neural_networks::utils::rng::SimpleRng;
+    /// let mut rng = SimpleRng::new(42);
     /// let layer = Conv2DLayer::new(1, 8, 3, 1, 1, 28, 28, &mut rng);
     /// assert_eq!(layer.parameter_count(), 1 * 8 * 3 * 3 + 8);
     /// ```
@@ -676,7 +676,6 @@ mod tests {
         assert_eq!(layer1.weights, layer2.weights);
         assert_eq!(layer1.biases, layer2.biases);
     }
-
 
     #[test]
     fn test_conv2d_forward() {
@@ -778,4 +777,3 @@ mod tests {
         assert_eq!(layer.output_width(), 4);
     }
 }
-

@@ -247,7 +247,6 @@ mod tests {
         assert_eq!(data, vec![42]);
     }
 
-
     #[test]
     fn test_rng_zero_seed() {
         // Zero seed should use the fixed value
@@ -290,4 +289,3 @@ mod tests {
         assert!(v1 > 0 || v2 > 0);
     }
 }
-

@@ -98,7 +98,11 @@ pub fn softmax_rows(outputs: &mut [f32], rows: usize, cols: usize) {
     if cols == 0 {
         return;
     }
-    assert_eq!(outputs.len(), rows * cols, "outputs length mismatch in softmax_rows");
+    assert_eq!(
+        outputs.len(),
+        rows * cols,
+        "outputs length mismatch in softmax_rows"
+    );
 
     for row in outputs.chunks_exact_mut(cols).take(rows) {
         let mut max_value = row[0];
@@ -163,7 +167,7 @@ impl Layer for DenseLayer {
         for b in 0..batch_size {
             let in_offset = b * self.input_size;
             let out_offset = b * self.output_size;
-            
+
             for j in 0..self.output_size {
                 let mut sum = self.biases[j];
                 for i in 0..self.input_size {
@@ -186,7 +190,9 @@ impl Layer for DenseLayer {
         let mut grad_b = self.grad_biases.borrow_mut();
 
         // Zero out grad_input first
-        for v in grad_input.iter_mut() { *v = 0.0; }
+        for v in grad_input.iter_mut() {
+            *v = 0.0;
+        }
 
         for b in 0..batch_size {
             let in_offset = b * self.input_size;
@@ -216,12 +222,20 @@ impl Layer for DenseLayer {
         }
 
         // Reset gradients
-        for g in grad_w.iter_mut() { *g = 0.0; }
-        for g in grad_b.iter_mut() { *g = 0.0; }
+        for g in grad_w.iter_mut() {
+            *g = 0.0;
+        }
+        for g in grad_b.iter_mut() {
+            *g = 0.0;
+        }
     }
 
-    fn input_size(&self) -> usize { self.input_size }
-    fn output_size(&self) -> usize { self.output_size }
+    fn input_size(&self) -> usize {
+        self.input_size
+    }
+    fn output_size(&self) -> usize {
+        self.output_size
+    }
 }
 
 // ============================================================================
@@ -390,7 +404,7 @@ fn train(
 ) {
     // Attempt to create logs dir if not exists
     std::fs::create_dir_all("./logs").ok();
-    
+
     let file = File::create("./logs/training_loss_c.txt").unwrap_or_else(|_| {
         eprintln!("Could not open file for writing training loss.");
         process::exit(1);
@@ -440,7 +454,11 @@ fn train(
             // Forward: output layer.
             let a2_len = batch_count * NUM_OUTPUTS;
             nn.output_layer.forward(&a1, &mut a2, batch_count);
-            assert_eq!(a2[..a2_len].len(), batch_count * NUM_OUTPUTS, "Buffer size mismatch before softmax_rows");
+            assert_eq!(
+                a2[..a2_len].len(),
+                batch_count * NUM_OUTPUTS,
+                "Buffer size mismatch before softmax_rows"
+            );
             softmax_rows(&mut a2[..a2_len], batch_count, NUM_OUTPUTS);
 
             // Output delta and loss.
@@ -466,8 +484,12 @@ fn train(
 
             // Backward: hidden layer.
             let grad_len = batch_count * NUM_INPUTS;
-            nn.hidden_layer
-                .backward(&batch_inputs, &dz1, &mut unused_grad[..grad_len], batch_count);
+            nn.hidden_layer.backward(
+                &batch_inputs,
+                &dz1,
+                &mut unused_grad[..grad_len],
+                batch_count,
+            );
 
             // Update parameters.
             nn.output_layer.update_parameters(LEARNING_RATE);
@@ -525,7 +547,11 @@ fn test(nn: &NeuralNetwork, images: &[f32], labels: &[u8], num_samples: usize) {
         // Forward: output layer.
         let a2_len = batch_count * NUM_OUTPUTS;
         nn.output_layer.forward(&a1, &mut a2, batch_count);
-        assert_eq!(a2[..a2_len].len(), batch_count * NUM_OUTPUTS, "Buffer size mismatch before softmax_rows in test");
+        assert_eq!(
+            a2[..a2_len].len(),
+            batch_count * NUM_OUTPUTS,
+            "Buffer size mismatch before softmax_rows in test"
+        );
         softmax_rows(&mut a2[..a2_len], batch_count, NUM_OUTPUTS);
 
         for row_idx in 0..batch_count {

@@ -93,8 +93,8 @@ impl DenseLayer {
     ///
     /// ```
     /// use rust_neural_networks::layers::dense::DenseLayer;
-/// use rust_neural_networks::utils::rng::SimpleRng;
-/// let mut rng = SimpleRng::new(42);
+    /// use rust_neural_networks::utils::rng::SimpleRng;
+    /// let mut rng = SimpleRng::new(42);
     /// let layer = DenseLayer::new(4, 8, &mut rng);
     /// assert_eq!(layer.output_size(), 8);
     /// ```
@@ -110,8 +110,8 @@ impl DenseLayer {
     ///
     /// ```
     /// use rust_neural_networks::layers::dense::DenseLayer;
-/// use rust_neural_networks::utils::rng::SimpleRng;
-/// let mut rng = SimpleRng::new(42);
+    /// use rust_neural_networks::utils::rng::SimpleRng;
+    /// let mut rng = SimpleRng::new(42);
     /// let layer = DenseLayer::new(3, 4, &mut rng);
     /// assert_eq!(layer.parameter_count(), 3 * 4 + 4);
     /// ```
@@ -128,8 +128,8 @@ impl DenseLayer {
     ///
     /// ```
     /// use rust_neural_networks::layers::dense::DenseLayer;
-/// use rust_neural_networks::utils::rng::SimpleRng;
-/// let mut rng = SimpleRng::new(0);
+    /// use rust_neural_networks::utils::rng::SimpleRng;
+    /// let mut rng = SimpleRng::new(0);
     /// let layer = DenseLayer::new(2, 3, &mut rng);
     /// assert_eq!(layer.weights().len(), 2 * 3);
     /// ```
@@ -146,8 +146,8 @@ impl DenseLayer {
     ///
     /// ```
     /// use rust_neural_networks::layers::dense::DenseLayer;
-/// use rust_neural_networks::utils::rng::SimpleRng;
-/// let mut rng = SimpleRng::new(0);
+    /// use rust_neural_networks::utils::rng::SimpleRng;
+    /// let mut rng = SimpleRng::new(0);
     /// let layer = DenseLayer::new(4, 3, &mut rng);
     /// let b = layer.biases();
     /// assert_eq!(b.len(), 3);
@@ -294,8 +294,8 @@ impl Layer for DenseLayer {
     /// // call `forward` with a single-row batch:
     /// use rust_neural_networks::layers::dense::DenseLayer;
     /// use rust_neural_networks::layers::Layer;
-/// use rust_neural_networks::utils::rng::SimpleRng;
-/// let mut rng = SimpleRng::new(0);
+    /// use rust_neural_networks::utils::rng::SimpleRng;
+    /// let mut rng = SimpleRng::new(0);
     /// let layer = DenseLayer::new(2, 3, &mut rng);
     /// let input = [0.5f32, -1.0f32]; // 1 × 2
     /// let mut output = vec![0f32; 3]; // 1 × 3
@@ -307,9 +307,21 @@ impl Layer for DenseLayer {
         // input: (batch_size × input_size)
         // weights: (input_size × output_size)
         // output: (batch_size × output_size)
-        debug_assert_eq!(input.len(), batch_size * self.input_size, "input len mismatch");
-        debug_assert_eq!(output.len(), batch_size * self.output_size, "output len mismatch");
-        debug_assert_eq!(self.weights.len(), self.input_size * self.output_size, "weights len mismatch");
+        debug_assert_eq!(
+            input.len(),
+            batch_size * self.input_size,
+            "input len mismatch"
+        );
+        debug_assert_eq!(
+            output.len(),
+            batch_size * self.output_size,
+            "output len mismatch"
+        );
+        debug_assert_eq!(
+            self.weights.len(),
+            self.input_size * self.output_size,
+            "weights len mismatch"
+        );
 
         sgemm_wrapper(
             batch_size,
@@ -328,7 +340,11 @@ impl Layer for DenseLayer {
         );
 
         // Add biases to each row
-        debug_assert_eq!(output.len(), batch_size * self.output_size, "output len mismatch for add_bias");
+        debug_assert_eq!(
+            output.len(),
+            batch_size * self.output_size,
+            "output len mismatch for add_bias"
+        );
         debug_assert_eq!(self.biases.len(), self.output_size, "biases len mismatch");
         add_bias(output, batch_size, self.output_size, &self.biases);
     }
@@ -345,8 +361,8 @@ impl Layer for DenseLayer {
     ///
     /// ```no_run
     /// use std::mem::MaybeUninit;
-/// use rust_neural_networks::layers::Layer;
-/// use rust_neural_networks::layers::dense::DenseLayer;
+    /// use rust_neural_networks::layers::Layer;
+    /// use rust_neural_networks::layers::dense::DenseLayer;
     ///
     /// let batch_size = 2usize;
     /// // Create zeroed DenseLayer for example purposes only (do not use in production).
@@ -369,11 +385,23 @@ impl Layer for DenseLayer {
         // input: (batch_size × input_size)
         // grad_output: (batch_size × output_size)
         // grad_weights: (input_size × output_size)
-        debug_assert_eq!(input.len(), batch_size * self.input_size, "input len mismatch in backward");
-        debug_assert_eq!(grad_output.len(), batch_size * self.output_size, "grad_output len mismatch in backward");
-        
+        debug_assert_eq!(
+            input.len(),
+            batch_size * self.input_size,
+            "input len mismatch in backward"
+        );
+        debug_assert_eq!(
+            grad_output.len(),
+            batch_size * self.output_size,
+            "grad_output len mismatch in backward"
+        );
+
         let mut grad_w = self.grad_weights.borrow_mut();
-        debug_assert_eq!(grad_w.len(), self.input_size * self.output_size, "grad_weights len mismatch");
+        debug_assert_eq!(
+            grad_w.len(),
+            self.input_size * self.output_size,
+            "grad_weights len mismatch"
+        );
 
         sgemm_wrapper(
             self.input_size,
@@ -403,7 +431,11 @@ impl Layer for DenseLayer {
         // grad_output: (batch_size × output_size)
         // weights: (input_size × output_size)
         // grad_input: (batch_size × input_size)
-        debug_assert_eq!(grad_input.len(), batch_size * self.input_size, "grad_input len mismatch");
+        debug_assert_eq!(
+            grad_input.len(),
+            batch_size * self.input_size,
+            "grad_input len mismatch"
+        );
         sgemm_wrapper(
             batch_size,
             self.input_size,
@@ -432,8 +464,8 @@ impl Layer for DenseLayer {
     /// # use crate::layers::dense::DenseLayer;
     /// # use crate::utils::rng::SimpleRng;
     /// use rust_neural_networks::layers::dense::DenseLayer;
-/// use rust_neural_networks::utils::rng::SimpleRng;
-/// let mut rng = SimpleRng::new(0);
+    /// use rust_neural_networks::utils::rng::SimpleRng;
+    /// let mut rng = SimpleRng::new(0);
     /// let mut layer = DenseLayer::new(2, 3, &mut rng);
     ///
     /// // simulate accumulated gradients
@@ -487,8 +519,8 @@ impl Layer for DenseLayer {
     ///
     /// ```
     /// use rust_neural_networks::layers::dense::DenseLayer;
-/// use rust_neural_networks::utils::rng::SimpleRng;
-/// let mut rng = SimpleRng::new(0);
+    /// use rust_neural_networks::utils::rng::SimpleRng;
+    /// let mut rng = SimpleRng::new(0);
     /// let layer = DenseLayer::new(4, 2, &mut rng);
     /// assert_eq!(layer.input_size(), 4);
     /// ```
@@ -502,8 +534,8 @@ impl Layer for DenseLayer {
     ///
     /// ```
     /// use rust_neural_networks::layers::dense::DenseLayer;
-/// use rust_neural_networks::utils::rng::SimpleRng;
-/// let mut rng = SimpleRng::new(42);
+    /// use rust_neural_networks::utils::rng::SimpleRng;
+    /// let mut rng = SimpleRng::new(42);
     /// let layer = DenseLayer::new(4, 8, &mut rng);
     /// assert_eq!(layer.output_size(), 8);
     /// ```
@@ -517,8 +549,8 @@ impl Layer for DenseLayer {
     ///
     /// ```
     /// use rust_neural_networks::layers::dense::DenseLayer;
-/// use rust_neural_networks::utils::rng::SimpleRng;
-/// let mut rng = SimpleRng::new(0);
+    /// use rust_neural_networks::utils::rng::SimpleRng;
+    /// let mut rng = SimpleRng::new(0);
     /// let layer = DenseLayer::new(2, 3, &mut rng);
     /// assert_eq!(layer.parameter_count(), 2 * 3 + 3);
     /// ```
@@ -588,7 +620,6 @@ mod tests {
         assert_eq!(layer1.weights, layer2.weights);
         assert_eq!(layer1.biases, layer2.biases);
     }
-
 
     #[test]
     fn test_add_bias() {
@@ -709,4 +740,3 @@ mod tests {
         assert_eq!(layer.biases().len(), 3);
     }
 }
-

@@ -107,7 +107,7 @@ impl Layer for DenseLayer {
         for b in 0..batch_size {
             let in_offset = b * self.input_size;
             let out_offset = b * self.output_size;
-            
+
             for j in 0..self.output_size {
                 let mut sum = self.biases[j];
                 for i in 0..self.input_size {
@@ -165,12 +165,20 @@ impl Layer for DenseLayer {
         }
 
         // Reset gradients
-        for g in grad_w.iter_mut() { *g = 0.0; }
-        for g in grad_b.iter_mut() { *g = 0.0; }
+        for g in grad_w.iter_mut() {
+            *g = 0.0;
+        }
+        for g in grad_b.iter_mut() {
+            *g = 0.0;
+        }
     }
 
-    fn input_size(&self) -> usize { self.input_size }
-    fn output_size(&self) -> usize { self.output_size }
+    fn input_size(&self) -> usize {
+        self.input_size
+    }
+    fn output_size(&self) -> usize {
+        self.output_size
+    }
 }
 
 // ============================================================================
@@ -360,7 +368,7 @@ fn train(
             // - hidden_outputs and output_outputs are overwritten by forward()
             // - errors is computed element-wise
             // - grad_output is computed element-wise
-            // - grad_hidden_outputs is overwritten by backward() 
+            // - grad_hidden_outputs is overwritten by backward()
             // - grad_hidden_input is overwritten by backward()
             // Using explicit fill(0.0) just to be safe and match Reviewer request,
             // though not strictly necessary for correctness if logic is robust.
