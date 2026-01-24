@@ -1,5 +1,5 @@
 [package]
-name = "netural-network-cpp"
+name = "rust_neural_networks"
 version = "0.1.0"
 edition = "2021"
 
@@ -22,6 +22,9 @@ path = "mnist_cnn.rs"
 [[bin]]
 name = "mnist_attention_pool"
 path = "mnist_attention_pool.rs"
+
+[dev-dependencies]
+approx = "0.5"
 
 [profile.release]
 lto = true

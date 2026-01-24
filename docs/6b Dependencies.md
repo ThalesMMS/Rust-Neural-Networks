@@ -68,7 +68,7 @@ The dependency tree includes several indirect dependencies required by the direc
 ```mermaid
 flowchart TD
 
-ROOT["netural-network-cpp (project root)"]
+ROOT["rust_neural_networks (project root)"]
 BLAS_SRC["blas-src:0.14.0"]
 CBLAS["cblas:0.5.0"]
 ACCEL_SRC["accelerate-src:0.3.2"]

@@ -246,3 +246,141 @@ fn main() {
     train(&mut nn, &inputs, &expected_outputs);
     test(&nn, &inputs, &expected_outputs);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_simple_rng_new() {
+        let rng1 = SimpleRng::new(42);
+        assert_eq!(rng1.state, 42);
+
+        let rng2 = SimpleRng::new(0);
+        assert_eq!(rng2.state, 0x9e3779b97f4a7c15);
+    }
+
+    #[test]
+    fn test_simple_rng_reproducibility() {
+        let mut rng1 = SimpleRng::new(123);
+        let mut rng2 = SimpleRng::new(123);
+
+        for _ in 0..10 {
+            assert_eq!(rng1.next_u32(), rng2.next_u32());
+        }
+    }
+
+    #[test]
+    fn test_simple_rng_next_f64() {
+        let mut rng = SimpleRng::new(42);
+        for _ in 0..100 {
+            let val = rng.next_f64();
+            assert!(val >= 0.0 && val < 1.0);
+        }
+    }
+
+    #[test]
+    fn test_simple_rng_gen_range_f64() {
+        let mut rng = SimpleRng::new(42);
+        for _ in 0..100 {
+            let val = rng.gen_range_f64(-1.0, 1.0);
+            assert!(val >= -1.0 && val < 1.0);
+        }
+    }
+
+    #[test]
+    fn test_simple_rng_reseed_from_time() {
+        let mut rng = SimpleRng::new(42);
+        let original_state = rng.state;
+        rng.reseed_from_time();
+        assert_ne!(rng.state, original_state);
+    }
+
+    #[test]
+    fn test_sigmoid() {
+        assert!((sigmoid(0.0) - 0.5).abs() < 1e-6);
+        assert!(sigmoid(10.0) > 0.9);
+        assert!(sigmoid(-10.0) < 0.1);
+    }
+
+    #[test]
+    fn test_sigmoid_derivative() {
+        let sig_half = sigmoid(0.0);
+        let deriv = sigmoid_derivative(sig_half);
+        assert!((deriv - 0.25).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_initialize_layer() {
+        let mut rng = SimpleRng::new(42);
+        let layer = initialize_layer(3, 2, &mut rng);
+
+        assert_eq!(layer.input_size, 3);
+        assert_eq!(layer.output_size, 2);
+        assert_eq!(layer.weights.len(), 3);
+        assert_eq!(layer.weights[0].len(), 2);
+        assert_eq!(layer.biases.len(), 2);
+    }
+
+    #[test]
+    fn test_forward_propagation() {
+        let mut rng = SimpleRng::new(42);
+        let layer = initialize_layer(2, 1, &mut rng);
+        let inputs = [0.5, 0.3];
+        let mut outputs = [0.0];
+
+        forward_propagation(&layer, &inputs, &mut outputs);
+
+        assert!(outputs[0] >= 0.0 && outputs[0] <= 1.0);
+    }
+
+    #[test]
+    fn test_backward() {
+        let mut rng = SimpleRng::new(42);
+        let nn = initialize_network(&mut rng);
+
+        let inputs = [0.5, 0.3];
+        let mut hidden_outputs = [0.0; NUM_HIDDEN];
+        let mut output_outputs = [0.0; NUM_OUTPUTS];
+
+        forward_propagation(&nn.hidden_layer, &inputs, &mut hidden_outputs);
+        forward_propagation(&nn.output_layer, &hidden_outputs, &mut output_outputs);
+
+        let errors = [0.5];
+        let mut delta_hidden = [0.0; NUM_HIDDEN];
+        let mut delta_output = [0.0; NUM_OUTPUTS];
+
+        backward(&nn, &inputs, &hidden_outputs, &output_outputs, &errors,
+                &mut delta_hidden, &mut delta_output);
+
+        assert_ne!(delta_output[0], 0.0);
+    }
+
+    #[test]
+    fn test_update_weights_biases() {
+        let mut rng = SimpleRng::new(42);
+        let mut layer = initialize_layer(2, 1, &mut rng);
+
+        let original_weight = layer.weights[0][0];
+        let original_bias = layer.biases[0];
+
+        let inputs = [0.5, 0.3];
+        let deltas = [0.1];
+
+        update_weights_biases(&mut layer, &inputs, &deltas);
+
+        assert_ne!(layer.weights[0][0], original_weight);
+        assert_ne!(layer.biases[0], original_bias);
+    }
+
+    #[test]
+    fn test_initialize_network() {
+        let mut rng = SimpleRng::new(42);
+        let nn = initialize_network(&mut rng);
+
+        assert_eq!(nn.hidden_layer.input_size, NUM_INPUTS);
+        assert_eq!(nn.hidden_layer.output_size, NUM_HIDDEN);
+        assert_eq!(nn.output_layer.input_size, NUM_HIDDEN);
+        assert_eq!(nn.output_layer.output_size, NUM_OUTPUTS);
+    }
+}

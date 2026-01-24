@@ -702,3 +702,130 @@ fn main() {
     let acc = test_accuracy(&model, &test_images, &test_labels);
     println!("Test Accuracy: {:.2}%", acc);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_simple_rng_new() {
+        let rng1 = SimpleRng::new(42);
+        assert_eq!(rng1.state, 42);
+
+        let rng2 = SimpleRng::new(0);
+        assert_eq!(rng2.state, 0x9e3779b97f4a7c15);
+    }
+
+    #[test]
+    fn test_simple_rng_reproducibility() {
+        let mut rng1 = SimpleRng::new(123);
+        let mut rng2 = SimpleRng::new(123);
+
+        for _ in 0..10 {
+            assert_eq!(rng1.next_u32(), rng2.next_u32());
+        }
+    }
+
+    #[test]
+    fn test_simple_rng_next_f32() {
+        let mut rng = SimpleRng::new(42);
+        for _ in 0..100 {
+            let val = rng.next_f32();
+            assert!(val >= 0.0 && val < 1.0);
+        }
+    }
+
+    #[test]
+    fn test_simple_rng_gen_range_f32() {
+        let mut rng = SimpleRng::new(42);
+        for _ in 0..100 {
+            let val = rng.gen_range_f32(-1.0, 1.0);
+            assert!(val >= -1.0 && val < 1.0);
+        }
+    }
+
+    #[test]
+    fn test_simple_rng_gen_usize() {
+        let mut rng = SimpleRng::new(42);
+        for _ in 0..100 {
+            let val = rng.gen_usize(10);
+            assert!(val < 10);
+        }
+
+        assert_eq!(rng.gen_usize(0), 0);
+    }
+
+    #[test]
+    fn test_simple_rng_shuffle() {
+        let mut rng = SimpleRng::new(42);
+        let mut data = vec![0, 1, 2, 3, 4];
+        let original = data.clone();
+
+        rng.shuffle_usize(&mut data);
+
+        assert_eq!(data.len(), original.len());
+        for &val in &original {
+            assert!(data.contains(&val));
+        }
+    }
+
+    #[test]
+    fn test_simple_rng_reseed_from_time() {
+        let mut rng = SimpleRng::new(42);
+        let original_state = rng.state;
+        rng.reseed_from_time();
+        assert_ne!(rng.state, original_state);
+    }
+
+    #[test]
+    fn test_read_be_u32() {
+        let data = vec![0x01, 0x02, 0x03, 0x04, 0x00, 0x00];
+        let mut offset = 0;
+
+        let value = read_be_u32(&data, &mut offset);
+
+        assert_eq!(value, 0x01020304);
+        assert_eq!(offset, 4);
+    }
+
+    #[test]
+    fn test_relu_inplace() {
+        let mut data = vec![-1.0, 0.0, 1.0, -2.5, 3.5];
+        relu_inplace(&mut data);
+
+        assert_eq!(data[0], 0.0);
+        assert_eq!(data[1], 0.0);
+        assert_eq!(data[2], 1.0);
+        assert_eq!(data[3], 0.0);
+        assert_eq!(data[4], 3.5);
+    }
+
+    #[test]
+    fn test_softmax_rows() {
+        let mut data = vec![1.0, 2.0, 3.0, 1.0, 2.0, 3.0];
+        softmax_rows(&mut data, 2, 3);
+
+        let row1_sum: f32 = data[0..3].iter().sum();
+        let row2_sum: f32 = data[3..6].iter().sum();
+
+        assert!((row1_sum - 1.0).abs() < 1e-6);
+        assert!((row2_sum - 1.0).abs() < 1e-6);
+
+        for &val in &data {
+            assert!(val >= 0.0 && val <= 1.0);
+        }
+    }
+
+    #[test]
+    fn test_xavier_init() {
+        let mut rng = SimpleRng::new(42);
+        let mut weights = vec![0.0; 100];
+        let limit = 0.5;
+
+        xavier_init(limit, &mut rng, &mut weights);
+
+        for &w in &weights {
+            assert!(w >= -limit && w <= limit);
+        }
+    }
+}

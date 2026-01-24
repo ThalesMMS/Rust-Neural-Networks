@@ -109,11 +109,11 @@ The package is defined with basic metadata in the `[package]` section:
 
 | Field | Value | Purpose |
 | --- | --- | --- |
-| `name` | `netural-network-cpp` | Package identifier (note: legacy name from C++ origins) |
+| `name` | `rust_neural_networks` | Package identifier (note: legacy name from C++ origins) |
 | `version` | `0.1.0` | Semantic version number |
 | `edition` | `2021` | Rust edition for language features |
 
-The package name `netural-network-cpp` is a historical artifact and does not reflect the current Rust implementation.
+The package name `rust_neural_networks` is a historical artifact and does not reflect the current Rust implementation.
 
 **Sources**: [Cargo.toml L1-L4](https://github.com/ThalesMMS/Rust-Neural-Networks/blob/0e978f90/Cargo.toml#L1-L4)
 
@@ -515,7 +515,7 @@ The dependency tree ensures that:
 ```mermaid
 flowchart TD
 
-APP["netural-network-cpp v0.1.0"]
+APP["rust_neural_networks v0.1.0"]
 BLAS_SRC["blas-src v0.14.0 features = [accelerate]"]
 CBLAS["cblas v0.5.0"]
 ACCEL["accelerate-src v0.3.2 macOS only"]

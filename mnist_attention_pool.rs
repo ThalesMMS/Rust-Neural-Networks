@@ -1775,4 +1775,80 @@ fn main() {
     println!("Total time: {:.2}s", total_time);
     println!();
     println!("Training log saved to: ./logs/training_loss_attention.txt");
+    println!("Final test accuracy: {:.2}%", test_accuracy(&model, &test_images, &test_labels));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_simple_rng_new() {
+        let rng1 = SimpleRng::new(42);
+        assert_eq!(rng1.state, 42);
+
+        let rng2 = SimpleRng::new(0);
+        assert_eq!(rng2.state, 0x9e3779b97f4a7c15);
+    }
+
+    #[test]
+    fn test_simple_rng_reproducibility() {
+        let mut rng1 = SimpleRng::new(123);
+        let mut rng2 = SimpleRng::new(123);
+
+        for _ in 0..10 {
+            assert_eq!(rng1.next_u32(), rng2.next_u32());
+        }
+    }
+
+    #[test]
+    fn test_simple_rng_next_f32() {
+        let mut rng = SimpleRng::new(42);
+        for _ in 0..100 {
+            let val = rng.next_f32();
+            assert!(val >= 0.0 && val < 1.0);
+        }
+    }
+
+    #[test]
+    fn test_simple_rng_gen_range_f32() {
+        let mut rng = SimpleRng::new(42);
+        for _ in 0..100 {
+            let val = rng.gen_range_f32(-1.0, 1.0);
+            assert!(val >= -1.0 && val < 1.0);
+        }
+    }
+
+    #[test]
+    fn test_simple_rng_gen_usize() {
+        let mut rng = SimpleRng::new(42);
+        for _ in 0..100 {
+            let val = rng.gen_usize(10);
+            assert!(val < 10);
+        }
+
+        assert_eq!(rng.gen_usize(0), 0);
+    }
+
+    #[test]
+    fn test_simple_rng_shuffle() {
+        let mut rng = SimpleRng::new(42);
+        let mut data = vec![0, 1, 2, 3, 4];
+        let original = data.clone();
+
+        rng.shuffle_usize(&mut data);
+
+        assert_eq!(data.len(), original.len());
+        for &val in &original {
+            assert!(data.contains(&val));
+        }
+    }
+
+    #[test]
+    fn test_simple_rng_reseed_from_time() {
+        let mut rng = SimpleRng::new(42);
+        let original_state = rng.state;
+        rng.reseed_from_time();
+        assert_ne!(rng.state, original_state);
+    }
 }
