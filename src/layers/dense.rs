@@ -423,11 +423,16 @@ impl Layer for DenseLayer {
         // Compute gradient with respect to biases: grad_b += sum(grad_output) * scale
         // We use a temporary buffer to sum the batch, then accumulate into the persistent gradient
         let mut batch_bias_grad = vec![0.0; self.output_size];
-        sum_rows(grad_output, batch_size, self.output_size, &mut batch_bias_grad);
-        
+        sum_rows(
+            grad_output,
+            batch_size,
+            self.output_size,
+            &mut batch_bias_grad,
+        );
+
         let mut grad_b = self.grad_biases.borrow_mut();
         debug_assert_eq!(grad_b.len(), self.output_size, "grad_biases len mismatch");
-        
+
         for (acc, g) in grad_b.iter_mut().zip(batch_bias_grad.iter()) {
             *acc += *g * scale;
         }
