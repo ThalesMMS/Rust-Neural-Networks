@@ -7,6 +7,7 @@ use approx::assert_relative_eq;
 use cblas::{sgemm, Layout, Transpose};
 
 // GEMM wrapper from mnist_mlp.rs.
+#[allow(clippy::too_many_arguments)]
 fn sgemm_wrapper(
     m: usize,
     n: usize,

@@ -92,6 +92,7 @@ fn update_weights_biases(
 extern crate blas_src;
 use cblas::{sgemm, Layout, Transpose};
 
+#[allow(clippy::too_many_arguments)]
 fn sgemm_wrapper(
     m: usize,
     n: usize,
@@ -198,17 +199,16 @@ fn compute_delta_and_loss(
     let mut total_loss = 0.0f32;
     let epsilon = 1e-9f32;
 
-    for row_idx in 0..rows {
+    for (row_idx, &label) in labels.iter().enumerate().take(rows) {
         let row_start = row_idx * cols;
-        let label = labels[row_idx] as usize;
-        let prob = outputs[row_start + label].max(epsilon);
+        let prob = outputs[row_start + label as usize].max(epsilon);
         total_loss -= prob.ln();
 
         let row = &outputs[row_start..row_start + cols];
         let delta_row = &mut delta[row_start..row_start + cols];
         for (j, value) in row.iter().enumerate() {
             let mut v = *value;
-            if j == label {
+            if j == label as usize {
                 v -= 1.0;
             }
             delta_row[j] = v;
@@ -488,12 +488,12 @@ mod tests {
             &mut delta_output,
         );
 
-        for i in 0..3 {
+        for (i, &hidden_output) in hidden_outputs.iter().enumerate().take(3) {
             let mut expected_error = 0.0;
-            for j in 0..2 {
-                expected_error += delta_output[j] * nn.output_layer.weights[i][j];
+            for (j, &delta_val) in delta_output.iter().enumerate().take(2) {
+                expected_error += delta_val * nn.output_layer.weights[i][j];
             }
-            let expected_delta_hidden = expected_error * sigmoid_derivative(hidden_outputs[i]);
+            let expected_delta_hidden = expected_error * sigmoid_derivative(hidden_output);
             assert_relative_eq!(delta_hidden[i], expected_delta_hidden, epsilon = 1e-10);
         }
     }
@@ -520,14 +520,14 @@ mod tests {
         assert_eq!(layer.weights[0].len(), 2);
         assert_eq!(layer.biases.len(), 2);
 
-        for i in 0..3 {
-            for j in 0..2 {
-                assert_ne!(layer.weights[i][j], old_weights[i][j]);
+        for (i, old_weight_row) in old_weights.iter().enumerate().take(3) {
+            for (j, &old_weight_val) in old_weight_row.iter().enumerate().take(2) {
+                assert_ne!(layer.weights[i][j], old_weight_val);
             }
         }
 
-        for i in 0..2 {
-            assert_ne!(layer.biases[i], old_biases[i]);
+        for (i, &old_bias) in old_biases.iter().enumerate().take(2) {
+            assert_ne!(layer.biases[i], old_bias);
         }
     }
 
@@ -549,14 +549,14 @@ mod tests {
 
         update_weights_biases(&mut layer, &inputs, &deltas, learning_rate);
 
-        for i in 0..2 {
-            for j in 0..2 {
-                assert_relative_eq!(layer.weights[i][j], old_weights[i][j], epsilon = 1e-10);
+        for (i, old_weight_row) in old_weights.iter().enumerate().take(2) {
+            for (j, &old_weight_val) in old_weight_row.iter().enumerate().take(2) {
+                assert_relative_eq!(layer.weights[i][j], old_weight_val, epsilon = 1e-10);
             }
         }
 
-        for i in 0..2 {
-            assert_relative_eq!(layer.biases[i], old_biases[i], epsilon = 1e-10);
+        for (i, &old_bias) in old_biases.iter().enumerate().take(2) {
+            assert_relative_eq!(layer.biases[i], old_bias, epsilon = 1e-10);
         }
     }
 

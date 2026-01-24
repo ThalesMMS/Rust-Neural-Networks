@@ -186,6 +186,7 @@ fn gather_batch(
 }
 
 // In-place ReLU for a flat buffer.
+#[allow(dead_code)]
 fn relu_inplace(x: &mut [f32]) {
     for v in x.iter_mut() {
         if *v < 0.0 {
@@ -459,8 +460,8 @@ fn maxpool_backward_relu(
 
     // Zero conv_grad so we can scatter-add into it.
     let used = batch * CONV_OUT * conv_spatial;
-    for i in 0..used {
-        conv_grad[i] = 0.0;
+    for value in conv_grad.iter_mut().take(used) {
+        *value = 0.0;
     }
 
     for b in 0..batch {
@@ -518,14 +519,14 @@ fn conv_backward(
         let in_base = b * NUM_INPUTS;
         let g_base_b = b * (CONV_OUT * spatial);
 
-        for oc in 0..CONV_OUT {
+        for (oc, grad_b_val) in grad_b.iter_mut().enumerate().take(CONV_OUT) {
             let w_base = oc * (KERNEL * KERNEL);
             let g_base = g_base_b + oc * spatial;
 
             for oy in 0..IMG_H {
                 for ox in 0..IMG_W {
                     let g = conv_grad[g_base + oy * IMG_W + ox];
-                    grad_b[oc] += g;
+                    *grad_b_val += g;
 
                     for ky in 0..KERNEL {
                         for kx in 0..KERNEL {
@@ -691,17 +692,17 @@ fn main() {
             );
 
             // SGD update (no momentum, no weight decay).
-            for i in 0..model.fc_w.len() {
-                model.fc_w[i] -= LEARNING_RATE * grad_fc_w[i];
+            for (model_w, grad_w) in model.fc_w.iter_mut().zip(grad_fc_w.iter()) {
+                *model_w -= LEARNING_RATE * grad_w;
             }
-            for i in 0..model.fc_b.len() {
-                model.fc_b[i] -= LEARNING_RATE * grad_fc_b[i];
+            for (model_b, grad_b) in model.fc_b.iter_mut().zip(grad_fc_b.iter()) {
+                *model_b -= LEARNING_RATE * grad_b;
             }
-            for i in 0..model.conv_w.len() {
-                model.conv_w[i] -= LEARNING_RATE * grad_conv_w[i];
+            for (model_w, grad_w) in model.conv_w.iter_mut().zip(grad_conv_w.iter()) {
+                *model_w -= LEARNING_RATE * grad_w;
             }
-            for i in 0..model.conv_b.len() {
-                model.conv_b[i] -= LEARNING_RATE * grad_conv_b[i];
+            for (model_b, grad_b) in model.conv_b.iter_mut().zip(grad_conv_b.iter()) {
+                *model_b -= LEARNING_RATE * grad_b;
             }
         }
 
@@ -749,7 +750,7 @@ mod tests {
         let mut rng = SimpleRng::new(42);
         for _ in 0..100 {
             let val = rng.next_f32();
-            assert!(val >= 0.0 && val < 1.0);
+            assert!((0.0..1.0).contains(&val));
         }
     }
 
@@ -758,7 +759,7 @@ mod tests {
         let mut rng = SimpleRng::new(42);
         for _ in 0..100 {
             let val = rng.gen_range_f32(-1.0, 1.0);
-            assert!(val >= -1.0 && val < 1.0);
+            assert!((-1.0..1.0).contains(&val));
         }
     }
 
@@ -830,7 +831,7 @@ mod tests {
         assert!((row2_sum - 1.0).abs() < 1e-6);
 
         for &val in &data {
-            assert!(val >= 0.0 && val <= 1.0);
+            assert!((0.0..=1.0).contains(&val));
         }
     }
 

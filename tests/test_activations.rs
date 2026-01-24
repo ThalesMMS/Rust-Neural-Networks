@@ -108,7 +108,7 @@ mod tests {
         for i in 0..100 {
             let x = i as f64 / 100.0;
             let deriv = sigmoid_derivative(x);
-            assert!(deriv >= 0.0 && deriv <= 0.25);
+            assert!((0.0..=0.25).contains(&deriv));
         }
     }
 

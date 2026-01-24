@@ -726,7 +726,7 @@ mod tests {
         let mut rng = SimpleRng::new(42);
         for _ in 0..100 {
             let val = rng.next_f32();
-            assert!(val >= 0.0 && val < 1.0);
+            assert!((0.0..1.0).contains(&val));
         }
     }
 
@@ -735,7 +735,7 @@ mod tests {
         let mut rng = SimpleRng::new(42);
         for _ in 0..100 {
             let val = rng.gen_range_f32(-1.0, 1.0);
-            assert!(val >= -1.0 && val < 1.0);
+            assert!((-1.0..1.0).contains(&val));
         }
     }
 
@@ -810,7 +810,7 @@ mod tests {
         assert!((row2_sum - 1.0).abs() < 1e-6);
 
         for &val in &outputs {
-            assert!(val >= 0.0 && val <= 1.0);
+            assert!((0.0..=1.0).contains(&val));
         }
     }
 
@@ -866,11 +866,11 @@ mod tests {
 
     #[test]
     fn test_gather_batch() {
-        let images = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-        let labels = vec![0, 1];
-        let indices = vec![1, 0];
-        let mut out_inputs = vec![0.0; 6];
-        let mut out_labels = vec![0; 2];
+        let images = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let labels = [0, 1];
+        let indices = [1, 0];
+        let mut out_inputs = [0.0; 6];
+        let mut out_labels = [0; 2];
 
         const TEST_NUM_INPUTS: usize = 3;
         let input_stride = TEST_NUM_INPUTS;

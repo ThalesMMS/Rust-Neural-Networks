@@ -436,7 +436,7 @@ mod tests {
             assert_relative_eq!(row_sum, 1.0, epsilon = 1e-5);
 
             for &output in &outputs[row_start..row_end] {
-                assert!(output >= 0.0 && output <= 1.0);
+                assert!((0.0..=1.0).contains(&output));
             }
         }
     }
@@ -576,7 +576,7 @@ mod tests {
         assert_relative_eq!(sum, 1.0, epsilon = 1e-5);
 
         for &output in &final_outputs {
-            assert!(output >= 0.0 && output <= 1.0);
+            assert!((0.0..=1.0).contains(&output));
             assert!(!output.is_nan() && !output.is_infinite());
         }
     }

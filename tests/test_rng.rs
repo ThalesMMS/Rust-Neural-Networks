@@ -249,7 +249,7 @@ mod tests {
         let mut rng = SimpleRng::new(42);
         for _ in 0..100 {
             let value = rng.gen_range_f64(0.0, 1.0);
-            assert!(value >= 0.0 && value < 1.0);
+            assert!((0.0..1.0).contains(&value));
         }
     }
 
@@ -512,7 +512,7 @@ mod tests {
         // Should not panic and should produce values
         for _ in 0..10 {
             let value = rng.next_f64();
-            assert!(value >= 0.0 && value < 1.0);
+            assert!((0.0..1.0).contains(&value));
         }
     }
 
@@ -524,7 +524,7 @@ mod tests {
             // Should produce valid values
             for _ in 0..10 {
                 let value = rng.next_f64();
-                assert!(value >= 0.0 && value < 1.0);
+                assert!((0.0..1.0).contains(&value));
             }
         }
     }

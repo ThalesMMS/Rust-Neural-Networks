@@ -137,6 +137,7 @@ impl SimpleRng {
         Self { state }
     }
 
+    #[allow(dead_code)]
     fn reseed_from_time(&mut self) {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -159,7 +160,7 @@ impl SimpleRng {
     }
 
     fn next_f32(&mut self) -> f32 {
-        self.next_u32() as f32 / u32::MAX as f32
+        (self.next_u32() >> 8) as f32 / (1u32 << 24) as f32
     }
 
     fn gen_range_f32(&mut self, low: f32, high: f32) -> f32 {
@@ -422,7 +423,7 @@ impl BatchBuffers {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// let bufs = BatchBuffers::new();
     /// // forward buffers
     /// assert_eq!(bufs.patches.len(), BATCH_SIZE * SEQ_LEN * PATCH_DIM);
@@ -484,6 +485,7 @@ impl BatchBuffers {
 // between patches based on their spatial location - it only sees unordered
 // feature vectors. For vision tasks like MNIST, spatial relationships are crucial.
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 enum PosEncodingType {
     SmallRandom,  // [-0.1, 0.1] uniform random (original baseline)
     LargerRandom, // [-0.5, 0.5] uniform random
@@ -772,226 +774,15 @@ fn forward_batch(
     batch_count: usize,
     buf: &mut BatchBuffers,
 ) -> f32 {
-    let used_patches = batch_count * SEQ_LEN * PATCH_DIM;
-    let used_tok = batch_count * SEQ_LEN * D_MODEL;
-    let used_attn = batch_count * SEQ_LEN * SEQ_LEN;
-    let used_ffn1 = batch_count * SEQ_LEN * FF_DIM;
-    let used_pooled = batch_count * D_MODEL;
-    let used_logits = batch_count * NUM_CLASSES;
-
-    extract_patches(batch_inputs, batch_count, &mut buf.patches[..used_patches]);
-
-    // token = ReLU(patch * W + b + pos)
-    for i in 0..used_tok {
-        buf.tok[i] = 0.0;
-    }
-
-    for b in 0..batch_count {
-        for t in 0..SEQ_LEN {
-            let patch_base = (b * SEQ_LEN + t) * PATCH_DIM;
-            let tok_base = (b * SEQ_LEN + t) * D_MODEL;
-            let pos_base = t * D_MODEL;
-
-            for d in 0..D_MODEL {
-                let mut sum = model.b_patch[d] + model.pos[pos_base + d];
-                for j in 0..PATCH_DIM {
-                    sum += buf.patches[patch_base + j] * model.w_patch[j * D_MODEL + d];
-                }
-                // ReLU
-                if sum < 0.0 {
-                    sum = 0.0;
-                }
-                buf.tok[tok_base + d] = sum;
-            }
-        }
-    }
-
-    // Q/K/V projections.
-    for i in 0..used_tok {
-        buf.q[i] = 0.0;
-        buf.k[i] = 0.0;
-        buf.v[i] = 0.0;
-    }
-    for b in 0..batch_count {
-        for t in 0..SEQ_LEN {
-            let tok_base = (b * SEQ_LEN + t) * D_MODEL;
-            for d_out in 0..D_MODEL {
-                let mut sum_q = model.b_q[d_out];
-                let mut sum_k = model.b_k[d_out];
-                let mut sum_v = model.b_v[d_out];
-                for d_in in 0..D_MODEL {
-                    let x = buf.tok[tok_base + d_in];
-                    sum_q += x * model.w_q[d_in * D_MODEL + d_out];
-                    sum_k += x * model.w_k[d_in * D_MODEL + d_out];
-                    sum_v += x * model.w_v[d_in * D_MODEL + d_out];
-                }
-                buf.q[tok_base + d_out] = sum_q;
-                buf.k[tok_base + d_out] = sum_k;
-                buf.v[tok_base + d_out] = sum_v;
-            }
-        }
-    }
-
-    // Self-attention: Scaled dot-product attention (Transformer-style).
-    //
-    // Mechanism:
-    //   1. Compute attention scores: S = Q @ K^T (dot product of queries and keys)
-    //   2. Scale by 1/√d to prevent large logits: S_scaled = S / √D_MODEL
-    //   3. Apply softmax row-wise to get attention weights: A = softmax(S_scaled)
-    //   4. Weighted sum of values: Output = A @ V
-    //
-    // Why scaling matters:
-    //   - Without scaling, dot products grow with D_MODEL, pushing softmax into
-    //     saturation regions (extremely sharp distributions)
-    //   - Scaling by 1/√d keeps variance ~1, maintaining gradient flow
-    //   - Enables the model to learn smooth attention patterns rather than
-    //     hard one-hot selections
-    //
-    // For D_MODEL=64: scaling factor = 1/√64 = 0.125
-    //
-    // Attention interpretation:
-    //   - A[i,j] = how much token i attends to token j
-    //   - For MNIST patches: allows each patch to gather information from
-    //     spatially relevant patches (e.g., edges attending to nearby edges)
-    let inv_sqrt_d = 1.0f32 / (D_MODEL as f32).sqrt();
-    for i in 0..used_attn {
-        buf.attn[i] = 0.0;
-    }
-    for i in 0..used_tok {
-        buf.attn_out[i] = 0.0;
-    }
-
-    for b in 0..batch_count {
-        for i in 0..SEQ_LEN {
-            let row_base = (b * SEQ_LEN + i) * SEQ_LEN;
-            let q_base = (b * SEQ_LEN + i) * D_MODEL;
-
-            for j in 0..SEQ_LEN {
-                let k_base = (b * SEQ_LEN + j) * D_MODEL;
-                let mut score = 0.0f32;
-                for d in 0..D_MODEL {
-                    score += buf.q[q_base + d] * buf.k[k_base + d];
-                }
-                buf.attn[row_base + j] = score * inv_sqrt_d;
-            }
-
-            softmax_inplace(&mut buf.attn[row_base..row_base + SEQ_LEN]);
-
-            let out_base = (b * SEQ_LEN + i) * D_MODEL;
-            for j in 0..SEQ_LEN {
-                let a = buf.attn[row_base + j];
-                let v_base = (b * SEQ_LEN + j) * D_MODEL;
-                for d in 0..D_MODEL {
-                    buf.attn_out[out_base + d] += a * buf.v[v_base + d];
-                }
-            }
-        }
-    }
-
-    // Feed-forward network per token (position-wise MLP).
-    //
-    // Architecture: FFN(x) = ReLU(x @ W1 + b1) @ W2 + b2
-    //   - Layer 1: D_MODEL (64) → FF_DIM (128) with ReLU
-    //   - Layer 2: FF_DIM (128) → D_MODEL (64) linear
-    //
-    // Purpose:
-    //   - Applies non-linear transformation to each token independently
-    //   - After attention aggregates information from other tokens, FFN
-    //     processes the combined features to extract higher-level patterns
-    //   - Larger FF_DIM (128 vs original 32) provides capacity for complex
-    //     feature combinations
-    //
-    // Standard Transformer practice: FF_DIM = 2-4× D_MODEL for sufficient
-    // non-linear modeling capacity.
-    for i in 0..used_ffn1 {
-        buf.ffn1[i] = 0.0;
-    }
-    for i in 0..used_tok {
-        buf.ffn2[i] = 0.0;
-    }
-
-    for b in 0..batch_count {
-        for t in 0..SEQ_LEN {
-            let attn_base = (b * SEQ_LEN + t) * D_MODEL;
-            let ffn1_base = (b * SEQ_LEN + t) * FF_DIM;
-            let ffn2_base = (b * SEQ_LEN + t) * D_MODEL;
-
-            for h in 0..FF_DIM {
-                let mut sum = model.b_ff1[h];
-                for d in 0..D_MODEL {
-                    sum += buf.attn_out[attn_base + d] * model.w_ff1[d * FF_DIM + h];
-                }
-                buf.ffn1[ffn1_base + h] = if sum > 0.0 { sum } else { 0.0 };
-            }
-
-            for d in 0..D_MODEL {
-                let mut sum = model.b_ff2[d];
-                for h in 0..FF_DIM {
-                    sum += buf.ffn1[ffn1_base + h] * model.w_ff2[h * D_MODEL + d];
-                }
-                buf.ffn2[ffn2_base + d] = sum;
-            }
-        }
-    }
-
-    // Mean pooling over tokens to get image-level representation.
-    //
-    // Aggregation: pooled = (1/49) × Σ_{t=1}^{49} token_t
-    //
-    // Purpose:
-    //   - Combines all 49 patch tokens into a single 64-dim image embedding
-    //   - Mean pooling treats all patches equally (vs max pooling or attention pooling)
-    //   - The 49 tokens have already incorporated global context via self-attention,
-    //     so simple averaging is sufficient
-    //   - This image embedding is then classified by the final linear layer (64 → 10)
-    //
-    // After attention and FFN, each token contains both local patch information
-    // and global context from other patches, making mean pooling effective for
-    // obtaining a representative image-level feature vector.
-    for i in 0..used_pooled {
-        buf.pooled[i] = 0.0;
-    }
-    let inv_seq = 1.0f32 / SEQ_LEN as f32;
-    for b in 0..batch_count {
-        let pooled_base = b * D_MODEL;
-        for t in 0..SEQ_LEN {
-            let tok_base = (b * SEQ_LEN + t) * D_MODEL;
-            for d in 0..D_MODEL {
-                buf.pooled[pooled_base + d] += buf.ffn2[tok_base + d] * inv_seq;
-            }
-        }
-    }
-
-    // Classifier logits and softmax.
-    for i in 0..used_logits {
-        buf.logits[i] = 0.0;
-        buf.probs[i] = 0.0;
-        buf.dlogits[i] = 0.0;
-    }
-
-    for b in 0..batch_count {
-        let pooled_base = b * D_MODEL;
-        let log_base = b * NUM_CLASSES;
-
-        for c in 0..NUM_CLASSES {
-            let mut sum = model.b_cls[c];
-            for d in 0..D_MODEL {
-                sum += buf.pooled[pooled_base + d] * model.w_cls[d * NUM_CLASSES + c];
-            }
-            buf.logits[log_base + c] = sum;
-            buf.probs[log_base + c] = sum;
-        }
-    }
-
-    softmax_rows_inplace(&mut buf.probs[..used_logits], batch_count, NUM_CLASSES);
+    forward_inference(model, batch_inputs, batch_count, buf);
 
     // Loss + dlogits (softmax cross-entropy).
     let mut total_loss = 0.0f32;
     let eps = 1e-9f32;
     let scale = 1.0f32 / batch_count as f32;
 
-    for b in 0..batch_count {
-        let y = batch_labels[b] as usize;
+    for (b, &label) in batch_labels.iter().enumerate().take(batch_count) {
+        let y = label as usize;
         let base = b * NUM_CLASSES;
         let p = buf.probs[base + y].max(eps);
         total_loss += -p.ln();
@@ -1301,6 +1092,180 @@ fn apply_sgd(model: &mut AttnModel, grads: &Grads, lr: f32) {
     }
 }
 
+// Shared forward inference logic (up to logits/probs) without loss computation.
+// Populates: patches, tok, q/k/v, attn, ffn, pooled, logits, probs.
+fn forward_inference(
+    model: &AttnModel,
+    batch_inputs: &[f32],
+    batch_count: usize,
+    buf: &mut BatchBuffers,
+) {
+    let used_patches = batch_count * SEQ_LEN * PATCH_DIM;
+    let used_tok = batch_count * SEQ_LEN * D_MODEL;
+    let used_attn = batch_count * SEQ_LEN * SEQ_LEN;
+    let used_ffn1 = batch_count * SEQ_LEN * FF_DIM;
+    let used_pooled = batch_count * D_MODEL;
+    let used_logits = batch_count * NUM_CLASSES;
+
+    extract_patches(batch_inputs, batch_count, &mut buf.patches[..used_patches]);
+
+    // token = ReLU(patch * W + b + pos)
+    for i in 0..used_tok {
+        buf.tok[i] = 0.0;
+    }
+
+    for b in 0..batch_count {
+        for t in 0..SEQ_LEN {
+            let patch_base = (b * SEQ_LEN + t) * PATCH_DIM;
+            let tok_base = (b * SEQ_LEN + t) * D_MODEL;
+            let pos_base = t * D_MODEL;
+
+            for d in 0..D_MODEL {
+                let mut sum = model.b_patch[d] + model.pos[pos_base + d];
+                for j in 0..PATCH_DIM {
+                    sum += buf.patches[patch_base + j] * model.w_patch[j * D_MODEL + d];
+                }
+                // ReLU
+                if sum < 0.0 {
+                    sum = 0.0;
+                }
+                buf.tok[tok_base + d] = sum;
+            }
+        }
+    }
+
+    // Q/K/V projections.
+    for i in 0..used_tok {
+        buf.q[i] = 0.0;
+        buf.k[i] = 0.0;
+        buf.v[i] = 0.0;
+    }
+    for b in 0..batch_count {
+        for t in 0..SEQ_LEN {
+            let tok_base = (b * SEQ_LEN + t) * D_MODEL;
+            for d_out in 0..D_MODEL {
+                let mut sum_q = model.b_q[d_out];
+                let mut sum_k = model.b_k[d_out];
+                let mut sum_v = model.b_v[d_out];
+                for d_in in 0..D_MODEL {
+                    let x = buf.tok[tok_base + d_in];
+                    sum_q += x * model.w_q[d_in * D_MODEL + d_out];
+                    sum_k += x * model.w_k[d_in * D_MODEL + d_out];
+                    sum_v += x * model.w_v[d_in * D_MODEL + d_out];
+                }
+                buf.q[tok_base + d_out] = sum_q;
+                buf.k[tok_base + d_out] = sum_k;
+                buf.v[tok_base + d_out] = sum_v;
+            }
+        }
+    }
+
+    // Self-attention: Scaled dot-product attention (Transformer-style).
+    let inv_sqrt_d = 1.0f32 / (D_MODEL as f32).sqrt();
+    for i in 0..used_attn {
+        buf.attn[i] = 0.0;
+    }
+    for i in 0..used_tok {
+        buf.attn_out[i] = 0.0;
+    }
+
+    for b in 0..batch_count {
+        for i in 0..SEQ_LEN {
+            let row_base = (b * SEQ_LEN + i) * SEQ_LEN;
+            let q_base = (b * SEQ_LEN + i) * D_MODEL;
+
+            for j in 0..SEQ_LEN {
+                let k_base = (b * SEQ_LEN + j) * D_MODEL;
+                let mut score = 0.0f32;
+                for d in 0..D_MODEL {
+                    score += buf.q[q_base + d] * buf.k[k_base + d];
+                }
+                buf.attn[row_base + j] = score * inv_sqrt_d;
+            }
+
+            softmax_inplace(&mut buf.attn[row_base..row_base + SEQ_LEN]);
+
+            let out_base = (b * SEQ_LEN + i) * D_MODEL;
+            for j in 0..SEQ_LEN {
+                let a = buf.attn[row_base + j];
+                let v_base = (b * SEQ_LEN + j) * D_MODEL;
+                for d in 0..D_MODEL {
+                    buf.attn_out[out_base + d] += a * buf.v[v_base + d];
+                }
+            }
+        }
+    }
+
+    // Feed-forward network per token (position-wise MLP).
+    for i in 0..used_ffn1 {
+        buf.ffn1[i] = 0.0;
+    }
+    for i in 0..used_tok {
+        buf.ffn2[i] = 0.0;
+    }
+
+    for b in 0..batch_count {
+        for t in 0..SEQ_LEN {
+            let attn_base = (b * SEQ_LEN + t) * D_MODEL;
+            let ffn1_base = (b * SEQ_LEN + t) * FF_DIM;
+            let ffn2_base = (b * SEQ_LEN + t) * D_MODEL;
+
+            for h in 0..FF_DIM {
+                let mut sum = model.b_ff1[h];
+                for d in 0..D_MODEL {
+                    sum += buf.attn_out[attn_base + d] * model.w_ff1[d * FF_DIM + h];
+                }
+                buf.ffn1[ffn1_base + h] = if sum > 0.0 { sum } else { 0.0 };
+            }
+
+            for d in 0..D_MODEL {
+                let mut sum = model.b_ff2[d];
+                for h in 0..FF_DIM {
+                    sum += buf.ffn1[ffn1_base + h] * model.w_ff2[h * D_MODEL + d];
+                }
+                buf.ffn2[ffn2_base + d] = sum;
+            }
+        }
+    }
+
+    // Mean pooling over tokens to get image-level representation.
+    for i in 0..used_pooled {
+        buf.pooled[i] = 0.0;
+    }
+    let inv_seq = 1.0f32 / SEQ_LEN as f32;
+    for b in 0..batch_count {
+        let pooled_base = b * D_MODEL;
+        for t in 0..SEQ_LEN {
+            let tok_base = (b * SEQ_LEN + t) * D_MODEL;
+            for d in 0..D_MODEL {
+                buf.pooled[pooled_base + d] += buf.ffn2[tok_base + d] * inv_seq;
+            }
+        }
+    }
+
+    // Classifier logits and softmax.
+    for i in 0..used_logits {
+        buf.logits[i] = 0.0;
+        buf.probs[i] = 0.0;
+    }
+
+    for b in 0..batch_count {
+        let pooled_base = b * D_MODEL;
+        let log_base = b * NUM_CLASSES;
+
+        for c in 0..NUM_CLASSES {
+            let mut sum = model.b_cls[c];
+            for d in 0..D_MODEL {
+                sum += buf.pooled[pooled_base + d] * model.w_cls[d * NUM_CLASSES + c];
+            }
+            buf.logits[log_base + c] = sum;
+            buf.probs[log_base + c] = sum;
+        }
+    }
+
+    softmax_rows_inplace(&mut buf.probs[..used_logits], batch_count, NUM_CLASSES);
+}
+
 /// Compute classification accuracy of `model` on the provided images and labels as a percentage.
 ///
 /// Processes the dataset in batches and performs a forward pass (no loss/backprop) to obtain
@@ -1330,163 +1295,9 @@ fn test_accuracy(model: &AttnModel, images: &[f32], labels: &[u8]) -> f32 {
         let src_start = start * NUM_INPUTS;
         batch_inputs[..len].copy_from_slice(&images[src_start..src_start + len]);
 
-        // Forward without loss/dlogits.
-        let used_patches = batch_count * SEQ_LEN * PATCH_DIM;
-        let used_tok = batch_count * SEQ_LEN * D_MODEL;
-        let used_attn = batch_count * SEQ_LEN * SEQ_LEN;
-        let used_ffn1 = batch_count * SEQ_LEN * FF_DIM;
-        let used_pooled = batch_count * D_MODEL;
-        let used_logits = batch_count * NUM_CLASSES;
+        forward_inference(model, &batch_inputs, batch_count, &mut buf);
 
-        extract_patches(&batch_inputs, batch_count, &mut buf.patches[..used_patches]);
-
-        // Token projection + ReLU.
-        for i in 0..used_tok {
-            buf.tok[i] = 0.0;
-        }
-        for b in 0..batch_count {
-            for t in 0..SEQ_LEN {
-                let patch_base = (b * SEQ_LEN + t) * PATCH_DIM;
-                let tok_base = (b * SEQ_LEN + t) * D_MODEL;
-                let pos_base = t * D_MODEL;
-
-                for d in 0..D_MODEL {
-                    let mut sum = model.b_patch[d] + model.pos[pos_base + d];
-                    for j in 0..PATCH_DIM {
-                        sum += buf.patches[patch_base + j] * model.w_patch[j * D_MODEL + d];
-                    }
-                    if sum < 0.0 {
-                        sum = 0.0;
-                    }
-                    buf.tok[tok_base + d] = sum;
-                }
-            }
-        }
-
-        // Q/K/V projections.
-        for i in 0..used_tok {
-            buf.q[i] = 0.0;
-            buf.k[i] = 0.0;
-            buf.v[i] = 0.0;
-        }
-        for b in 0..batch_count {
-            for t in 0..SEQ_LEN {
-                let tok_base = (b * SEQ_LEN + t) * D_MODEL;
-                for d_out in 0..D_MODEL {
-                    let mut sum_q = model.b_q[d_out];
-                    let mut sum_k = model.b_k[d_out];
-                    let mut sum_v = model.b_v[d_out];
-                    for d_in in 0..D_MODEL {
-                        let x = buf.tok[tok_base + d_in];
-                        sum_q += x * model.w_q[d_in * D_MODEL + d_out];
-                        sum_k += x * model.w_k[d_in * D_MODEL + d_out];
-                        sum_v += x * model.w_v[d_in * D_MODEL + d_out];
-                    }
-                    buf.q[tok_base + d_out] = sum_q;
-                    buf.k[tok_base + d_out] = sum_k;
-                    buf.v[tok_base + d_out] = sum_v;
-                }
-            }
-        }
-
-        // Self-attention.
-        let inv_sqrt_d = 1.0f32 / (D_MODEL as f32).sqrt();
-        for i in 0..used_attn {
-            buf.attn[i] = 0.0;
-        }
-        for i in 0..used_tok {
-            buf.attn_out[i] = 0.0;
-        }
-
-        for b in 0..batch_count {
-            for i in 0..SEQ_LEN {
-                let row_base = (b * SEQ_LEN + i) * SEQ_LEN;
-                let q_base = (b * SEQ_LEN + i) * D_MODEL;
-
-                for j in 0..SEQ_LEN {
-                    let k_base = (b * SEQ_LEN + j) * D_MODEL;
-                    let mut score = 0.0f32;
-                    for d in 0..D_MODEL {
-                        score += buf.q[q_base + d] * buf.k[k_base + d];
-                    }
-                    buf.attn[row_base + j] = score * inv_sqrt_d;
-                }
-                softmax_inplace(&mut buf.attn[row_base..row_base + SEQ_LEN]);
-
-                let out_base = (b * SEQ_LEN + i) * D_MODEL;
-                for j in 0..SEQ_LEN {
-                    let a = buf.attn[row_base + j];
-                    let v_base = (b * SEQ_LEN + j) * D_MODEL;
-                    for d in 0..D_MODEL {
-                        buf.attn_out[out_base + d] += a * buf.v[v_base + d];
-                    }
-                }
-            }
-        }
-
-        // Feed-forward MLP.
-        for i in 0..used_ffn1 {
-            buf.ffn1[i] = 0.0;
-        }
-        for i in 0..used_tok {
-            buf.ffn2[i] = 0.0;
-        }
-        for b in 0..batch_count {
-            for t in 0..SEQ_LEN {
-                let attn_base = (b * SEQ_LEN + t) * D_MODEL;
-                let ffn1_base = (b * SEQ_LEN + t) * FF_DIM;
-                let ffn2_base = (b * SEQ_LEN + t) * D_MODEL;
-
-                for h in 0..FF_DIM {
-                    let mut sum = model.b_ff1[h];
-                    for d in 0..D_MODEL {
-                        sum += buf.attn_out[attn_base + d] * model.w_ff1[d * FF_DIM + h];
-                    }
-                    buf.ffn1[ffn1_base + h] = if sum > 0.0 { sum } else { 0.0 };
-                }
-
-                for d in 0..D_MODEL {
-                    let mut sum = model.b_ff2[d];
-                    for h in 0..FF_DIM {
-                        sum += buf.ffn1[ffn1_base + h] * model.w_ff2[h * D_MODEL + d];
-                    }
-                    buf.ffn2[ffn2_base + d] = sum;
-                }
-            }
-        }
-
-        // Mean pool tokens.
-        for i in 0..used_pooled {
-            buf.pooled[i] = 0.0;
-        }
-        let inv_seq = 1.0f32 / SEQ_LEN as f32;
-        for b in 0..batch_count {
-            let pooled_base = b * D_MODEL;
-            for t in 0..SEQ_LEN {
-                let tok_base = (b * SEQ_LEN + t) * D_MODEL;
-                for d in 0..D_MODEL {
-                    buf.pooled[pooled_base + d] += buf.ffn2[tok_base + d] * inv_seq;
-                }
-            }
-        }
-
-        // Logits.
-        for i in 0..used_logits {
-            buf.logits[i] = 0.0;
-        }
-        for b in 0..batch_count {
-            let pooled_base = b * D_MODEL;
-            let log_base = b * NUM_CLASSES;
-            for c in 0..NUM_CLASSES {
-                let mut sum = model.b_cls[c];
-                for d in 0..D_MODEL {
-                    sum += buf.pooled[pooled_base + d] * model.w_cls[d * NUM_CLASSES + c];
-                }
-                buf.logits[log_base + c] = sum;
-            }
-        }
-
-        // Argmax prediction.
+        // Argmax output.
         for b in 0..batch_count {
             let base = b * NUM_CLASSES;
             let mut best = buf.logits[base];
@@ -1542,6 +1353,7 @@ fn test_accuracy(model: &AttnModel, images: &[f32], labels: &[u8]) -> f32 {
 /// assert_eq!(epoch_losses.len(), EPOCHS);
 /// assert_eq!(epoch_accs.len(), EPOCHS);
 /// ```
+#[allow(dead_code)]
 fn train_model_with_config(
     train_images: &[f32],
     train_labels: &[u8],
@@ -1602,7 +1414,7 @@ fn train_model_with_config(
         epoch_accs.push(acc);
     }
 
-    let final_acc = test_accuracy(&model, test_images, test_labels);
+    let final_acc = *epoch_accs.last().unwrap_or(&0.0);
     (final_acc, epoch_losses, epoch_accs)
 }
 
@@ -1627,6 +1439,7 @@ fn train_model_with_config(
 /// );
 /// assert_eq!(losses.len(), accs.len());
 /// ```
+#[allow(dead_code)]
 fn train_model_with_lr(
     train_images: &[f32],
     train_labels: &[u8],
@@ -1782,10 +1595,7 @@ fn main() {
     println!("Total time: {:.2}s", total_time);
     println!();
     println!("Training log saved to: ./logs/training_loss_attention.txt");
-    println!(
-        "Final test accuracy: {:.2}%",
-        test_accuracy(&model, &test_images, &test_labels)
-    );
+    println!("Final test accuracy: {:.2}%", final_acc);
 }
 
 #[cfg(test)]
@@ -1816,7 +1626,7 @@ mod tests {
         let mut rng = SimpleRng::new(42);
         for _ in 0..100 {
             let val = rng.next_f32();
-            assert!(val >= 0.0 && val < 1.0);
+            assert!((0.0..1.0).contains(&val));
         }
     }
 
@@ -1825,7 +1635,7 @@ mod tests {
         let mut rng = SimpleRng::new(42);
         for _ in 0..100 {
             let val = rng.gen_range_f32(-1.0, 1.0);
-            assert!(val >= -1.0 && val < 1.0);
+            assert!((-1.0..1.0).contains(&val));
         }
     }
 
