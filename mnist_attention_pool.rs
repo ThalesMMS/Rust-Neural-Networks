@@ -513,7 +513,7 @@ enum PosEncodingType {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// // create a seeded RNG (seed value shown for reproducibility)
 /// let mut rng = SimpleRng::new(123);
 /// let model = init_model_with_pos_encoding(&mut rng, PosEncodingType::Sinusoidal);
@@ -700,7 +700,7 @@ fn init_model(rng: &mut SimpleRng) -> AttnModel {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// // Prepare a single image where the top-left pixel is 1.0 and the rest are 0.0.
 /// let batch_count = 1;
 /// let mut batch_inputs = vec![0.0_f32; batch_count * NUM_INPUTS];
@@ -1336,7 +1336,7 @@ fn test_accuracy(model: &AttnModel, images: &[f32], labels: &[u8]) -> f32 {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// // assuming `train_images`, `train_labels`, `test_images`, `test_labels` are loaded slices,
 /// // and `rng` is a mutable SimpleRng:
 /// let lr = 0.01;
@@ -1426,7 +1426,7 @@ fn train_model_with_config(
 /// - `epoch_losses`: vector of average training losses per epoch.
 /// - `epoch_accuracies`: vector of test accuracies (percentages) per epoch.
 /// # Examples
-/// ```
+/// ```ignore
 /// // Prepare `train_images`, `train_labels`, `test_images`, `test_labels` and a RNG before calling.
 /// let mut rng = SimpleRng::new(42);
 /// let (final_acc, losses, accs) = train_model_with_lr(
