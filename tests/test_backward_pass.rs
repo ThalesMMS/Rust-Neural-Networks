@@ -60,7 +60,7 @@ fn backward(
     for (i, d_hid) in delta_hidden.iter_mut().enumerate().take(nn.hidden_layer.output_size) {
         // Error backpropagated from output to hidden layer.
         let mut error = 0.0;
-        for (j, d_out) in delta_output.iter().enumerate().take(nn.output_layer.output_size) {
+        for (j, &d_out) in delta_output.iter().enumerate().take(nn.output_layer.output_size) {
             error += d_out * nn.output_layer.weights[i][j];
         }
         *d_hid = error * sigmoid_derivative(hidden_outputs[i]);
