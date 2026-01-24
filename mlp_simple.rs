@@ -66,7 +66,7 @@ fn train(
             forward_with_sigmoid(&nn.output_layer, &hidden_outputs, &mut output_outputs);
 
             // Compute error (expected - predicted).
-            let mut errors = vec![0.0f32; NUM_OUTPUTS];
+            let mut errors = [0.0f32; NUM_OUTPUTS];
             for i in 0..NUM_OUTPUTS {
                 errors[i] = expected_outputs[sample][i] - output_outputs[i];
                 total_errors += errors[i] * errors[i];

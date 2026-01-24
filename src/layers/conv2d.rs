@@ -82,6 +82,7 @@ impl Conv2DLayer {
     /// // 1 input channel, 8 output channels, 3x3 kernel, padding=1, stride=1, 28x28 input
     /// let layer = Conv2DLayer::new(1, 8, 3, 1, 1, 28, 28, &mut rng);
     /// ```
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         in_channels: usize,
         out_channels: usize,
@@ -420,7 +421,7 @@ mod tests {
         let layer = Conv2DLayer::new(1, 8, 3, 1, 1, 28, 28, &mut rng);
 
         // Xavier limit for this configuration
-        let fan_in = (1 * 3 * 3) as f32;
+        let fan_in = (3 * 3) as f32;
         let fan_out = (8 * 3 * 3) as f32;
         let limit = (6.0f32 / (fan_in + fan_out)).sqrt();
 
