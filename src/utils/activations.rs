@@ -5,6 +5,7 @@
 /// # Examples
 ///
 /// ```
+/// use rust_neural_networks::utils::activations::sigmoid;
 /// let s = sigmoid(0.0);
 /// assert!((s - 0.5).abs() < 1e-12);
 /// ```
@@ -19,6 +20,7 @@ pub fn sigmoid(x: f64) -> f64 {
 /// # Examples
 ///
 /// ```
+/// use rust_neural_networks::utils::activations::sigmoid_derivative;
 /// let d = sigmoid_derivative(0.5);
 /// assert!((d - 0.25).abs() < 1e-12);
 /// ```
@@ -33,6 +35,7 @@ pub fn sigmoid_derivative(x: f64) -> f64 {
 /// # Examples
 ///
 /// ```
+/// use rust_neural_networks::utils::activations::relu_inplace;
 /// let mut v = [-1.0f32, 0.0, 2.5];
 /// relu_inplace(&mut v);
 /// assert_eq!(v, [0.0, 0.0, 2.5]);
@@ -61,6 +64,7 @@ pub fn relu_inplace(data: &mut [f32]) {
 /// # Examples
 ///
 /// ```
+/// use rust_neural_networks::utils::activations::softmax_rows;
 /// let mut data = vec![1.0f32, 2.0, 3.0];
 /// softmax_rows(&mut data, 1, 3);
 /// let sum: f32 = data.iter().sum();
