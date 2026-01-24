@@ -35,7 +35,10 @@ fn forward_propagation(layer: &LinearLayer, inputs: &[f64], outputs: &mut [f64])
 // MNIST MLP (f32, GEMM-based) - from mnist_mlp.rs
 // ============================================================================
 
+#[cfg(target_os = "macos")]
 extern crate blas_src;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+extern crate openblas_src;
 use cblas::{sgemm, Layout, Transpose};
 
 #[allow(clippy::too_many_arguments)]

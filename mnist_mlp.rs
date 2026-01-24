@@ -1,4 +1,7 @@
+#[cfg(target_os = "macos")]
 extern crate blas_src;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+extern crate openblas_src;
 
 use cblas::{sgemm, Layout, Transpose};
 use std::fs::File;
