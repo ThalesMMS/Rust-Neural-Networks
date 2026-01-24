@@ -40,6 +40,11 @@ pub fn relu_inplace(data: &mut [f32]) {
 /// * `rows` - Number of rows in the matrix
 /// * `cols` - Number of columns in the matrix
 pub fn softmax_rows(outputs: &mut [f32], rows: usize, cols: usize) {
+    if cols == 0 {
+        return; // Or panic, but return is safe for empty columns
+    }
+    assert_eq!(outputs.len(), rows * cols, "outputs length mismatch in softmax_rows");
+
     for row in outputs.chunks_exact_mut(cols).take(rows) {
         let mut max_value = row[0];
         for &value in row.iter().skip(1) {

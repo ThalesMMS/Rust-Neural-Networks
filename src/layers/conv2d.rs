@@ -4,7 +4,7 @@
 //! commonly used in computer vision tasks like image classification.
 
 use crate::layers::Layer;
-use crate::utils::SimpleRng;
+use crate::utils::rng::SimpleRng;
 use std::cell::RefCell;
 
 /// 2D Convolutional layer with learnable filters.
@@ -93,6 +93,25 @@ impl Conv2DLayer {
         input_width: usize,
         rng: &mut SimpleRng,
     ) -> Self {
+        assert!(stride > 0, "Stride must be greater than 0");
+
+        // Validate output dimensions to prevent underflow/invalid configuration
+        let h_num = input_height as isize + 2 * padding - kernel_size as isize;
+        let w_num = input_width as isize + 2 * padding - kernel_size as isize;
+
+        if h_num < 0 {
+            panic!(
+                "Invalid Conv2D configuration: Output height would be negative. Input H: {}, Kernel: {}, Padding: {}",
+                input_height, kernel_size, padding
+            );
+        }
+        if w_num < 0 {
+            panic!(
+                "Invalid Conv2D configuration: Output width would be negative. Input W: {}, Kernel: {}, Padding: {}",
+                input_width, kernel_size, padding
+            );
+        }
+
         // Xavier initialization for convolutional layers
         // fan_in = in_channels * kernel_size * kernel_size
         // fan_out = out_channels * kernel_size * kernel_size
@@ -480,5 +499,105 @@ mod tests {
         // Same seed should produce identical weights
         assert_eq!(layer1.weights, layer2.weights);
         assert_eq!(layer1.biases, layer2.biases);
+    }
+
+    #[test]
+    fn test_conv2d_forward() {
+        let mut rng = SimpleRng::new(42);
+        // 1 input channel, 2 output channels, 3x3 kernel, padding=1, stride=1, 4x4 input
+        let layer = Conv2DLayer::new(1, 2, 3, 1, 1, 4, 4, &mut rng);
+
+        // Single sample: 1 channel × 4 × 4 = 16 values
+        let input = vec![1.0f32; 16];
+        // Output: 2 channels × 4 × 4 = 32 values
+        let mut output = vec![0.0f32; 32];
+
+        layer.forward(&input, &mut output, 1);
+
+        // Output should be computed (finite values)
+        assert!(output.iter().all(|&x| x.is_finite()));
+    }
+
+    #[test]
+    fn test_conv2d_forward_batch() {
+        let mut rng = SimpleRng::new(42);
+        let layer = Conv2DLayer::new(1, 2, 3, 1, 1, 4, 4, &mut rng);
+
+        // Batch of 2 samples
+        let input = vec![1.0f32; 32]; // 2 × 16
+        let mut output = vec![0.0f32; 64]; // 2 × 32
+
+        layer.forward(&input, &mut output, 2);
+
+        assert!(output.iter().all(|&x| x.is_finite()));
+    }
+
+    #[test]
+    fn test_conv2d_backward() {
+        let mut rng = SimpleRng::new(42);
+        let layer = Conv2DLayer::new(1, 2, 3, 1, 1, 4, 4, &mut rng);
+
+        let input = vec![1.0f32; 16];
+        let mut output = vec![0.0f32; 32];
+        layer.forward(&input, &mut output, 1);
+
+        // Gradient from loss
+        let grad_output = vec![1.0f32; 32];
+        let mut grad_input = vec![0.0f32; 16];
+
+        layer.backward(&input, &grad_output, &mut grad_input, 1);
+
+        // Gradients should be finite
+        assert!(grad_input.iter().all(|&x| x.is_finite()));
+        // At least some gradients should be non-zero
+        assert!(grad_input.iter().any(|&x| x.abs() > 1e-10));
+    }
+
+    #[test]
+    fn test_conv2d_update_parameters() {
+        let mut rng = SimpleRng::new(42);
+        let mut layer = Conv2DLayer::new(1, 2, 3, 1, 1, 4, 4, &mut rng);
+
+        let original_weights = layer.weights.clone();
+
+        let input = vec![1.0f32; 16];
+        let mut output = vec![0.0f32; 32];
+        layer.forward(&input, &mut output, 1);
+
+        let grad_output = vec![1.0f32; 32];
+        let mut grad_input = vec![0.0f32; 16];
+        layer.backward(&input, &grad_output, &mut grad_input, 1);
+
+        layer.update_parameters(0.1);
+
+        // Weights should have changed
+        let weights_changed = layer
+            .weights
+            .iter()
+            .zip(original_weights.iter())
+            .any(|(a, b)| (a - b).abs() > 1e-10);
+        assert!(weights_changed, "Weights should change after update");
+    }
+
+    #[test]
+    fn test_conv2d_input_output_size() {
+        let mut rng = SimpleRng::new(42);
+        let layer = Conv2DLayer::new(3, 8, 3, 1, 1, 28, 28, &mut rng);
+
+        // Input size: 3 channels × 28 × 28
+        assert_eq!(layer.input_size(), 3 * 28 * 28);
+        // Output size: 8 channels × 28 × 28 (with padding=1, same dimensions)
+        assert_eq!(layer.output_size(), 8 * 28 * 28);
+    }
+
+    #[test]
+    fn test_conv2d_stride_2() {
+        let mut rng = SimpleRng::new(42);
+        // Stride 2 should halve the output dimensions
+        let layer = Conv2DLayer::new(1, 4, 3, 1, 2, 8, 8, &mut rng);
+
+        // (8 + 2*1 - 3) / 2 + 1 = 4
+        assert_eq!(layer.output_height(), 4);
+        assert_eq!(layer.output_width(), 4);
     }
 }

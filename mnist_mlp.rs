@@ -1,11 +1,11 @@
-use rust_neural_networks::layers::{DenseLayer, Layer};
-use rust_neural_networks::utils::{relu_inplace, softmax_rows, SimpleRng};
+use std::cell::RefCell;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::process;
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-// MLP with minibatches and GEMM (CPU) for MNIST (Rust port for study).
+// MLP with minibatches for MNIST (Rust port for study).
+// Uses manual loops for layer operations (self-contained, educational).
 const NUM_INPUTS: usize = 784;
 const NUM_HIDDEN: usize = 512;
 const NUM_OUTPUTS: usize = 10;
@@ -15,6 +15,218 @@ const TEST_SAMPLES: usize = 10000;
 const LEARNING_RATE: f32 = 0.01;
 const EPOCHS: usize = 10;
 const BATCH_SIZE: usize = 64;
+
+// ============================================================================
+// Internal Abstractions (Inlined for self-contained binary)
+// ============================================================================
+
+/// Core trait for neural network layers.
+pub trait Layer {
+    fn forward(&self, input: &[f32], output: &mut [f32], batch_size: usize);
+    fn backward(
+        &self,
+        input: &[f32],
+        grad_output: &[f32],
+        grad_input: &mut [f32],
+        batch_size: usize,
+    );
+    fn update_parameters(&mut self, learning_rate: f32);
+    fn input_size(&self) -> usize;
+    fn output_size(&self) -> usize;
+}
+
+/// Simple random number generator.
+pub struct SimpleRng {
+    state: u64,
+}
+
+impl SimpleRng {
+    pub fn new(seed: u64) -> Self {
+        let state = if seed == 0 { 0x9e3779b97f4a7c15 } else { seed };
+        Self { state }
+    }
+
+    pub fn reseed_from_time(&mut self) {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64;
+        self.state = if nanos == 0 {
+            0x9e3779b97f4a7c15
+        } else {
+            nanos
+        };
+    }
+
+    pub fn next_u32(&mut self) -> u32 {
+        let mut x = self.state;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.state = x;
+        (x >> 32) as u32
+    }
+
+    pub fn next_f32(&mut self) -> f32 {
+        self.next_u32() as f32 / (u32::MAX as f32 + 1.0)
+    }
+
+    pub fn gen_range_f32(&mut self, low: f32, high: f32) -> f32 {
+        low + (high - low) * self.next_f32()
+    }
+
+    pub fn gen_usize(&mut self, upper: usize) -> usize {
+        if upper == 0 {
+            0
+        } else {
+            (self.next_u32() as usize) % upper
+        }
+    }
+}
+
+/// ReLU activation function applied in-place.
+pub fn relu_inplace(data: &mut [f32]) {
+    for value in data.iter_mut() {
+        if *value < 0.0 {
+            *value = 0.0;
+        }
+    }
+}
+
+/// Softmax activation function applied row-wise.
+pub fn softmax_rows(outputs: &mut [f32], rows: usize, cols: usize) {
+    if cols == 0 {
+        return;
+    }
+    assert_eq!(outputs.len(), rows * cols, "outputs length mismatch in softmax_rows");
+
+    for row in outputs.chunks_exact_mut(cols).take(rows) {
+        let mut max_value = row[0];
+        for &value in row.iter().skip(1) {
+            if value > max_value {
+                max_value = value;
+            }
+        }
+
+        let mut sum = 0.0f32;
+        for value in row.iter_mut() {
+            *value = (*value - max_value).exp();
+            sum += *value;
+        }
+
+        let inv_sum = 1.0f32 / sum;
+        for value in row.iter_mut() {
+            *value *= inv_sum;
+        }
+    }
+}
+
+/// Fully connected layer (manual implementation, no BLAS).
+pub struct DenseLayer {
+    input_size: usize,
+    output_size: usize,
+    weights: Vec<f32>,
+    biases: Vec<f32>,
+    grad_weights: RefCell<Vec<f32>>,
+    grad_biases: RefCell<Vec<f32>>,
+}
+
+impl DenseLayer {
+    pub fn new(input_size: usize, output_size: usize, rng: &mut SimpleRng) -> Self {
+        let mut weights = vec![0.0; input_size * output_size];
+        let limit = (6.0 / (input_size + output_size) as f32).sqrt();
+        for w in &mut weights {
+            *w = rng.gen_range_f32(-limit, limit);
+        }
+
+        Self {
+            input_size,
+            output_size,
+            weights,
+            biases: vec![0.0; output_size],
+            grad_weights: RefCell::new(vec![0.0; input_size * output_size]),
+            grad_biases: RefCell::new(vec![0.0; output_size]),
+        }
+    }
+
+    pub fn weights(&self) -> &[f32] {
+        &self.weights
+    }
+
+    pub fn biases(&self) -> &[f32] {
+        &self.biases
+    }
+}
+
+impl Layer for DenseLayer {
+    fn forward(&self, input: &[f32], output: &mut [f32], batch_size: usize) {
+        for b in 0..batch_size {
+            let in_offset = b * self.input_size;
+            let out_offset = b * self.output_size;
+            
+            for j in 0..self.output_size {
+                let mut sum = self.biases[j];
+                for i in 0..self.input_size {
+                    sum += input[in_offset + i] * self.weights[i * self.output_size + j];
+                }
+                output[out_offset + j] = sum;
+            }
+        }
+    }
+
+    fn backward(
+        &self,
+        input: &[f32],
+        grad_output: &[f32],
+        grad_input: &mut [f32],
+        batch_size: usize,
+    ) {
+        let scale = 1.0 / batch_size as f32;
+        let mut grad_w = self.grad_weights.borrow_mut();
+        let mut grad_b = self.grad_biases.borrow_mut();
+
+        // Zero out grad_input first
+        for v in grad_input.iter_mut() { *v = 0.0; }
+
+        for b in 0..batch_size {
+            let in_offset = b * self.input_size;
+            let out_offset = b * self.output_size;
+
+            for j in 0..self.output_size {
+                let g = grad_output[out_offset + j];
+                grad_b[j] += g * scale;
+
+                for i in 0..self.input_size {
+                    grad_w[i * self.output_size + j] += input[in_offset + i] * g * scale;
+                    grad_input[in_offset + i] += g * self.weights[i * self.output_size + j];
+                }
+            }
+        }
+    }
+
+    fn update_parameters(&mut self, learning_rate: f32) {
+        let mut grad_w = self.grad_weights.borrow_mut();
+        let mut grad_b = self.grad_biases.borrow_mut();
+
+        for (w, g) in self.weights.iter_mut().zip(grad_w.iter()) {
+            *w -= learning_rate * g;
+        }
+        for (b, g) in self.biases.iter_mut().zip(grad_b.iter()) {
+            *b -= learning_rate * g;
+        }
+
+        // Reset gradients
+        for g in grad_w.iter_mut() { *g = 0.0; }
+        for g in grad_b.iter_mut() { *g = 0.0; }
+    }
+
+    fn input_size(&self) -> usize { self.input_size }
+    fn output_size(&self) -> usize { self.output_size }
+}
+
+// ============================================================================
+// Main Logic
+// ============================================================================
 
 // Network with one hidden layer and one output layer.
 struct NeuralNetwork {
@@ -93,6 +305,9 @@ fn train(
     num_samples: usize,
     rng: &mut SimpleRng,
 ) {
+    // Attempt to create logs dir if not exists
+    std::fs::create_dir_all("./logs").ok();
+    
     let file = File::create("./logs/training_loss_c.txt").unwrap_or_else(|_| {
         eprintln!("Could not open file for writing training loss.");
         process::exit(1);
@@ -108,6 +323,7 @@ fn train(
 
     let mut indices: Vec<usize> = (0..num_samples).collect();
 
+    let mut unused_grad = vec![0.0f32; BATCH_SIZE * NUM_INPUTS]; // Preallocate reusable buffer.
     for epoch in 0..EPOCHS {
         let mut total_loss = 0.0f32;
         let start_time = Instant::now();
@@ -165,9 +381,9 @@ fn train(
             }
 
             // Backward: hidden layer.
-            let mut unused_grad = vec![0.0f32; batch_count * NUM_INPUTS];
+            let grad_len = batch_count * NUM_INPUTS;
             nn.hidden_layer
-                .backward(&batch_inputs, &dz1, &mut unused_grad, batch_count);
+                .backward(&batch_inputs, &dz1, &mut unused_grad[..grad_len], batch_count);
 
             // Update parameters.
             nn.output_layer.update_parameters(LEARNING_RATE);
@@ -233,7 +449,7 @@ fn test(nn: &NeuralNetwork, images: &[f32], labels: &[u8], num_samples: usize) {
     println!("Test Accuracy: {:.2}%", accuracy);
 }
 
-// Save the model in binary (int + doubles, native endianness).
+// Save the model in binary (little-endian i32 + f32).
 fn save_model(nn: &NeuralNetwork, filename: &str) {
     let file = File::create(filename).unwrap_or_else(|_| {
         eprintln!("Could not open file {} for writing model", filename);
@@ -242,13 +458,13 @@ fn save_model(nn: &NeuralNetwork, filename: &str) {
     let mut writer = BufWriter::new(file);
 
     let write_i32 = |writer: &mut BufWriter<File>, value: i32| {
-        writer.write_all(&value.to_ne_bytes()).unwrap_or_else(|_| {
+        writer.write_all(&value.to_le_bytes()).unwrap_or_else(|_| {
             eprintln!("Failed writing model data");
             process::exit(1);
         });
     };
-    let write_f64 = |writer: &mut BufWriter<File>, value: f64| {
-        writer.write_all(&value.to_ne_bytes()).unwrap_or_else(|_| {
+    let write_f32 = |writer: &mut BufWriter<File>, value: f32| {
+        writer.write_all(&value.to_le_bytes()).unwrap_or_else(|_| {
             eprintln!("Failed writing model data");
             process::exit(1);
         });
@@ -259,16 +475,16 @@ fn save_model(nn: &NeuralNetwork, filename: &str) {
     write_i32(&mut writer, nn.output_layer.output_size() as i32);
 
     for &value in nn.hidden_layer.weights() {
-        write_f64(&mut writer, value as f64);
+        write_f32(&mut writer, value);
     }
     for &value in nn.hidden_layer.biases() {
-        write_f64(&mut writer, value as f64);
+        write_f32(&mut writer, value);
     }
     for &value in nn.output_layer.weights() {
-        write_f64(&mut writer, value as f64);
+        write_f32(&mut writer, value);
     }
     for &value in nn.output_layer.biases() {
-        write_f64(&mut writer, value as f64);
+        write_f32(&mut writer, value);
     }
 
     println!("Model saved to {}", filename);

@@ -1,5 +1,5 @@
-use rust_neural_networks::layers::{DenseLayer, Layer};
-use rust_neural_networks::utils::SimpleRng;
+use std::cell::RefCell;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // Small MLP to learn XOR (educational example).
 const NUM_INPUTS: usize = 2;
@@ -9,6 +9,173 @@ const NUM_SAMPLES: usize = 4;
 // Training hyperparameters.
 const LEARNING_RATE: f32 = 0.01;
 const EPOCHS: usize = 1_000_000;
+
+// ============================================================================
+// Internal Abstractions (Inlined for self-contained binary)
+// ============================================================================
+
+/// Core trait for neural network layers.
+pub trait Layer {
+    fn forward(&self, input: &[f32], output: &mut [f32], batch_size: usize);
+    fn backward(
+        &self,
+        input: &[f32],
+        grad_output: &[f32],
+        grad_input: &mut [f32],
+        batch_size: usize,
+    );
+    fn update_parameters(&mut self, learning_rate: f32);
+    fn input_size(&self) -> usize;
+    fn output_size(&self) -> usize;
+}
+
+/// Simple random number generator.
+pub struct SimpleRng {
+    state: u64,
+}
+
+impl SimpleRng {
+    pub fn new(seed: u64) -> Self {
+        let state = if seed == 0 { 0x9e3779b97f4a7c15 } else { seed };
+        Self { state }
+    }
+
+    pub fn reseed_from_time(&mut self) {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64;
+        self.state = if nanos == 0 {
+            0x9e3779b97f4a7c15
+        } else {
+            nanos
+        };
+    }
+
+    pub fn next_u32(&mut self) -> u32 {
+        let mut x = self.state;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.state = x;
+        (x >> 32) as u32
+    }
+
+    pub fn next_f32(&mut self) -> f32 {
+        self.next_u32() as f32 / (u32::MAX as f32 + 1.0)
+    }
+
+    pub fn gen_range_f32(&mut self, low: f32, high: f32) -> f32 {
+        low + (high - low) * self.next_f32()
+    }
+}
+
+/// Fully connected layer (manual implementation, no BLAS).
+pub struct DenseLayer {
+    input_size: usize,
+    output_size: usize,
+    weights: Vec<f32>,
+    biases: Vec<f32>,
+    grad_weights: RefCell<Vec<f32>>,
+    grad_biases: RefCell<Vec<f32>>,
+}
+
+impl DenseLayer {
+    pub fn new(input_size: usize, output_size: usize, rng: &mut SimpleRng) -> Self {
+        let mut weights = vec![0.0; input_size * output_size];
+        // Xavier initialization
+        let limit = (6.0 / (input_size + output_size) as f32).sqrt();
+        for w in &mut weights {
+            *w = rng.gen_range_f32(-limit, limit);
+        }
+
+        Self {
+            input_size,
+            output_size,
+            weights,
+            biases: vec![0.0; output_size],
+            grad_weights: RefCell::new(vec![0.0; input_size * output_size]),
+            grad_biases: RefCell::new(vec![0.0; output_size]),
+        }
+    }
+}
+
+impl Layer for DenseLayer {
+    fn forward(&self, input: &[f32], output: &mut [f32], batch_size: usize) {
+        // Simple implementation assuming batch_size=1 for this example
+        // or loop over batches if needed. This binary seems to use batch_size=1.
+        for b in 0..batch_size {
+            let in_offset = b * self.input_size;
+            let out_offset = b * self.output_size;
+            
+            for j in 0..self.output_size {
+                let mut sum = self.biases[j];
+                for i in 0..self.input_size {
+                    sum += input[in_offset + i] * self.weights[i * self.output_size + j];
+                }
+                output[out_offset + j] = sum;
+            }
+        }
+    }
+
+    fn backward(
+        &self,
+        input: &[f32],
+        grad_output: &[f32],
+        grad_input: &mut [f32],
+        batch_size: usize,
+    ) {
+        let scale = 1.0 / batch_size as f32;
+        let mut grad_w = self.grad_weights.borrow_mut();
+        let mut grad_b = self.grad_biases.borrow_mut();
+
+        for b in 0..batch_size {
+            let in_offset = b * self.input_size;
+            let out_offset = b * self.output_size;
+
+            for j in 0..self.output_size {
+                let g = grad_output[out_offset + j];
+                grad_b[j] += g * scale;
+
+                for i in 0..self.input_size {
+                    grad_w[i * self.output_size + j] += input[in_offset + i] * g * scale;
+                }
+            }
+
+            // grad_input computation
+            for i in 0..self.input_size {
+                let mut sum = 0.0;
+                for j in 0..self.output_size {
+                    sum += grad_output[out_offset + j] * self.weights[i * self.output_size + j];
+                }
+                grad_input[in_offset + i] = sum;
+            }
+        }
+    }
+
+    fn update_parameters(&mut self, learning_rate: f32) {
+        let mut grad_w = self.grad_weights.borrow_mut();
+        let mut grad_b = self.grad_biases.borrow_mut();
+
+        for (w, g) in self.weights.iter_mut().zip(grad_w.iter()) {
+            *w -= learning_rate * g;
+        }
+        for (b, g) in self.biases.iter_mut().zip(grad_b.iter()) {
+            *b -= learning_rate * g;
+        }
+
+        // Reset gradients
+        for g in grad_w.iter_mut() { *g = 0.0; }
+        for g in grad_b.iter_mut() { *g = 0.0; }
+    }
+
+    fn input_size(&self) -> usize { self.input_size }
+    fn output_size(&self) -> usize { self.output_size }
+}
+
+// ============================================================================
+// Main Logic
+// ============================================================================
 
 // Sigmoid activation function (f32 version for XOR).
 fn sigmoid(x: f32) -> f32 {
@@ -54,19 +221,38 @@ fn train(
     inputs: &[[f32; NUM_INPUTS]],
     expected_outputs: &[[f32; NUM_OUTPUTS]],
 ) {
+    // Buffer pre-allocation
+    let mut hidden_outputs = vec![0.0f32; NUM_HIDDEN];
+    let mut output_outputs = vec![0.0f32; NUM_OUTPUTS];
+    let mut errors = [0.0f32; NUM_OUTPUTS];
+    let mut grad_output = vec![0.0f32; NUM_OUTPUTS];
+    let mut grad_hidden_outputs = vec![0.0f32; NUM_HIDDEN];
+    let mut grad_hidden_input = vec![0.0f32; NUM_INPUTS];
+
     for epoch in 0..EPOCHS {
         let mut total_errors = 0.0f32;
 
         for sample in 0..NUM_SAMPLES {
-            let mut hidden_outputs = vec![0.0f32; NUM_HIDDEN];
-            let mut output_outputs = vec![0.0f32; NUM_OUTPUTS];
+            // No need to clear buffers explicitly as they are fully overwritten:
+            // - hidden_outputs and output_outputs are overwritten by forward()
+            // - errors is computed element-wise
+            // - grad_output is computed element-wise
+            // - grad_hidden_outputs is overwritten by backward() 
+            // - grad_hidden_input is overwritten by backward()
+            // Using explicit fill(0.0) just to be safe and match Reviewer request,
+            // though not strictly necessary for correctness if logic is robust.
+            hidden_outputs.fill(0.0);
+            output_outputs.fill(0.0);
+            errors.fill(0.0);
+            grad_output.fill(0.0);
+            grad_hidden_outputs.fill(0.0);
+            grad_hidden_input.fill(0.0);
 
             // Forward pass.
             forward_with_sigmoid(&nn.hidden_layer, &inputs[sample], &mut hidden_outputs);
             forward_with_sigmoid(&nn.output_layer, &hidden_outputs, &mut output_outputs);
 
             // Compute error (expected - predicted).
-            let mut errors = [0.0f32; NUM_OUTPUTS];
             for i in 0..NUM_OUTPUTS {
                 errors[i] = expected_outputs[sample][i] - output_outputs[i];
                 total_errors += errors[i] * errors[i];
@@ -76,13 +262,11 @@ fn train(
             // 1. Compute gradient for output layer through sigmoid activation.
             // Note: DenseLayer uses weight -= lr * gradient convention, so we negate the error
             // (error = expected - output, gradient = output - expected for gradient descent)
-            let mut grad_output = vec![0.0f32; NUM_OUTPUTS];
             for (i, (&error, &output)) in errors.iter().zip(output_outputs.iter()).enumerate() {
                 grad_output[i] = -error * sigmoid_derivative(output);
             }
 
             // 2. Backpropagate to hidden layer (BEFORE updating output layer weights).
-            let mut grad_hidden_outputs = vec![0.0f32; NUM_HIDDEN];
             nn.output_layer
                 .backward(&hidden_outputs, &grad_output, &mut grad_hidden_outputs, 1);
 
@@ -93,7 +277,6 @@ fn train(
             }
 
             // 3. Compute gradient for hidden layer.
-            let mut grad_hidden_input = vec![0.0f32; NUM_INPUTS];
             nn.hidden_layer.backward(
                 &inputs[sample],
                 &grad_hidden_outputs,

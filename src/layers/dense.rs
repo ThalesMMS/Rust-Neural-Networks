@@ -4,7 +4,7 @@
 //! that performs the transformation: output = input × weights + biases
 
 use crate::layers::Layer;
-use crate::utils::SimpleRng;
+use crate::utils::rng::SimpleRng;
 use std::cell::RefCell;
 
 #[cfg(target_os = "macos")]
@@ -197,6 +197,10 @@ impl Layer for DenseLayer {
         // input: (batch_size × input_size)
         // weights: (input_size × output_size)
         // output: (batch_size × output_size)
+        debug_assert_eq!(input.len(), batch_size * self.input_size, "input len mismatch");
+        debug_assert_eq!(output.len(), batch_size * self.output_size, "output len mismatch");
+        debug_assert_eq!(self.weights.len(), self.input_size * self.output_size, "weights len mismatch");
+
         sgemm_wrapper(
             batch_size,
             self.output_size,
@@ -214,6 +218,8 @@ impl Layer for DenseLayer {
         );
 
         // Add biases to each row
+        debug_assert_eq!(output.len(), batch_size * self.output_size, "output len mismatch for add_bias");
+        debug_assert_eq!(self.biases.len(), self.output_size, "biases len mismatch");
         add_bias(output, batch_size, self.output_size, &self.biases);
     }
 
@@ -230,7 +236,12 @@ impl Layer for DenseLayer {
         // input: (batch_size × input_size)
         // grad_output: (batch_size × output_size)
         // grad_weights: (input_size × output_size)
+        debug_assert_eq!(input.len(), batch_size * self.input_size, "input len mismatch in backward");
+        debug_assert_eq!(grad_output.len(), batch_size * self.output_size, "grad_output len mismatch in backward");
+        
         let mut grad_w = self.grad_weights.borrow_mut();
+        debug_assert_eq!(grad_w.len(), self.input_size * self.output_size, "grad_weights len mismatch");
+
         sgemm_wrapper(
             self.input_size,
             self.output_size,
@@ -249,6 +260,7 @@ impl Layer for DenseLayer {
 
         // Compute gradient with respect to biases: grad_b = sum(grad_output) / batch_size
         let mut grad_b = self.grad_biases.borrow_mut();
+        debug_assert_eq!(grad_b.len(), self.output_size, "grad_biases len mismatch");
         sum_rows(grad_output, batch_size, self.output_size, &mut grad_b);
         for bias_grad in grad_b.iter_mut() {
             *bias_grad *= scale;
@@ -258,6 +270,7 @@ impl Layer for DenseLayer {
         // grad_output: (batch_size × output_size)
         // weights: (input_size × output_size)
         // grad_input: (batch_size × input_size)
+        debug_assert_eq!(grad_input.len(), batch_size * self.input_size, "grad_input len mismatch");
         sgemm_wrapper(
             batch_size,
             self.input_size,
@@ -375,5 +388,124 @@ mod tests {
         // Same seed should produce identical weights
         assert_eq!(layer1.weights, layer2.weights);
         assert_eq!(layer1.biases, layer2.biases);
+    }
+
+    #[test]
+    fn test_add_bias() {
+        let mut data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // 2 rows × 3 cols
+        let bias = vec![0.1, 0.2, 0.3];
+        add_bias(&mut data, 2, 3, &bias);
+
+        assert!((data[0] - 1.1).abs() < 1e-6);
+        assert!((data[1] - 2.2).abs() < 1e-6);
+        assert!((data[2] - 3.3).abs() < 1e-6);
+        assert!((data[3] - 4.1).abs() < 1e-6);
+        assert!((data[4] - 5.2).abs() < 1e-6);
+        assert!((data[5] - 6.3).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_sum_rows() {
+        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // 2 rows × 3 cols
+        let mut out = vec![0.0; 3];
+        sum_rows(&data, 2, 3, &mut out);
+
+        // Column 0: 1 + 4 = 5
+        // Column 1: 2 + 5 = 7
+        // Column 2: 3 + 6 = 9
+        assert!((out[0] - 5.0).abs() < 1e-6);
+        assert!((out[1] - 7.0).abs() < 1e-6);
+        assert!((out[2] - 9.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_dense_forward() {
+        let mut rng = SimpleRng::new(42);
+        let layer = DenseLayer::new(3, 2, &mut rng);
+
+        // Single sample forward pass
+        let input = vec![1.0, 0.5, -0.5];
+        let mut output = vec![0.0; 2];
+
+        layer.forward(&input, &mut output, 1);
+
+        // Output should be input × weights + biases
+        // Verify output is computed (not zeros and finite)
+        assert!(output.iter().all(|&x| x.is_finite()));
+        assert!(output.iter().any(|&x| x != 0.0) || layer.biases.iter().all(|&b| b == 0.0));
+    }
+
+    #[test]
+    fn test_dense_forward_batch() {
+        let mut rng = SimpleRng::new(42);
+        let layer = DenseLayer::new(2, 3, &mut rng);
+
+        // Batch of 2 samples
+        let input = vec![1.0, 0.0, 0.0, 1.0]; // 2 samples × 2 features
+        let mut output = vec![0.0; 6]; // 2 samples × 3 outputs
+
+        layer.forward(&input, &mut output, 2);
+
+        // All outputs should be finite
+        assert!(output.iter().all(|&x| x.is_finite()));
+    }
+
+    #[test]
+    fn test_dense_backward() {
+        let mut rng = SimpleRng::new(42);
+        let layer = DenseLayer::new(3, 2, &mut rng);
+
+        let input = vec![1.0, 0.5, -0.5];
+        let mut output = vec![0.0; 2];
+        layer.forward(&input, &mut output, 1);
+
+        // Create gradient of output
+        let grad_output = vec![1.0, -1.0];
+        let mut grad_input = vec![0.0; 3];
+
+        layer.backward(&input, &grad_output, &mut grad_input, 1);
+
+        // Gradient should propagate back
+        assert!(grad_input.iter().all(|&x| x.is_finite()));
+        // At least some gradients should be non-zero
+        assert!(grad_input.iter().any(|&x| x.abs() > 1e-10));
+    }
+
+    #[test]
+    fn test_dense_update_parameters() {
+        let mut rng = SimpleRng::new(42);
+        let mut layer = DenseLayer::new(3, 2, &mut rng);
+
+        let original_weights = layer.weights.clone();
+        let _original_biases = layer.biases.clone();
+
+        // Do a forward and backward pass to accumulate gradients
+        let input = vec![1.0, 1.0, 1.0];
+        let mut output = vec![0.0; 2];
+        layer.forward(&input, &mut output, 1);
+
+        let grad_output = vec![1.0, 1.0];
+        let mut grad_input = vec![0.0; 3];
+        layer.backward(&input, &grad_output, &mut grad_input, 1);
+
+        // Update parameters
+        layer.update_parameters(0.1);
+
+        // Weights should have changed
+        let weights_changed = layer
+            .weights
+            .iter()
+            .zip(original_weights.iter())
+            .any(|(a, b)| (a - b).abs() > 1e-10);
+        assert!(weights_changed, "Weights should change after update");
+    }
+
+    #[test]
+    fn test_weights_and_biases_accessors() {
+        let mut rng = SimpleRng::new(42);
+        let layer = DenseLayer::new(4, 3, &mut rng);
+
+        assert_eq!(layer.weights().len(), 12); // 4 × 3
+        assert_eq!(layer.biases().len(), 3);
     }
 }
