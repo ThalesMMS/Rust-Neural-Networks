@@ -259,7 +259,7 @@ Baseline:                   37.73%
 + Sinusoidal encoding:      +45.72 pp
 Expected final accuracy:    ~83.45%
 ```
-✅ **Meets 85% target (within 1.55 pp)**
+✅ **Approaches 85% target (1.55 pp below)**
 
 ### Optimistic Estimate (Priority 1 + Priority 2 + Priority 3)
 ```

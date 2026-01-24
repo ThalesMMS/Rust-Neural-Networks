@@ -152,8 +152,6 @@ def visualize_attention_patterns(attention_samples, output_file=OUTPUT_FILE):
         axes = [axes]
     elif n_samples <= 3:
         fig, axes = plt.subplots(1, n_samples, figsize=(8 * n_samples, 7))
-        if n_samples == 1:
-            axes = [axes]
     else:
         rows = (n_samples + 2) // 3
         fig, axes = plt.subplots(rows, 3, figsize=(24, 7 * rows))
@@ -242,6 +240,10 @@ def visualize_single_token_attention(attention_samples, token_idx=0, output_file
     for idx, sample_id in enumerate(sample_ids):
         ax = axes[idx]
         attention_matrix = attention_samples[sample_id]
+        
+        # Verify token_idx is valid for this matrix
+        if token_idx < 0 or token_idx >= attention_matrix.shape[0]:
+             raise ValueError(f"token_idx {token_idx} out of range [0, {attention_matrix.shape[0]-1}]")
 
         # Get attention weights for this token
         attention_weights = attention_matrix[token_idx, :]
@@ -287,6 +289,12 @@ def main():
     attention_samples = parse_attention_weights(ATTENTION_WEIGHTS_FILE)
 
     if attention_samples is None or len(attention_samples) == 0:
+        # Check if file exists but failed to parse/was empty vs doesn't exist at all
+        if os.path.exists(ATTENTION_WEIGHTS_FILE):
+             print(f"\nError: Log file exists at {ATTENTION_WEIGHTS_FILE} but contained no valid attention weights.")
+             print("Aborting to avoid overwriting existing log file with sample data.")
+             sys.exit(1)
+             
         print("\nNo attention weights found in log file.")
         print("Generating sample attention patterns for demonstration...")
         attention_samples = generate_sample_attention_weights()

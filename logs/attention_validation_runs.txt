@@ -526,7 +526,7 @@ Configuration Used:
   - Positional Encoding: Sinusoidal (Transformer-style)
   - Patches: 7x7 grid (49 tokens)
 
-Validation Date: $(date)
+Validation Date: Fri Jan 23 17:22:36 CST 2026
 Total Training Time: ~50 minutes (all 5 runs combined)
 
 Fri Jan 23 17:22:36 CST 2026

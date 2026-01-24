@@ -361,51 +361,21 @@ impl Grads {
 
     fn zero(&mut self) {
         // Reset all gradients to zero before accumulation.
-        for v in self.w_patch.iter_mut() {
-            *v = 0.0;
-        }
-        for v in self.b_patch.iter_mut() {
-            *v = 0.0;
-        }
-        for v in self.pos.iter_mut() {
-            *v = 0.0;
-        }
-        for v in self.w_q.iter_mut() {
-            *v = 0.0;
-        }
-        for v in self.b_q.iter_mut() {
-            *v = 0.0;
-        }
-        for v in self.w_k.iter_mut() {
-            *v = 0.0;
-        }
-        for v in self.b_k.iter_mut() {
-            *v = 0.0;
-        }
-        for v in self.w_v.iter_mut() {
-            *v = 0.0;
-        }
-        for v in self.b_v.iter_mut() {
-            *v = 0.0;
-        }
-        for v in self.w_ff1.iter_mut() {
-            *v = 0.0;
-        }
-        for v in self.b_ff1.iter_mut() {
-            *v = 0.0;
-        }
-        for v in self.w_ff2.iter_mut() {
-            *v = 0.0;
-        }
-        for v in self.b_ff2.iter_mut() {
-            *v = 0.0;
-        }
-        for v in self.w_cls.iter_mut() {
-            *v = 0.0;
-        }
-        for v in self.b_cls.iter_mut() {
-            *v = 0.0;
-        }
+        self.w_patch.fill(0.0);
+        self.b_patch.fill(0.0);
+        self.pos.fill(0.0);
+        self.w_q.fill(0.0);
+        self.b_q.fill(0.0);
+        self.w_k.fill(0.0);
+        self.b_k.fill(0.0);
+        self.w_v.fill(0.0);
+        self.b_v.fill(0.0);
+        self.w_ff1.fill(0.0);
+        self.b_ff1.fill(0.0);
+        self.w_ff2.fill(0.0);
+        self.b_ff2.fill(0.0);
+        self.w_cls.fill(0.0);
+        self.b_cls.fill(0.0);
     }
 }
 
@@ -708,45 +678,7 @@ fn init_model(rng: &mut SimpleRng) -> AttnModel {
     init_model_with_pos_encoding(rng, PosEncodingType::Sinusoidal)
 }
 
-// Helper function to compute statistics for logging.
-/// Compute the minimum, maximum, and arithmetic mean of a slice of f32 values.
-///
-/// The function returns a tuple `(min, max, mean)` representing the smallest value,
-/// largest value, and the arithmetic mean of the input slice. If `data` is empty,
-/// the function returns `(0.0, 0.0, 0.0)`.
-///
-/// # Examples
-///
-/// ```
-/// let vals = [1.0f32, -2.5, 3.25, 0.0];
-/// let (min, max, mean) = compute_stats(&vals);
-/// assert_eq!(min, -2.5);
-/// assert_eq!(max, 3.25);
-/// // mean = (1.0 - 2.5 + 3.25 + 0.0) / 4 = 0.4375
-/// assert!((mean - 0.4375).abs() < 1e-6);
-///
-/// let empty: [f32; 0] = [];
-/// assert_eq!(compute_stats(&empty), (0.0, 0.0, 0.0));
-/// ```
-fn compute_stats(data: &[f32]) -> (f32, f32, f32) {
-    if data.is_empty() {
-        return (0.0, 0.0, 0.0);
-    }
-    let mut min_val = data[0];
-    let mut max_val = data[0];
-    let mut sum = 0.0f32;
-    for &v in data.iter() {
-        if v < min_val {
-            min_val = v;
-        }
-        if v > max_val {
-            max_val = v;
-        }
-        sum += v;
-    }
-    let mean = sum / data.len() as f32;
-    (min_val, max_val, mean)
-}
+
 
 // Extract 4x4 patches from a contiguous batch of images.
 // patches shape: [batch_count * SEQ_LEN * PATCH_DIM]
@@ -1679,49 +1611,24 @@ fn train_model_with_config(
 
 // Backward compatibility wrapper for LR experiments.
 /// Trains the attention model with SmallRandom positional embeddings using the specified learning rate.
-
-///
-
 /// # Returns
-
 /// A tuple `(final_test_accuracy, epoch_losses, epoch_accuracies)`:
-
 /// - `final_test_accuracy`: final test set accuracy as a percentage.
-
 /// - `epoch_losses`: vector of average training losses per epoch.
-
 /// - `epoch_accuracies`: vector of test accuracies (percentages) per epoch.
-
-///
-
 /// # Examples
-
-///
-
 /// ```
-
 /// // Prepare `train_images`, `train_labels`, `test_images`, `test_labels` and a RNG before calling.
-
 /// let mut rng = SimpleRng::new(42);
-
 /// let (final_acc, losses, accs) = train_model_with_lr(
-
 ///     &train_images,
-
 ///     &train_labels,
-
 ///     &test_images,
-
 ///     &test_labels,
-
 ///     0.01,
-
 ///     &mut rng,
-
 /// );
-
 /// assert_eq!(losses.len(), accs.len());
-
 /// ```
 fn train_model_with_lr(
     train_images: &[f32],
@@ -1737,7 +1644,7 @@ fn train_model_with_lr(
         test_images,
         test_labels,
         lr,
-        PosEncodingType::SmallRandom,
+        PosEncodingType::Sinusoidal,
         rng,
     )
 }
@@ -1848,7 +1755,9 @@ fn main() {
             epoch + 1, avg_loss, acc, epoch_time);
 
         // Log to file: epoch,loss,accuracy,time
-        writeln!(log, "{},{:.6},{:.2},{:.2}", epoch + 1, avg_loss, acc, epoch_time).ok();
+        if let Err(e) = writeln!(log, "{},{:.6},{:.2},{:.2}", epoch + 1, avg_loss, acc, epoch_time) {
+            eprintln!("Warning: Failed to write to log file: {}", e);
+        }
     }
 
     let train_time = train_start.elapsed().as_secs_f32();

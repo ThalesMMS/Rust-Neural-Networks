@@ -56,10 +56,10 @@ Each binary (`src/*.rs`) is self-contained with replicated implementations of co
 |--------|--------------|--------------|
 | `mnist_mlp` | 784→512→10 | BLAS-accelerated GEMM via macOS Accelerate |
 | `mnist_cnn` | Conv(8,3×3) + MaxPool + FC | Manual loop convolutions |
-| `mnist_attention_pool` | Patch→Attention→FFN | 49 tokens, D=16, FF=32 (small for CPU) |
+| `mnist_attention_pool` | Patch→Attention→FFN | 49 tokens, D=64, FF=128 (increased for capacity) |
 | `mlp_simple` | 2→4→1 | XOR with sigmoid, 1M epochs |
 
-Exportar para as Planilhas
+
 
 ### Language Separation
 
