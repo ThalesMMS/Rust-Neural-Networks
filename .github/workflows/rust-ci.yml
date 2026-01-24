@@ -16,7 +16,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [macos-latest]
         rust: [stable]
 
     steps:
@@ -61,7 +61,7 @@ jobs:
 
   coverage:
     name: Code Coverage
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
 
     steps:
     - name: Checkout code
@@ -107,8 +107,5 @@ jobs:
         # Main functions, I/O code, and training loops are excluded as they require data files.
         COVERAGE=$(cargo tarpaulin --out Stdout | grep -oP '\d+\.\d+(?=% coverage)' || echo "0")
         echo "Current coverage: $COVERAGE%"
-        if (( $(echo "$COVERAGE < 15.0" | bc -l) )); then
-          echo "Error: Coverage ($COVERAGE%) is below 15% threshold"
-          exit 1
-        fi
-        echo "Coverage meets 15% threshold"
+        # Use Python for cross-platform floating point comparison
+        python3 -c "import sys; coverage = float('$COVERAGE'); sys.exit(1) if coverage < 15.0 else print('Coverage meets 15% threshold')"

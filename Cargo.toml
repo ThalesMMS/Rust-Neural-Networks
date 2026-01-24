@@ -4,8 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-blas-src = { version = "0.14", features = ["accelerate"] }
 cblas = "0.5"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+blas-src = { version = "0.14", features = ["accelerate"] }
 
 [[bin]]
 name = "mnist_mlp"
