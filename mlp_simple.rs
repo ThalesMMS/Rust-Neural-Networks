@@ -48,36 +48,12 @@ fn forward_with_sigmoid(layer: &DenseLayer, inputs: &[f32], outputs: &mut [f32])
     }
 }
 
-// Backward pass and update for a single layer with sigmoid activation.
-fn backward_and_update(
-    layer: &mut DenseLayer,
-    inputs: &[f32],
-    outputs: &[f32],
-    deltas: &[f32],
-    grad_input: &mut [f32],
-) {
-    // Compute gradient through sigmoid activation.
-    let mut grad_output = vec![0.0f32; deltas.len()];
-    for (i, (&delta, &output)) in deltas.iter().zip(outputs.iter()).enumerate() {
-        grad_output[i] = delta * sigmoid_derivative(output);
-    }
-
-    // Backward pass through the layer.
-    layer.backward(inputs, &grad_output, grad_input, 1);
-
-    // Update parameters.
-    layer.update_parameters(LEARNING_RATE);
-}
-
 // Training with mean squared error per sample.
 fn train(
     nn: &mut NeuralNetwork,
     inputs: &[[f32; NUM_INPUTS]],
     expected_outputs: &[[f32; NUM_OUTPUTS]],
 ) {
-    // Buffers reused to avoid per-sample allocations.
-    let mut grad_hidden = vec![0.0f32; NUM_INPUTS];
-
     for epoch in 0..EPOCHS {
         let mut total_errors = 0.0f32;
 
@@ -96,31 +72,24 @@ fn train(
                 total_errors += errors[i] * errors[i];
             }
 
-            // Backward pass and update for output layer.
-            backward_and_update(
-                &mut nn.output_layer,
-                &hidden_outputs,
-                &output_outputs,
-                &errors,
-                &mut hidden_outputs.clone(), // Temporary buffer (not used for input gradient in this case)
-            );
-
-            // Backward pass and update for hidden layer.
-            // First, compute the gradient to backpropagate to hidden layer.
-            let mut grad_hidden_outputs = vec![0.0f32; NUM_HIDDEN];
-            let mut grad_output_for_hidden = vec![0.0f32; NUM_OUTPUTS];
+            // Backward pass (compute gradients but don't update yet).
+            // 1. Compute gradient for output layer through sigmoid activation.
+            let mut grad_output = vec![0.0f32; NUM_OUTPUTS];
             for (i, (&error, &output)) in errors.iter().zip(output_outputs.iter()).enumerate() {
-                grad_output_for_hidden[i] = error * sigmoid_derivative(output);
+                grad_output[i] = error * sigmoid_derivative(output);
             }
-            nn.output_layer.backward(&hidden_outputs, &grad_output_for_hidden, &mut grad_hidden_outputs, 1);
 
-            backward_and_update(
-                &mut nn.hidden_layer,
-                &inputs[sample],
-                &hidden_outputs,
-                &grad_hidden_outputs,
-                &mut grad_hidden,
-            );
+            // 2. Backpropagate to hidden layer (BEFORE updating output layer weights).
+            let mut grad_hidden_outputs = vec![0.0f32; NUM_HIDDEN];
+            nn.output_layer.backward(&hidden_outputs, &grad_output, &mut grad_hidden_outputs, 1);
+
+            // 3. Compute gradient for hidden layer.
+            let mut grad_hidden_input = vec![0.0f32; NUM_INPUTS];
+            nn.hidden_layer.backward(&inputs[sample], &grad_hidden_outputs, &mut grad_hidden_input, 1);
+
+            // 4. NOW update both layers (after all gradients are computed).
+            nn.output_layer.update_parameters(LEARNING_RATE);
+            nn.hidden_layer.update_parameters(LEARNING_RATE);
         }
 
         // Average loss per epoch, printed every 1000 epochs.
