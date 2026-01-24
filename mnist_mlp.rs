@@ -166,7 +166,8 @@ fn train(
 
             // Backward: hidden layer.
             let mut unused_grad = vec![0.0f32; batch_count * NUM_INPUTS];
-            nn.hidden_layer.backward(&batch_inputs, &dz1, &mut unused_grad, batch_count);
+            nn.hidden_layer
+                .backward(&batch_inputs, &dz1, &mut unused_grad, batch_count);
 
             // Update parameters.
             nn.output_layer.update_parameters(LEARNING_RATE);

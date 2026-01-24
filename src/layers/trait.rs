@@ -61,7 +61,13 @@ pub trait Layer {
     /// - The input should be the same data used in the corresponding forward pass
     /// - Some layers may need to cache activations from forward pass for gradient computation
     /// - Weight and bias gradients are accumulated internally and applied via `update_parameters`
-    fn backward(&self, input: &[f32], grad_output: &[f32], grad_input: &mut [f32], batch_size: usize);
+    fn backward(
+        &self,
+        input: &[f32],
+        grad_output: &[f32],
+        grad_input: &mut [f32],
+        batch_size: usize,
+    );
 
     /// Update layer parameters using accumulated gradients.
     ///

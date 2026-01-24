@@ -81,11 +81,17 @@ fn train(
 
             // 2. Backpropagate to hidden layer (BEFORE updating output layer weights).
             let mut grad_hidden_outputs = vec![0.0f32; NUM_HIDDEN];
-            nn.output_layer.backward(&hidden_outputs, &grad_output, &mut grad_hidden_outputs, 1);
+            nn.output_layer
+                .backward(&hidden_outputs, &grad_output, &mut grad_hidden_outputs, 1);
 
             // 3. Compute gradient for hidden layer.
             let mut grad_hidden_input = vec![0.0f32; NUM_INPUTS];
-            nn.hidden_layer.backward(&inputs[sample], &grad_hidden_outputs, &mut grad_hidden_input, 1);
+            nn.hidden_layer.backward(
+                &inputs[sample],
+                &grad_hidden_outputs,
+                &mut grad_hidden_input,
+                1,
+            );
 
             // 4. NOW update both layers (after all gradients are computed).
             nn.output_layer.update_parameters(LEARNING_RATE);

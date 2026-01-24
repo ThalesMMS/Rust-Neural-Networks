@@ -217,7 +217,13 @@ impl Layer for DenseLayer {
         add_bias(output, batch_size, self.output_size, &self.biases);
     }
 
-    fn backward(&self, input: &[f32], grad_output: &[f32], grad_input: &mut [f32], batch_size: usize) {
+    fn backward(
+        &self,
+        input: &[f32],
+        grad_output: &[f32],
+        grad_input: &mut [f32],
+        batch_size: usize,
+    ) {
         let scale = 1.0f32 / batch_size as f32;
 
         // Compute gradient with respect to weights: grad_w = input^T × grad_output / batch_size
@@ -286,8 +292,14 @@ impl Layer for DenseLayer {
         // Clear gradients for next iteration
         drop(grad_w);
         drop(grad_b);
-        self.grad_weights.borrow_mut().iter_mut().for_each(|g| *g = 0.0);
-        self.grad_biases.borrow_mut().iter_mut().for_each(|g| *g = 0.0);
+        self.grad_weights
+            .borrow_mut()
+            .iter_mut()
+            .for_each(|g| *g = 0.0);
+        self.grad_biases
+            .borrow_mut()
+            .iter_mut()
+            .for_each(|g| *g = 0.0);
     }
 
     fn input_size(&self) -> usize {
@@ -337,8 +349,13 @@ mod tests {
 
         // Check that all weights are within the expected range
         for &weight in &layer.weights {
-            assert!(weight >= -limit && weight <= limit,
-                   "Weight {} outside Xavier range [{}, {}]", weight, -limit, limit);
+            assert!(
+                weight >= -limit && weight <= limit,
+                "Weight {} outside Xavier range [{}, {}]",
+                weight,
+                -limit,
+                limit
+            );
         }
 
         // Check that biases are initialized to zero

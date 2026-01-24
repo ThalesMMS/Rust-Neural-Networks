@@ -128,7 +128,6 @@ fn gather_batch(
     }
 }
 
-
 // CNN with shared layer abstractions.
 struct Cnn {
     conv_layer: Conv2DLayer,
@@ -142,7 +141,10 @@ fn init_cnn(rng: &mut SimpleRng) -> Cnn {
     // FC layer: FC_IN -> NUM_CLASSES
     let fc_layer = DenseLayer::new(FC_IN, NUM_CLASSES, rng);
 
-    Cnn { conv_layer, fc_layer }
+    Cnn {
+        conv_layer,
+        fc_layer,
+    }
 }
 
 // Forward conv + ReLU.
@@ -244,7 +246,7 @@ fn fc_backward(
     model: &mut Cnn,
     batch: usize,
     x: &[f32],
-    delta: &[f32], // [batch*10]
+    delta: &[f32],   // [batch*10]
     d_x: &mut [f32], // [batch*FC_IN]
 ) {
     // Use DenseLayer for backward pass (gradients are accumulated internally)
@@ -306,13 +308,15 @@ fn maxpool_backward_relu(
 fn conv_backward(
     model: &mut Cnn,
     batch: usize,
-    input: &[f32],     // [batch*784]
-    conv_grad: &[f32], // [batch*C*28*28]
+    input: &[f32],           // [batch*784]
+    conv_grad: &[f32],       // [batch*C*28*28]
     _grad_input: &mut [f32], // unused (first layer)
 ) {
     // Use Conv2DLayer for backward pass (gradients are accumulated internally)
     // Note: grad_input is unused since this is the first layer
-    model.conv_layer.backward(input, conv_grad, _grad_input, batch);
+    model
+        .conv_layer
+        .backward(input, conv_grad, _grad_input, batch);
 }
 
 fn test_accuracy(model: &mut Cnn, images: &[f32], labels: &[u8]) -> f32 {
@@ -480,7 +484,15 @@ mod tests {
         let mut out_inputs = vec![0.0; 784 * 2]; // batch of 2
         let mut out_labels = vec![0u8; 2];
 
-        gather_batch(&images, &labels, &indices, 0, 2, &mut out_inputs, &mut out_labels);
+        gather_batch(
+            &images,
+            &labels,
+            &indices,
+            0,
+            2,
+            &mut out_inputs,
+            &mut out_labels,
+        );
 
         assert_eq!(out_labels[0], 0);
         assert_eq!(out_labels[1], 1);

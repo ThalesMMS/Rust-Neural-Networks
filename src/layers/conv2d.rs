@@ -43,8 +43,8 @@ pub struct Conv2DLayer {
     stride: usize,
     input_height: usize,
     input_width: usize,
-    weights: Vec<f32>,      // [out_channels * in_channels * kernel_size * kernel_size]
-    biases: Vec<f32>,       // [out_channels]
+    weights: Vec<f32>, // [out_channels * in_channels * kernel_size * kernel_size]
+    biases: Vec<f32>,  // [out_channels]
     // Gradient accumulators (mutable interior via RefCell for trait compatibility)
     grad_weights: RefCell<Vec<f32>>,
     grad_biases: RefCell<Vec<f32>>,
@@ -152,7 +152,8 @@ impl Conv2DLayer {
     /// Calculated as: (input_height + 2*padding - kernel_size) / stride + 1
     pub fn output_height(&self) -> usize {
         ((self.input_height as isize + 2 * self.padding - self.kernel_size as isize)
-            / self.stride as isize + 1) as usize
+            / self.stride as isize
+            + 1) as usize
     }
 
     /// Get the output width after convolution.
@@ -160,7 +161,8 @@ impl Conv2DLayer {
     /// Calculated as: (input_width + 2*padding - kernel_size) / stride + 1
     pub fn output_width(&self) -> usize {
         ((self.input_width as isize + 2 * self.padding - self.kernel_size as isize)
-            / self.stride as isize + 1) as usize
+            / self.stride as isize
+            + 1) as usize
     }
 
     /// Get the total number of trainable parameters.
@@ -195,17 +197,22 @@ impl Layer for Conv2DLayer {
 
                         // Accumulate over input channels
                         for ic in 0..self.in_channels {
-                            let w_base = (oc * self.in_channels + ic) * self.kernel_size * self.kernel_size;
+                            let w_base =
+                                (oc * self.in_channels + ic) * self.kernel_size * self.kernel_size;
                             let in_base_c = in_base + ic * in_spatial;
 
                             // Convolve kernel over input
                             for ky in 0..self.kernel_size {
                                 for kx in 0..self.kernel_size {
-                                    let iy = oy as isize * self.stride as isize + ky as isize - self.padding;
-                                    let ix = ox as isize * self.stride as isize + kx as isize - self.padding;
+                                    let iy = oy as isize * self.stride as isize + ky as isize
+                                        - self.padding;
+                                    let ix = ox as isize * self.stride as isize + kx as isize
+                                        - self.padding;
 
-                                    if iy >= 0 && iy < self.input_height as isize
-                                        && ix >= 0 && ix < self.input_width as isize
+                                    if iy >= 0
+                                        && iy < self.input_height as isize
+                                        && ix >= 0
+                                        && ix < self.input_width as isize
                                     {
                                         let iyy = iy as usize;
                                         let ixx = ix as usize;
@@ -225,7 +232,13 @@ impl Layer for Conv2DLayer {
         }
     }
 
-    fn backward(&self, input: &[f32], grad_output: &[f32], grad_input: &mut [f32], batch_size: usize) {
+    fn backward(
+        &self,
+        input: &[f32],
+        grad_output: &[f32],
+        grad_input: &mut [f32],
+        batch_size: usize,
+    ) {
         let scale = 1.0f32 / batch_size as f32;
         let out_h = self.output_height();
         let out_w = self.output_width();
@@ -263,11 +276,15 @@ impl Layer for Conv2DLayer {
 
                             for ky in 0..self.kernel_size {
                                 for kx in 0..self.kernel_size {
-                                    let iy = oy as isize * self.stride as isize + ky as isize - self.padding;
-                                    let ix = ox as isize * self.stride as isize + kx as isize - self.padding;
+                                    let iy = oy as isize * self.stride as isize + ky as isize
+                                        - self.padding;
+                                    let ix = ox as isize * self.stride as isize + kx as isize
+                                        - self.padding;
 
-                                    if iy >= 0 && iy < self.input_height as isize
-                                        && ix >= 0 && ix < self.input_width as isize
+                                    if iy >= 0
+                                        && iy < self.input_height as isize
+                                        && ix >= 0
+                                        && ix < self.input_width as isize
                                     {
                                         let iyy = iy as usize;
                                         let ixx = ix as usize;
@@ -313,11 +330,15 @@ impl Layer for Conv2DLayer {
 
                             for ky in 0..self.kernel_size {
                                 for kx in 0..self.kernel_size {
-                                    let iy = oy as isize * self.stride as isize + ky as isize - self.padding;
-                                    let ix = ox as isize * self.stride as isize + kx as isize - self.padding;
+                                    let iy = oy as isize * self.stride as isize + ky as isize
+                                        - self.padding;
+                                    let ix = ox as isize * self.stride as isize + kx as isize
+                                        - self.padding;
 
-                                    if iy >= 0 && iy < self.input_height as isize
-                                        && ix >= 0 && ix < self.input_width as isize
+                                    if iy >= 0
+                                        && iy < self.input_height as isize
+                                        && ix >= 0
+                                        && ix < self.input_width as isize
                                     {
                                         let iyy = iy as usize;
                                         let ixx = ix as usize;
@@ -351,8 +372,14 @@ impl Layer for Conv2DLayer {
         // Clear gradients for next iteration
         drop(grad_w);
         drop(grad_b);
-        self.grad_weights.borrow_mut().iter_mut().for_each(|g| *g = 0.0);
-        self.grad_biases.borrow_mut().iter_mut().for_each(|g| *g = 0.0);
+        self.grad_weights
+            .borrow_mut()
+            .iter_mut()
+            .for_each(|g| *g = 0.0);
+        self.grad_biases
+            .borrow_mut()
+            .iter_mut()
+            .for_each(|g| *g = 0.0);
     }
 
     fn input_size(&self) -> usize {
