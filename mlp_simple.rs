@@ -134,15 +134,27 @@ fn backward(
     delta_hidden: &mut [f64],
     delta_output: &mut [f64],
 ) {
-    for (i, d_out) in delta_output.iter_mut().enumerate().take(nn.output_layer.output_size) {
+    for (i, d_out) in delta_output
+        .iter_mut()
+        .enumerate()
+        .take(nn.output_layer.output_size)
+    {
         // delta_out = error * activation derivative.
         *d_out = errors[i] * sigmoid_derivative(output_outputs[i]);
     }
 
-    for (i, d_hid) in delta_hidden.iter_mut().enumerate().take(nn.hidden_layer.output_size) {
+    for (i, d_hid) in delta_hidden
+        .iter_mut()
+        .enumerate()
+        .take(nn.hidden_layer.output_size)
+    {
         // Error backpropagated from output to hidden layer.
         let mut error = 0.0;
-        for (j, &d_out) in delta_output.iter().enumerate().take(nn.output_layer.output_size) {
+        for (j, &d_out) in delta_output
+            .iter()
+            .enumerate()
+            .take(nn.output_layer.output_size)
+        {
             error += d_out * nn.output_layer.weights[i][j];
         }
         *d_hid = error * sigmoid_derivative(hidden_outputs[i]);
