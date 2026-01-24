@@ -3,13 +3,13 @@
 
 use approx::assert_relative_eq;
 
-// Sigmoid activation function (f64 version from mlp_simple.rs).
-fn sigmoid(x: f64) -> f64 {
+// Sigmoid activation function (f32 version).
+fn sigmoid(x: f32) -> f32 {
     1.0 / (1.0 + (-x).exp())
 }
 
 // Sigmoid derivative assuming x = sigmoid(z).
-fn sigmoid_derivative(x: f64) -> f64 {
+fn sigmoid_derivative(x: f32) -> f32 {
     x * (1.0 - x)
 }
 
@@ -53,21 +53,21 @@ mod tests {
     #[test]
     fn test_sigmoid_zero() {
         let result = sigmoid(0.0);
-        assert_relative_eq!(result, 0.5, epsilon = 1e-10);
+        assert_relative_eq!(result, 0.5, epsilon = 1e-6);
     }
 
     #[test]
     fn test_sigmoid_positive() {
         let result = sigmoid(2.0);
         assert!(result > 0.5 && result < 1.0);
-        assert_relative_eq!(result, 0.8807970779778823, epsilon = 1e-10);
+        assert_relative_eq!(result, 0.880797, epsilon = 1e-6);
     }
 
     #[test]
     fn test_sigmoid_negative() {
         let result = sigmoid(-2.0);
         assert!(result > 0.0 && result < 0.5);
-        assert_relative_eq!(result, 0.11920292202211755, epsilon = 1e-10);
+        assert_relative_eq!(result, 0.1192029, epsilon = 1e-6);
     }
 
     #[test]
@@ -87,26 +87,26 @@ mod tests {
         let x = 3.0;
         let pos = sigmoid(x);
         let neg = sigmoid(-x);
-        assert_relative_eq!(pos + neg, 1.0, epsilon = 1e-10);
+        assert_relative_eq!(pos + neg, 1.0, epsilon = 1e-6);
     }
 
     // Sigmoid derivative tests.
     #[test]
     fn test_sigmoid_derivative_at_half() {
         let result = sigmoid_derivative(0.5);
-        assert_relative_eq!(result, 0.25, epsilon = 1e-10);
+        assert_relative_eq!(result, 0.25, epsilon = 1e-6);
     }
 
     #[test]
     fn test_sigmoid_derivative_at_extremes() {
-        assert_relative_eq!(sigmoid_derivative(0.0), 0.0, epsilon = 1e-10);
-        assert_relative_eq!(sigmoid_derivative(1.0), 0.0, epsilon = 1e-10);
+        assert_relative_eq!(sigmoid_derivative(0.0), 0.0, epsilon = 1e-6);
+        assert_relative_eq!(sigmoid_derivative(1.0), 0.0, epsilon = 1e-6);
     }
 
     #[test]
     fn test_sigmoid_derivative_range() {
         for i in 0..100 {
-            let x = i as f64 / 100.0;
+            let x = i as f32 / 100.0;
             let deriv = sigmoid_derivative(x);
             assert!((0.0..=0.25).contains(&deriv));
         }

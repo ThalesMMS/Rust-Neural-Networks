@@ -123,6 +123,15 @@ pub fn relu_inplace(data: &mut [f32]) {
 
 /// Softmax activation function applied row-wise.
 pub fn softmax_rows(outputs: &mut [f32], rows: usize, cols: usize) {
+    if cols == 0 {
+        return;
+    }
+    // Debug assertion to catch mismatches in dev builds
+    debug_assert_eq!(
+        outputs.len(),
+        rows * cols,
+        "outputs length mismatch in softmax_rows"
+    );
     for row in outputs.chunks_exact_mut(cols).take(rows) {
         let mut max_value = row[0];
         for &value in row.iter().skip(1) {
@@ -278,6 +287,14 @@ impl Conv2DLayer {
         input_width: usize,
         rng: &mut SimpleRng,
     ) -> Self {
+        assert!(stride > 0, "Stride must be greater than 0");
+
+        let h_num = input_height as isize + 2 * padding - kernel_size as isize;
+        let w_num = input_width as isize + 2 * padding - kernel_size as isize;
+        if h_num < 0 || w_num < 0 {
+            panic!("Invalid Conv2D configuration: output dimensions would be negative");
+        }
+
         let fan_in = (in_channels * kernel_size * kernel_size) as f32;
         let fan_out = (out_channels * kernel_size * kernel_size) as f32;
         let limit = (6.0f32 / (fan_in + fan_out)).sqrt();
@@ -706,9 +723,9 @@ fn init_cnn(rng: &mut SimpleRng) -> Cnn {
 /// let start = batch * CONV_OUT * CONV_H * CONV_W;
 /// assert!(conv_out[start..start + CONV_OUT * CONV_H * CONV_W].iter().all(|&v| v >= 0.0));
 /// ```
-fn conv_forward_relu(model: &mut Cnn, batch: usize, input: &[f32], conv_out: &mut [f32]) {
+fn conv_forward_relu(model: &mut Cnn, batch_size: usize, input: &[f32], conv_out: &mut [f32]) {
     // Use Conv2DLayer for forward pass
-    model.conv_layer.forward(input, conv_out, batch);
+    model.conv_layer.forward(input, conv_out, batch_size);
 
     // Apply ReLU activation
     relu_inplace(conv_out);

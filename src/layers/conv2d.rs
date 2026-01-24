@@ -374,9 +374,17 @@ impl Layer for Conv2DLayer {
         let out_spatial = out_h * out_w;
         let in_spatial = self.input_height * self.input_width;
 
-        // Clear gradient accumulators
+        // Borrow gradient accumulators
         let mut grad_w = self.grad_weights.borrow_mut();
         let mut grad_b = self.grad_biases.borrow_mut();
+
+        // Zero out accumulators before processing the current batch
+        for g in grad_w.iter_mut() {
+            *g = 0.0;
+        }
+        for g in grad_b.iter_mut() {
+            *g = 0.0;
+        }
 
         // Accumulate gradients for weights and biases
         for b in 0..batch_size {

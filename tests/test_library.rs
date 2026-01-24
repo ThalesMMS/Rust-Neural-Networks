@@ -567,24 +567,25 @@ mod activation_tests {
     }
 
     #[test]
+    #[test]
     fn test_sigmoid_large_negative() {
-        let result = sigmoid(-100.0);
-        assert_relative_eq!(result, 0.0, epsilon = 1e-10);
+        let result = sigmoid(-100.0f32);
+        assert_relative_eq!(result, 0.0f32, epsilon = 1e-6);
     }
 
     #[test]
     fn test_sigmoid_symmetry() {
         for i in 1..20 {
-            let x = i as f64 * 0.5;
-            assert_relative_eq!(sigmoid(x) + sigmoid(-x), 1.0, epsilon = 1e-10);
+            let x = i as f32 * 0.5;
+            assert_relative_eq!(sigmoid(x) + sigmoid(-x), 1.0f32, epsilon = 1e-6);
         }
     }
 
     #[test]
     fn test_sigmoid_monotonic() {
-        let mut prev = sigmoid(-10.0);
+        let mut prev = sigmoid(-10.0f32);
         for i in -100..100 {
-            let x = i as f64 / 10.0;
+            let x = i as f32 / 10.0;
             let curr = sigmoid(x);
             assert!(curr >= prev, "Sigmoid should be monotonically increasing");
             prev = curr;
@@ -594,19 +595,19 @@ mod activation_tests {
     // Sigmoid derivative tests
     #[test]
     fn test_sigmoid_derivative_at_half() {
-        assert_relative_eq!(sigmoid_derivative(0.5), 0.25, epsilon = 1e-10);
+        assert_relative_eq!(sigmoid_derivative(0.5f32), 0.25f32, epsilon = 1e-6);
     }
 
     #[test]
     fn test_sigmoid_derivative_at_extremes() {
-        assert_relative_eq!(sigmoid_derivative(0.0), 0.0, epsilon = 1e-10);
-        assert_relative_eq!(sigmoid_derivative(1.0), 0.0, epsilon = 1e-10);
+        assert_relative_eq!(sigmoid_derivative(0.0f32), 0.0f32, epsilon = 1e-6);
+        assert_relative_eq!(sigmoid_derivative(1.0f32), 0.0f32, epsilon = 1e-6);
     }
 
     #[test]
     fn test_sigmoid_derivative_range() {
         for i in 0..=100 {
-            let x = i as f64 / 100.0;
+            let x = i as f32 / 100.0;
             let deriv = sigmoid_derivative(x);
             assert!((0.0..=0.25).contains(&deriv));
         }
@@ -615,11 +616,11 @@ mod activation_tests {
     #[test]
     fn test_sigmoid_derivative_symmetry() {
         for i in 0..50 {
-            let x = i as f64 / 100.0;
+            let x = i as f32 / 100.0;
             assert_relative_eq!(
                 sigmoid_derivative(x),
                 sigmoid_derivative(1.0 - x),
-                epsilon = 1e-10
+                epsilon = 1e-6
             );
         }
     }
@@ -1056,7 +1057,7 @@ mod integration_tests {
     }
 
     #[test]
-    fn test_batch_normalization_like_behavior() {
+    fn test_dense_forward_produces_valid_statistics() {
         let mut rng = SimpleRng::new(42);
         let layer = DenseLayer::new(4, 4, &mut rng);
 

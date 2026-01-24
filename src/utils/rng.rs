@@ -84,7 +84,7 @@ impl SimpleRng {
         (x >> 32) as u32
     }
 
-    /// Produces a floating-point sample in the range [0.0, 1.0].
+    /// Produces a floating-point sample in the range [0.0, 1.0).
     ///
     /// The result is obtained by scaling a 32-bit random integer to an `f32`.
     ///
@@ -94,7 +94,7 @@ impl SimpleRng {
     /// use rust_neural_networks::utils::rng::SimpleRng;
     /// let mut rng = SimpleRng::new(1);
     /// let v = rng.next_f32();
-    /// assert!(v >= 0.0 && v <= 1.0);
+    /// assert!(v >= 0.0 && v < 1.0);
     /// ```
     pub fn next_f32(&mut self) -> f32 {
         self.next_u32() as f32 / (u32::MAX as f32 + 1.0)

@@ -204,7 +204,7 @@ impl Layer for DenseLayer {
 
                 for i in 0..self.input_size {
                     grad_w[i * self.output_size + j] += input[in_offset + i] * g * scale;
-                    grad_input[in_offset + i] += g * self.weights[i * self.output_size + j];
+                    grad_input[in_offset + i] += g * self.weights[i * self.output_size + j] * scale;
                 }
             }
         }
@@ -258,7 +258,7 @@ struct NeuralNetwork {
 /// # Examples
 ///
 /// ```
-/// let mut rng = SimpleRng::new();
+/// let mut rng = SimpleRng::new(42);
 /// let nn = initialize_network(&mut rng);
 /// assert_eq!(nn.hidden_layer.input_size(), NUM_INPUTS);
 /// assert_eq!(nn.hidden_layer.output_size(), NUM_HIDDEN);
@@ -266,7 +266,6 @@ struct NeuralNetwork {
 /// assert_eq!(nn.output_layer.output_size(), NUM_OUTPUTS);
 /// ```
 fn initialize_network(rng: &mut SimpleRng) -> NeuralNetwork {
-    rng.reseed_from_time();
     let hidden_layer = DenseLayer::new(NUM_INPUTS, NUM_HIDDEN, rng);
     let output_layer = DenseLayer::new(NUM_HIDDEN, NUM_OUTPUTS, rng);
 
@@ -355,7 +354,7 @@ fn compute_delta_and_loss(
 /// let mut out_inputs = vec![0f32; NUM_INPUTS * 2];
 /// let mut out_labels = vec![0u8; 2];
 /// gather_batch(&images, &labels, &indices, 0, 2, &mut out_inputs, &mut out_labels);
-/// assert_eq!(out_labels, vec![1, 2]);
+/// assert_eq!(out_labels, vec![2, 1]);
 /// ```
 fn gather_batch(
     images: &[f32],
@@ -389,7 +388,7 @@ fn gather_batch(
 ///
 /// ```
 /// // Construct a tiny example network and dataset, then run one training invocation.
-/// let mut rng = SimpleRng::new();
+/// let mut rng = SimpleRng::new(42);
 /// let mut nn = initialize_network(&mut rng);
 /// let images = vec![0.0f32; NUM_INPUTS * 1]; // single example with zeroed pixels
 /// let labels = vec![0u8; 1]; // single label

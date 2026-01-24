@@ -360,13 +360,13 @@ impl Layer for DenseLayer {
     /// # Examples
     ///
     /// ```no_run
-    /// use std::mem::MaybeUninit;
-    /// use rust_neural_networks::layers::Layer;
+    /// use rust_neural_networks::utils::rng::SimpleRng;
     /// use rust_neural_networks::layers::dense::DenseLayer;
+    /// use rust_neural_networks::layers::Layer;
     ///
     /// let batch_size = 2usize;
-    /// // Create zeroed DenseLayer for example purposes only (do not use in production).
-    /// let layer: DenseLayer = unsafe { MaybeUninit::zeroed().assume_init() };
+    /// let mut rng = SimpleRng::new(42);
+    /// let layer = DenseLayer::new(4, 3, &mut rng);
     /// let input = vec![0.0f32; batch_size * layer.input_size()];
     /// let grad_output = vec![0.0f32; batch_size * layer.output_size()];
     /// let mut grad_input = vec![0.0f32; batch_size * layer.input_size()];
@@ -420,11 +420,16 @@ impl Layer for DenseLayer {
         );
 
         // Compute gradient with respect to biases: grad_b = sum(grad_output) / batch_size
+        // Compute gradient with respect to biases: grad_b += sum(grad_output) * scale
+        // We use a temporary buffer to sum the batch, then accumulate into the persistent gradient
+        let mut batch_bias_grad = vec![0.0; self.output_size];
+        sum_rows(grad_output, batch_size, self.output_size, &mut batch_bias_grad);
+        
         let mut grad_b = self.grad_biases.borrow_mut();
         debug_assert_eq!(grad_b.len(), self.output_size, "grad_biases len mismatch");
-        sum_rows(grad_output, batch_size, self.output_size, &mut grad_b);
-        for bias_grad in grad_b.iter_mut() {
-            *bias_grad *= scale;
+        
+        for (acc, g) in grad_b.iter_mut().zip(batch_bias_grad.iter()) {
+            *acc += *g * scale;
         }
 
         // Compute gradient with respect to input: grad_input = grad_output × weights^T

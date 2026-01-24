@@ -148,7 +148,7 @@ impl Layer for DenseLayer {
                 for j in 0..self.output_size {
                     sum += grad_output[out_offset + j] * self.weights[i * self.output_size + j];
                 }
-                grad_input[in_offset + i] = sum;
+                grad_input[in_offset + i] = sum * scale;
             }
         }
     }
@@ -211,43 +211,24 @@ fn sigmoid(x: f32) -> f32 {
 
 // Sigmoid derivative assuming x = sigmoid(z).
 /// Computes the derivative of the logistic sigmoid function given the sigmoid output.
-
 ///
-
 /// This function expects `x` to be the value of the sigmoid activation (i.e., in the range 0.0 to 1.0)
-
 /// and returns the derivative d/dz sigmoid(z) = x * (1 - x).
-
 ///
-
 /// # Parameters
-
 ///
-
 /// - `x`: The sigmoid output value for which to compute the derivative.
-
 ///
-
 /// # Returns
-
 ///
-
 /// The derivative of the sigmoid at the corresponding pre-activation value.
-
 ///
-
 /// # Examples
-
 ///
-
 /// ```
-
 /// let s = 0.5_f32; // sigmoid(0.0)
-
 /// let d = sigmoid_derivative(s);
-
 /// assert!((d - 0.25).abs() < 1e-6);
-
 /// ```
 fn sigmoid_derivative(x: f32) -> f32 {
     x * (1.0 - x)
@@ -262,13 +243,11 @@ struct NeuralNetwork {
 // Create the full network with fixed XOR sizes.
 /// Creates and initializes a two-layer neural network with random weights and biases.
 ///
-/// The provided RNG is reseeded from the current time before it is used to
-/// initialize the hidden and output DenseLayer parameters.
+/// The provided RNG is used to initialize the hidden and output DenseLayer parameters.
 ///
 /// # Arguments
 ///
-/// * `rng` - Mutable random number generator which will be reseeded and used to
-///   initialize layer weights and biases.
+/// * `rng` - Mutable random number generator used to initialize layer weights and biases.
 ///
 /// # Returns
 ///
@@ -286,7 +265,6 @@ struct NeuralNetwork {
 /// assert_eq!(nn.output_layer.output_size(), NUM_OUTPUTS);
 /// ```
 fn initialize_network(rng: &mut SimpleRng) -> NeuralNetwork {
-    rng.reseed_from_time();
     let hidden_layer = DenseLayer::new(NUM_INPUTS, NUM_HIDDEN, rng);
     let output_layer = DenseLayer::new(NUM_HIDDEN, NUM_OUTPUTS, rng);
 
@@ -302,8 +280,7 @@ fn initialize_network(rng: &mut SimpleRng) -> NeuralNetwork {
 /// # Examples
 ///
 /// ```
-/// use rust_neural_networks::layers::DenseLayer;
-/// use rust_neural_networks::utils::SimpleRng;
+/// use crate::{DenseLayer, SimpleRng, forward_with_sigmoid};
 ///
 /// let mut rng = SimpleRng::new(42);
 /// let layer = DenseLayer::new(2, 1, &mut rng);

@@ -7,9 +7,9 @@
 /// ```
 /// use rust_neural_networks::utils::activations::sigmoid;
 /// let s = sigmoid(0.0);
-/// assert!((s - 0.5).abs() < 1e-12);
+/// assert!((s - 0.5).abs() < 1e-6);
 /// ```
-pub fn sigmoid(x: f64) -> f64 {
+pub fn sigmoid(x: f32) -> f32 {
     1.0 / (1.0 + (-x).exp())
 }
 
@@ -22,9 +22,9 @@ pub fn sigmoid(x: f64) -> f64 {
 /// ```
 /// use rust_neural_networks::utils::activations::sigmoid_derivative;
 /// let d = sigmoid_derivative(0.5);
-/// assert!((d - 0.25).abs() < 1e-12);
+/// assert!((d - 0.25).abs() < 1e-6);
 /// ```
-pub fn sigmoid_derivative(x: f64) -> f64 {
+pub fn sigmoid_derivative(x: f32) -> f32 {
     x * (1.0 - x)
 }
 
@@ -109,7 +109,7 @@ pub fn softmax_rows(outputs: &mut [f32], rows: usize, cols: usize) {
 mod tests {
     use super::*;
 
-    const EPSILON: f64 = 1e-10;
+    const EPSILON: f32 = 1e-6; // Changed from f64 1e-10
     const EPSILON_F32: f32 = 1e-6;
 
     #[test]
