@@ -4,6 +4,8 @@
 //! used across different neural network architectures.
 
 mod r#trait;
+pub mod dense;
 
 // Re-export the Layer trait for convenience
 pub use r#trait::Layer;
+pub use dense::DenseLayer;

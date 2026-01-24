@@ -3,7 +3,15 @@
 //! This module provides a DenseLayer (also known as Linear or Fully Connected layer)
 //! that performs the transformation: output = input × weights + biases
 
+use crate::layers::Layer;
 use crate::utils::SimpleRng;
+use std::cell::RefCell;
+
+#[cfg(target_os = "macos")]
+extern crate blas_src;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+extern crate openblas_src;
+use cblas::{sgemm, Layout, Transpose};
 
 /// Dense (fully connected) layer with weights and biases.
 ///
@@ -35,6 +43,9 @@ pub struct DenseLayer {
     output_size: usize,
     weights: Vec<f32>,
     biases: Vec<f32>,
+    // Gradient accumulators (mutable interior via RefCell for trait compatibility)
+    grad_weights: RefCell<Vec<f32>>,
+    grad_biases: RefCell<Vec<f32>>,
 }
 
 impl DenseLayer {
@@ -76,6 +87,8 @@ impl DenseLayer {
             output_size,
             weights,
             biases: vec![0.0f32; output_size],
+            grad_weights: RefCell::new(vec![0.0f32; input_size * output_size]),
+            grad_biases: RefCell::new(vec![0.0f32; output_size]),
         }
     }
 
@@ -93,6 +106,189 @@ impl DenseLayer {
     ///
     /// Returns input_size × output_size (weights) + output_size (biases).
     pub fn parameter_count(&self) -> usize {
+        self.weights.len() + self.biases.len()
+    }
+}
+
+// Helper functions for BLAS operations
+
+#[allow(clippy::too_many_arguments)]
+fn sgemm_wrapper(
+    m: usize,
+    n: usize,
+    k: usize,
+    a: &[f32],
+    lda: usize,
+    b: &[f32],
+    ldb: usize,
+    c: &mut [f32],
+    ldc: usize,
+    transpose_a: bool,
+    transpose_b: bool,
+    alpha: f32,
+    beta: f32,
+) {
+    let trans_a = if transpose_a {
+        Transpose::Ordinary
+    } else {
+        Transpose::None
+    };
+    let trans_b = if transpose_b {
+        Transpose::Ordinary
+    } else {
+        Transpose::None
+    };
+
+    unsafe {
+        sgemm(
+            Layout::RowMajor,
+            trans_a,
+            trans_b,
+            m as i32,
+            n as i32,
+            k as i32,
+            alpha,
+            a,
+            lda as i32,
+            b,
+            ldb as i32,
+            beta,
+            c,
+            ldc as i32,
+        );
+    }
+}
+
+fn add_bias(data: &mut [f32], rows: usize, cols: usize, bias: &[f32]) {
+    for row in data.chunks_exact_mut(cols).take(rows) {
+        for (value, b) in row.iter_mut().zip(bias) {
+            *value += *b;
+        }
+    }
+}
+
+fn sum_rows(data: &[f32], rows: usize, cols: usize, out: &mut [f32]) {
+    for value in out.iter_mut().take(cols) {
+        *value = 0.0;
+    }
+
+    for row in data.chunks_exact(cols).take(rows) {
+        for (value, sum) in row.iter().zip(out.iter_mut()) {
+            *sum += *value;
+        }
+    }
+}
+
+// Layer trait implementation
+
+impl Layer for DenseLayer {
+    fn forward(&self, input: &[f32], output: &mut [f32], batch_size: usize) {
+        // Perform matrix multiplication: output = input × weights
+        // input: (batch_size × input_size)
+        // weights: (input_size × output_size)
+        // output: (batch_size × output_size)
+        sgemm_wrapper(
+            batch_size,
+            self.output_size,
+            self.input_size,
+            input,
+            self.input_size,
+            &self.weights,
+            self.output_size,
+            output,
+            self.output_size,
+            false,
+            false,
+            1.0,
+            0.0,
+        );
+
+        // Add biases to each row
+        add_bias(output, batch_size, self.output_size, &self.biases);
+    }
+
+    fn backward(&self, input: &[f32], grad_output: &[f32], grad_input: &mut [f32], batch_size: usize) {
+        let scale = 1.0f32 / batch_size as f32;
+
+        // Compute gradient with respect to weights: grad_w = input^T × grad_output / batch_size
+        // input: (batch_size × input_size)
+        // grad_output: (batch_size × output_size)
+        // grad_weights: (input_size × output_size)
+        let mut grad_w = self.grad_weights.borrow_mut();
+        sgemm_wrapper(
+            self.input_size,
+            self.output_size,
+            batch_size,
+            input,
+            self.input_size,
+            grad_output,
+            self.output_size,
+            &mut grad_w,
+            self.output_size,
+            true,
+            false,
+            scale,
+            1.0, // Accumulate gradients
+        );
+
+        // Compute gradient with respect to biases: grad_b = sum(grad_output) / batch_size
+        let mut grad_b = self.grad_biases.borrow_mut();
+        sum_rows(grad_output, batch_size, self.output_size, &mut grad_b);
+        for bias_grad in grad_b.iter_mut() {
+            *bias_grad *= scale;
+        }
+
+        // Compute gradient with respect to input: grad_input = grad_output × weights^T
+        // grad_output: (batch_size × output_size)
+        // weights: (input_size × output_size)
+        // grad_input: (batch_size × input_size)
+        sgemm_wrapper(
+            batch_size,
+            self.input_size,
+            self.output_size,
+            grad_output,
+            self.output_size,
+            &self.weights,
+            self.output_size,
+            grad_input,
+            self.input_size,
+            false,
+            true,
+            1.0,
+            0.0,
+        );
+    }
+
+    fn update_parameters(&mut self, learning_rate: f32) {
+        let grad_w = self.grad_weights.borrow();
+        let grad_b = self.grad_biases.borrow();
+
+        // Update weights: weight = weight - learning_rate * gradient
+        for (weight, &gradient) in self.weights.iter_mut().zip(grad_w.iter()) {
+            *weight -= learning_rate * gradient;
+        }
+
+        // Update biases: bias = bias - learning_rate * gradient
+        for (bias, &gradient) in self.biases.iter_mut().zip(grad_b.iter()) {
+            *bias -= learning_rate * gradient;
+        }
+
+        // Clear gradients for next iteration
+        drop(grad_w);
+        drop(grad_b);
+        self.grad_weights.borrow_mut().iter_mut().for_each(|g| *g = 0.0);
+        self.grad_biases.borrow_mut().iter_mut().for_each(|g| *g = 0.0);
+    }
+
+    fn input_size(&self) -> usize {
+        self.input_size
+    }
+
+    fn output_size(&self) -> usize {
+        self.output_size
+    }
+
+    fn parameter_count(&self) -> usize {
         self.weights.len() + self.biases.len()
     }
 }
