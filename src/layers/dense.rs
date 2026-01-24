@@ -307,20 +307,26 @@ impl Layer for DenseLayer {
         // input: (batch_size × input_size)
         // weights: (input_size × output_size)
         // output: (batch_size × output_size)
-        debug_assert_eq!(
+        assert_eq!(
             input.len(),
             batch_size * self.input_size,
-            "input len mismatch"
+            "input len mismatch: expected {}, got {}",
+            batch_size * self.input_size,
+            input.len()
         );
-        debug_assert_eq!(
+        assert_eq!(
             output.len(),
             batch_size * self.output_size,
-            "output len mismatch"
+            "output len mismatch: expected {}, got {}",
+            batch_size * self.output_size,
+            output.len()
         );
-        debug_assert_eq!(
+        assert_eq!(
             self.weights.len(),
             self.input_size * self.output_size,
-            "weights len mismatch"
+            "weights len mismatch: expected {}, got {}",
+            self.input_size * self.output_size,
+            self.weights.len()
         );
 
         sgemm_wrapper(
@@ -340,12 +346,20 @@ impl Layer for DenseLayer {
         );
 
         // Add biases to each row
-        debug_assert_eq!(
+        assert_eq!(
             output.len(),
             batch_size * self.output_size,
-            "output len mismatch for add_bias"
+            "output len mismatch for add_bias: expected {}, got {}",
+            batch_size * self.output_size,
+            output.len()
         );
-        debug_assert_eq!(self.biases.len(), self.output_size, "biases len mismatch");
+        assert_eq!(
+            self.biases.len(),
+            self.output_size,
+            "biases len mismatch: expected {}, got {}",
+            self.output_size,
+            self.biases.len()
+        );
         add_bias(output, batch_size, self.output_size, &self.biases);
     }
 
@@ -355,7 +369,7 @@ impl Layer for DenseLayer {
     /// The method updates the layer's internal gradient accumulators:
     /// - accumulates weight gradients (input^T × grad_output) averaged by `batch_size`,
     /// - computes bias gradients as the column-wise sum of `grad_output` averaged by `batch_size`.
-    /// It also computes `grad_input = grad_output × weights^T`.
+    ///   It also computes `grad_input = grad_output × weights^T`.
     ///
     /// # Examples
     ///
@@ -379,21 +393,28 @@ impl Layer for DenseLayer {
         grad_input: &mut [f32],
         batch_size: usize,
     ) {
+        if batch_size == 0 {
+            panic!("batch_size cannot be zero in Dense::backward");
+        }
         let scale = 1.0f32 / batch_size as f32;
 
         // Compute gradient with respect to weights: grad_w = input^T × grad_output / batch_size
         // input: (batch_size × input_size)
         // grad_output: (batch_size × output_size)
         // grad_weights: (input_size × output_size)
-        debug_assert_eq!(
+        assert_eq!(
             input.len(),
             batch_size * self.input_size,
-            "input len mismatch in backward"
+            "input len mismatch in backward: expected {}, got {}",
+            batch_size * self.input_size,
+            input.len()
         );
-        debug_assert_eq!(
+        assert_eq!(
             grad_output.len(),
             batch_size * self.output_size,
-            "grad_output len mismatch in backward"
+            "grad_output len mismatch in backward: expected {}, got {}",
+            batch_size * self.output_size,
+            grad_output.len()
         );
 
         let mut grad_w = self.grad_weights.borrow_mut();

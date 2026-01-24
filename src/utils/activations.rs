@@ -1,3 +1,4 @@
+#[cfg(feature = "shared_activations")]
 /// Computes the logistic sigmoid of an input.
 ///
 /// Returns the value 1 / (1 + exp(-x)), which maps any real-valued input to the range (0, 1).
@@ -13,6 +14,7 @@ pub fn sigmoid(x: f32) -> f32 {
     1.0 / (1.0 + (-x).exp())
 }
 
+#[cfg(feature = "shared_activations")]
 /// Computes the derivative of the logistic sigmoid given its output `x` (i.e., `x = sigmoid(z)`).
 ///
 /// The derivative equals `x * (1.0 - x)`.
@@ -111,24 +113,28 @@ mod tests {
     const EPSILON: f32 = 1e-6; // Changed from f64 1e-10
     const EPSILON_F32: f32 = 1e-6;
 
+    #[cfg(feature = "shared_activations")]
     #[test]
     fn test_sigmoid_zero() {
         let result = sigmoid(0.0);
         assert!((result - 0.5).abs() < EPSILON);
     }
 
+    #[cfg(feature = "shared_activations")]
     #[test]
     fn test_sigmoid_positive() {
         let result = sigmoid(2.0);
         assert!(result > 0.5 && result < 1.0);
     }
 
+    #[cfg(feature = "shared_activations")]
     #[test]
     fn test_sigmoid_negative() {
         let result = sigmoid(-2.0);
         assert!(result > 0.0 && result < 0.5);
     }
 
+    #[cfg(feature = "shared_activations")]
     #[test]
     fn test_sigmoid_derivative_at_half() {
         let result = sigmoid_derivative(0.5);

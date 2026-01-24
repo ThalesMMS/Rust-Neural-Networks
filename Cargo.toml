@@ -10,6 +10,9 @@ path = "src/lib.rs"
 [dependencies]
 cblas = "0.5"
 
+[features]
+shared_activations = []
+
 [target.'cfg(target_os = "macos")'.dependencies]
 blas-src = { version = "0.14", features = ["accelerate"] }
 

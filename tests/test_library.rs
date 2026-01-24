@@ -548,16 +548,16 @@ mod activation_tests {
 
     #[test]
     fn test_sigmoid_positive() {
-        let result = sigmoid(2.0);
+        let result = sigmoid(2.0f32);
         assert!(result > 0.5 && result < 1.0);
-        assert_relative_eq!(result, 0.8807970779778823, epsilon = 1e-10);
+        assert_relative_eq!(result, 0.880_797_1, epsilon = 1e-6);
     }
 
     #[test]
     fn test_sigmoid_negative() {
-        let result = sigmoid(-2.0);
+        let result = sigmoid(-2.0f32);
         assert!(result > 0.0 && result < 0.5);
-        assert_relative_eq!(result, 0.11920292202211755, epsilon = 1e-10);
+        assert_relative_eq!(result, 0.119_202_92, epsilon = 1e-6);
     }
 
     #[test]
@@ -566,7 +566,6 @@ mod activation_tests {
         assert_relative_eq!(result, 1.0, epsilon = 1e-10);
     }
 
-    #[test]
     #[test]
     fn test_sigmoid_large_negative() {
         let result = sigmoid(-100.0f32);

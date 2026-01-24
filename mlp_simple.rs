@@ -450,10 +450,8 @@ fn test(nn: &NeuralNetwork, inputs: &[[f32; NUM_INPUTS]], expected_outputs: &[[f
 ///
 /// ```no_run
 /// // Run the binary to train and evaluate the XOR network.
-/// fn main() {
-///     // Executing the program trains the network and displays test results.
-///     crate::main();
-/// }
+/// // Executing the program trains the network and displays test results.
+/// crate::main();
 /// ```
 fn main() {
     // Fixed initial seed for partial reproducibility.

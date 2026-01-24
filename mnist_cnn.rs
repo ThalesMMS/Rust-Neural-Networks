@@ -126,11 +126,13 @@ pub fn softmax_rows(outputs: &mut [f32], rows: usize, cols: usize) {
     if cols == 0 {
         return;
     }
-    // Debug assertion to catch mismatches in dev builds
-    debug_assert_eq!(
+    // Runtime assertion to catch mismatches in all builds
+    assert_eq!(
         outputs.len(),
         rows * cols,
-        "outputs length mismatch in softmax_rows"
+        "outputs length mismatch in softmax_rows: expected {}, got {}",
+        rows * cols,
+        outputs.len()
     );
     for row in outputs.chunks_exact_mut(cols).take(rows) {
         let mut max_value = row[0];
@@ -643,45 +645,26 @@ struct Cnn {
 }
 
 /// Constructs a Cnn with initialized convolutional and fully connected layers.
-
 ///
-
 /// The provided RNG is used to randomly initialize layer weights and biases.
-
 ///
-
 /// # Parameters
-
 ///
-
 /// - `rng`: mutable random number generator used to initialize layer parameters.
-
 ///
-
 /// # Returns
-
 ///
-
 /// A `Cnn` whose `conv_layer` and `fc_layer` have been allocated and randomized.
-
 ///
-
 /// # Examples
-
 ///
-
 /// ```
-
 /// use rust_neural_networks::utils::SimpleRng;
-
+///
 /// // create an RNG and initialize the model
-
 /// let mut rng = SimpleRng::new(1234);
-
 /// let model = init_cnn(&mut rng);
-
 /// // model is ready for use (forward/backward passes)
-
 /// ```
 fn init_cnn(rng: &mut SimpleRng) -> Cnn {
     // Conv: 1 input channel -> CONV_OUT output channels, 3x3 kernel, pad=1, stride=1
@@ -716,9 +699,9 @@ fn init_cnn(rng: &mut SimpleRng) -> Cnn {
 ///
 /// let mut rng = SimpleRng::new(123);
 /// let mut model = init_cnn(&mut rng);
-/// let batch = 0usize;
-/// // Dimensions: BATCH_SIZE=32, NUM_INPUTS=784, CONV_OUT=8, IMG_H=28, IMG_W=28
 /// let batch_size = 32;
+/// let batch_index = 0usize;
+/// // Dimensions: BATCH_SIZE=32, NUM_INPUTS=784, CONV_OUT=8, IMG_H=28, IMG_W=28
 /// let num_inputs = 784;
 /// let conv_out = 8;
 /// let img_h = 28;
@@ -726,10 +709,10 @@ fn init_cnn(rng: &mut SimpleRng) -> Cnn {
 ///
 /// let mut inputs = vec![0f32; batch_size * num_inputs];
 /// let mut conv_out_buf = vec![0f32; batch_size * conv_out * img_h * img_w];
-/// // populate inputs[batch * NUM_INPUTS .. (batch+1) * NUM_INPUTS] as needed
-/// conv_forward_relu(&mut model, batch, &inputs, &mut conv_out_buf);
+/// // populate inputs[batch_index * NUM_INPUTS .. (batch_index+1) * NUM_INPUTS] as needed
+/// conv_forward_relu(&mut model, batch_size, &inputs, &mut conv_out_buf);
 /// // after call, conv_out values for the batch are non-negative due to ReLU
-/// let start = batch * conv_out * img_h * img_w;
+/// let start = batch_index * conv_out * img_h * img_w;
 /// assert!(conv_out_buf[start..start + conv_out * img_h * img_w].iter().all(|&v| v >= 0.0));
 /// ```
 fn conv_forward_relu(model: &mut Cnn, batch_size: usize, input: &[f32], conv_out: &mut [f32]) {
@@ -844,45 +827,25 @@ fn softmax_xent_backward(
 
 // FC backward: compute gradW, gradB and dX.
 /// Performs the backward pass for the fully connected (dense) layer, accumulating parameter gradients in the model
-
 /// and writing the input-space gradients for the batch.
-
 ///
-
 /// - `batch` is the number of examples in the current minibatch.
-
 /// - `x` is the input feature buffer to the dense layer with length `batch * FC_IN`.
-
 /// - `delta` is the gradient w.r.t. the dense layer outputs with length `batch * NUM_CLASSES`.
-
 /// - `d_x` is the output buffer that will receive the gradient w.r.t. `x` (length `batch * FC_IN`).
-
 ///
-
 /// # Examples
-
 ///
-
 /// ```no_run
-
 /// // Prepare model, batch size and buffers (sizes are illustrative)
-
 /// let mut model = init_cnn(&mut SimpleRng::new(123));
-
 /// let batch = 2;
-
 /// let mut x = vec![0f32; batch * FC_IN];
-
 /// let delta = vec![0f32; batch * NUM_CLASSES];
-
 /// let mut d_x = vec![0f32; batch * FC_IN];
-
 ///
-
 /// // Compute backward pass for the dense layer
-
 /// fc_backward(&mut model, batch, &x, &delta, &mut d_x);
-
 /// ```
 fn fc_backward(
     model: &mut Cnn,
@@ -948,55 +911,30 @@ fn maxpool_backward_relu(
 
 // Conv backward: gradW and gradB (no dInput since this is the first layer).
 /// Backpropagates gradients through the convolutional layer and accumulates its parameter gradients.
-
 ///
-
 /// The function invokes the convolution layer's backward pass using the provided per-example
-
 /// gradients with respect to the convolution pre-activations. Gradients for layer parameters
-
 /// (kernels and biases) are accumulated inside the layer instance. The `grad_input` buffer is
-
 /// accepted for API compatibility but is unused when this layer is the network's first layer.
-
 ///
-
 /// # Parameters
-
 ///
-
 /// - `model`: mutable reference to the CNN containing the convolution layer.
-
 /// - `batch`: number of examples in the current mini-batch.
-
 /// - `input`: flattened input batch with length `batch * NUM_INPUTS`.
-
-/// - `conv_grad`: gradients w.r.t. convolution pre-activations, layout `batch * CONV_OUT * IMAGE_H * IMAGE_W`.
-
+/// - `conv_grad`: gradients w.r.t. convolution pre-activations, layout `batch * CONV_OUT * IMG_H * IMG_W`.
 /// - `_grad_input`: destination buffer for gradients w.r.t. this layer's inputs; unused for the first layer.
-
 ///
-
 /// # Examples
-
 ///
-
 /// ```
-
 /// let mut rng = SimpleRng::new(123);
-
 /// let mut model = init_cnn(&mut rng);
-
 /// let batch = 1;
-
 /// let input = vec![0.0f32; batch * NUM_INPUTS];
-
-/// let conv_grad = vec![0.0f32; batch * CONV_OUT * IMAGE_H * IMAGE_W];
-
+/// let conv_grad = vec![0.0f32; batch * CONV_OUT * IMG_H * IMG_W];
 /// let mut grad_input = vec![0.0f32; batch * NUM_INPUTS];
-
 /// conv_backward(&mut model, batch, &input, &conv_grad, &mut grad_input);
-
 /// ```
 fn conv_backward(
     model: &mut Cnn,
