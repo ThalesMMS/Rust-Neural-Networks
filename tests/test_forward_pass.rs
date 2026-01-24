@@ -22,12 +22,12 @@ struct LinearLayer {
 
 // Layer forward: z = W*x + b, followed by sigmoid.
 fn forward_propagation(layer: &LinearLayer, inputs: &[f64], outputs: &mut [f64]) {
-    for i in 0..layer.output_size {
+    for (i, out) in outputs.iter_mut().enumerate().take(layer.output_size) {
         let mut activation = layer.biases[i];
-        for j in 0..layer.input_size {
-            activation += inputs[j] * layer.weights[j][i];
+        for (j, inp) in inputs.iter().enumerate().take(layer.input_size) {
+            activation += inp * layer.weights[j][i];
         }
-        outputs[i] = sigmoid(activation);
+        *out = sigmoid(activation);
     }
 }
 
@@ -35,9 +35,13 @@ fn forward_propagation(layer: &LinearLayer, inputs: &[f64], outputs: &mut [f64])
 // MNIST MLP (f32, GEMM-based) - from mnist_mlp.rs
 // ============================================================================
 
+#[cfg(target_os = "macos")]
 extern crate blas_src;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+extern crate openblas_src;
 use cblas::{sgemm, Layout, Transpose};
 
+#[allow(clippy::too_many_arguments)]
 fn sgemm_wrapper(
     m: usize,
     n: usize,
@@ -290,9 +294,7 @@ mod tests {
         let output_size = 3;
 
         let inputs = vec![1.0, 2.0, 3.0, 4.0];
-        let weights = vec![
-            0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2,
-        ];
+        let weights = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2];
         let biases = vec![0.1, 0.2, 0.3];
 
         let mut outputs = vec![0.0f32; batch_size * output_size];
@@ -327,7 +329,9 @@ mod tests {
         let input_size = 3;
         let output_size = 2;
 
-        let inputs = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0];
+        let inputs = vec![
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
+        ];
         let weights = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
         let biases = vec![0.5, 1.0];
 
@@ -403,9 +407,7 @@ mod tests {
         let output_size = 4;
 
         let inputs = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-        let weights = vec![
-            0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2,
-        ];
+        let weights = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2];
         let biases = vec![0.1, 0.2, 0.3, 0.4];
 
         let mut outputs = vec![0.0f32; batch_size * output_size];
@@ -438,7 +440,7 @@ mod tests {
             assert_relative_eq!(row_sum, 1.0, epsilon = 1e-5);
 
             for &output in &outputs[row_start..row_end] {
-                assert!(output >= 0.0 && output <= 1.0);
+                assert!((0.0..=1.0).contains(&output));
             }
         }
     }
@@ -524,9 +526,7 @@ mod tests {
         let output_size = 2;
 
         let inputs = vec![1.0, 2.0, 3.0, 4.0];
-        let hidden_weights = vec![
-            0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2,
-        ];
+        let hidden_weights = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2];
         let hidden_biases = vec![0.1, 0.2, 0.3];
 
         let output_weights = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
@@ -580,7 +580,7 @@ mod tests {
         assert_relative_eq!(sum, 1.0, epsilon = 1e-5);
 
         for &output in &final_outputs {
-            assert!(output >= 0.0 && output <= 1.0);
+            assert!((0.0..=1.0).contains(&output));
             assert!(!output.is_nan() && !output.is_infinite());
         }
     }

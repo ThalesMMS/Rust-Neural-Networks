@@ -1,39 +1,26 @@
 {
-  "sandbox": {
-    "enabled": true,
-    "autoAllowBashIfSandboxed": true
-  },
-  "permissions": {
-    "defaultMode": "acceptEdits",
-    "allow": [
-      "Read(./**)",
-      "Write(./**)",
-      "Edit(./**)",
-      "Glob(./**)",
-      "Grep(./**)",
-      "Read(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/worktrees/tasks/002-add-comprehensive-unit-tests/**)",
-      "Write(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/worktrees/tasks/002-add-comprehensive-unit-tests/**)",
-      "Edit(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/worktrees/tasks/002-add-comprehensive-unit-tests/**)",
-      "Glob(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/worktrees/tasks/002-add-comprehensive-unit-tests/**)",
-      "Grep(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/worktrees/tasks/002-add-comprehensive-unit-tests/**)",
-      "Read(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/worktrees/tasks/002-add-comprehensive-unit-tests/.auto-claude/specs/002-add-comprehensive-unit-tests/**)",
-      "Write(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/worktrees/tasks/002-add-comprehensive-unit-tests/.auto-claude/specs/002-add-comprehensive-unit-tests/**)",
-      "Edit(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/worktrees/tasks/002-add-comprehensive-unit-tests/.auto-claude/specs/002-add-comprehensive-unit-tests/**)",
-      "Read(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/**)",
-      "Write(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/**)",
-      "Edit(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/**)",
-      "Glob(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/**)",
-      "Grep(/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/**)",
-      "Bash(*)",
-      "WebFetch(*)",
-      "WebSearch(*)",
-      "mcp__context7__resolve-library-id(*)",
-      "mcp__context7__get-library-docs(*)",
-      "mcp__graphiti-memory__search_nodes(*)",
-      "mcp__graphiti-memory__search_facts(*)",
-      "mcp__graphiti-memory__add_episode(*)",
-      "mcp__graphiti-memory__get_episodes(*)",
-      "mcp__graphiti-memory__get_entity_edge(*)"
-    ]
-  }
+    "sandbox": {
+        "enabled": true,
+        "autoAllowBashIfSandboxed": true
+    },
+    "permissions": {
+        "defaultMode": "acceptEdits",
+        "allow": [
+            "Read(./**)",
+            "Write(./**)",
+            "Edit(./**)",
+            "Glob(./**)",
+            "Grep(./**)",
+            "Bash(*)",
+            "WebFetch(*)",
+            "WebSearch(*)",
+            "mcp__context7__resolve-library-id(*)",
+            "mcp__context7__get-library-docs(*)",
+            "mcp__graphiti-memory__search_nodes(*)",
+            "mcp__graphiti-memory__search_facts(*)",
+            "mcp__graphiti-memory__add_episode(*)",
+            "mcp__graphiti-memory__get_episodes(*)",
+            "mcp__graphiti-memory__get_entity_edge(*)"
+        ]
+    }
 }

@@ -21,7 +21,11 @@ impl SimpleRng {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos() as u64;
-        self.state = if nanos == 0 { 0x9e3779b97f4a7c15 } else { nanos };
+        self.state = if nanos == 0 {
+            0x9e3779b97f4a7c15
+        } else {
+            nanos
+        };
     }
 
     // Generate a pseudo-random u32 (xorshift).
@@ -92,7 +96,10 @@ mod tests {
                 break;
             }
         }
-        assert!(different, "Different seeds should produce different sequences");
+        assert!(
+            different,
+            "Different seeds should produce different sequences"
+        );
     }
 
     #[test]
@@ -242,7 +249,7 @@ mod tests {
         let mut rng = SimpleRng::new(42);
         for _ in 0..100 {
             let value = rng.gen_range_f64(0.0, 1.0);
-            assert!(value >= 0.0 && value < 1.0);
+            assert!((0.0..1.0).contains(&value));
         }
     }
 
@@ -251,7 +258,7 @@ mod tests {
         let mut rng = SimpleRng::new(42);
         for _ in 0..100 {
             let value = rng.gen_range_f64(-1.0, 0.0);
-            assert!(value >= -1.0 && value < 0.0);
+            assert!((-1.0..0.0).contains(&value));
         }
     }
 
@@ -505,7 +512,7 @@ mod tests {
         // Should not panic and should produce values
         for _ in 0..10 {
             let value = rng.next_f64();
-            assert!(value >= 0.0 && value < 1.0);
+            assert!((0.0..1.0).contains(&value));
         }
     }
 
@@ -517,7 +524,7 @@ mod tests {
             // Should produce valid values
             for _ in 0..10 {
                 let value = rng.next_f64();
-                assert!(value >= 0.0 && value < 1.0);
+                assert!((0.0..1.0).contains(&value));
             }
         }
     }
@@ -535,6 +542,9 @@ mod tests {
 
         // After reseeding from time, sequence should be different
         // Note: There's a tiny chance they could be equal, but extremely unlikely
-        assert_ne!(first, second, "Reseeding from time should change the sequence");
+        assert_ne!(
+            first, second,
+            "Reseeding from time should change the sequence"
+        );
     }
 }

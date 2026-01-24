@@ -1,6 +1,9 @@
+#[cfg(target_os = "macos")]
 extern crate blas_src;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+extern crate openblas_src;
 
-use cblas::{Layout, Transpose, sgemm};
+use cblas::{sgemm, Layout, Transpose};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::process;
@@ -35,7 +38,11 @@ impl SimpleRng {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos() as u64;
-        self.state = if nanos == 0 { 0x9e3779b97f4a7c15 } else { nanos };
+        self.state = if nanos == 0 {
+            0x9e3779b97f4a7c15
+        } else {
+            nanos
+        };
     }
 
     // Basic xorshift to generate u32.
@@ -110,6 +117,7 @@ fn initialize_network(rng: &mut SimpleRng) -> NeuralNetwork {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn sgemm_wrapper(
     m: usize,
     n: usize,
@@ -216,9 +224,9 @@ fn compute_delta_and_loss(
     let mut total_loss = 0.0f32;
     let epsilon = 1e-9f32;
 
-    for row_idx in 0..rows {
+    for (row_idx, &label) in labels.iter().enumerate().take(rows) {
         let row_start = row_idx * cols;
-        let label = labels[row_idx] as usize;
+        let label = label as usize;
         let prob = outputs[row_start + label].max(epsilon);
         total_loss -= prob.ln();
 
@@ -264,7 +272,13 @@ fn apply_sgd_update(weights: &mut [f32], grads: &[f32]) {
 }
 
 // Training with shuffling and minibatches.
-fn train(nn: &mut NeuralNetwork, images: &[f32], labels: &[u8], num_samples: usize, rng: &mut SimpleRng) {
+fn train(
+    nn: &mut NeuralNetwork,
+    images: &[f32],
+    labels: &[u8],
+    num_samples: usize,
+    rng: &mut SimpleRng,
+) {
     let file = File::create("./logs/training_loss_c.txt").unwrap_or_else(|_| {
         eprintln!("Could not open file for writing training loss.");
         process::exit(1);
@@ -327,7 +341,12 @@ fn train(nn: &mut NeuralNetwork, images: &[f32], labels: &[u8], num_samples: usi
                 0.0,
             );
             let a1_len = batch_count * NUM_HIDDEN;
-            add_bias(&mut a1[..a1_len], batch_count, NUM_HIDDEN, &nn.hidden_layer.biases);
+            add_bias(
+                &mut a1[..a1_len],
+                batch_count,
+                NUM_HIDDEN,
+                &nn.hidden_layer.biases,
+            );
             relu_inplace(&mut a1[..a1_len]);
 
             // Forward: output layer.
@@ -347,7 +366,12 @@ fn train(nn: &mut NeuralNetwork, images: &[f32], labels: &[u8], num_samples: usi
                 0.0,
             );
             let a2_len = batch_count * NUM_OUTPUTS;
-            add_bias(&mut a2[..a2_len], batch_count, NUM_OUTPUTS, &nn.output_layer.biases);
+            add_bias(
+                &mut a2[..a2_len],
+                batch_count,
+                NUM_OUTPUTS,
+                &nn.output_layer.biases,
+            );
             softmax_rows(&mut a2[..a2_len], batch_count, NUM_OUTPUTS);
 
             // Output delta and loss.
@@ -457,8 +481,7 @@ fn test(nn: &NeuralNetwork, images: &[f32], labels: &[u8], num_samples: usize) {
         let batch_count = (num_samples - batch_start).min(BATCH_SIZE);
         let input_len = batch_count * NUM_INPUTS;
         let input_start = batch_start * NUM_INPUTS;
-        batch_inputs[..input_len]
-            .copy_from_slice(&images[input_start..input_start + input_len]);
+        batch_inputs[..input_len].copy_from_slice(&images[input_start..input_start + input_len]);
 
         sgemm_wrapper(
             batch_count,
@@ -476,7 +499,12 @@ fn test(nn: &NeuralNetwork, images: &[f32], labels: &[u8], num_samples: usize) {
             0.0,
         );
         let a1_len = batch_count * NUM_HIDDEN;
-        add_bias(&mut a1[..a1_len], batch_count, NUM_HIDDEN, &nn.hidden_layer.biases);
+        add_bias(
+            &mut a1[..a1_len],
+            batch_count,
+            NUM_HIDDEN,
+            &nn.hidden_layer.biases,
+        );
         relu_inplace(&mut a1[..a1_len]);
 
         sgemm_wrapper(
@@ -495,7 +523,12 @@ fn test(nn: &NeuralNetwork, images: &[f32], labels: &[u8], num_samples: usize) {
             0.0,
         );
         let a2_len = batch_count * NUM_OUTPUTS;
-        add_bias(&mut a2[..a2_len], batch_count, NUM_OUTPUTS, &nn.output_layer.biases);
+        add_bias(
+            &mut a2[..a2_len],
+            batch_count,
+            NUM_OUTPUTS,
+            &nn.output_layer.biases,
+        );
         softmax_rows(&mut a2[..a2_len], batch_count, NUM_OUTPUTS);
 
         for row_idx in 0..batch_count {
@@ -640,7 +673,13 @@ fn main() {
     println!("Training neural network...");
     let train_start = Instant::now();
     let train_samples = train_images.len() / NUM_INPUTS;
-    train(&mut nn, &train_images, &train_labels, train_samples, &mut rng);
+    train(
+        &mut nn,
+        &train_images,
+        &train_labels,
+        train_samples,
+        &mut rng,
+    );
     let train_time = train_start.elapsed().as_secs_f64();
     println!("Total training time: {:.2} seconds", train_time);
 
@@ -691,7 +730,7 @@ mod tests {
         let mut rng = SimpleRng::new(42);
         for _ in 0..100 {
             let val = rng.next_f32();
-            assert!(val >= 0.0 && val < 1.0);
+            assert!((0.0..1.0).contains(&val));
         }
     }
 
@@ -700,7 +739,7 @@ mod tests {
         let mut rng = SimpleRng::new(42);
         for _ in 0..100 {
             let val = rng.gen_range_f32(-1.0, 1.0);
-            assert!(val >= -1.0 && val < 1.0);
+            assert!((-1.0..1.0).contains(&val));
         }
     }
 
@@ -775,7 +814,7 @@ mod tests {
         assert!((row2_sum - 1.0).abs() < 1e-6);
 
         for &val in &outputs {
-            assert!(val >= 0.0 && val <= 1.0);
+            assert!((0.0..=1.0).contains(&val));
         }
     }
 
@@ -831,11 +870,11 @@ mod tests {
 
     #[test]
     fn test_gather_batch() {
-        let images = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-        let labels = vec![0, 1];
-        let indices = vec![1, 0];
-        let mut out_inputs = vec![0.0; 6];
-        let mut out_labels = vec![0; 2];
+        let images = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let labels = [0, 1];
+        let indices = [1, 0];
+        let mut out_inputs = [0.0; 6];
+        let mut out_labels = [0; 2];
 
         const TEST_NUM_INPUTS: usize = 3;
         let input_stride = TEST_NUM_INPUTS;

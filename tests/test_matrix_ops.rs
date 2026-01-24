@@ -1,12 +1,16 @@
 // Tests for matrix operations: GEMM (sgemm_wrapper), add_bias, and sum_rows.
 // These functions are copied from mnist_mlp.rs for testing purposes.
 
+#[cfg(target_os = "macos")]
 extern crate blas_src;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+extern crate openblas_src;
 
 use approx::assert_relative_eq;
-use cblas::{Layout, Transpose, sgemm};
+use cblas::{sgemm, Layout, Transpose};
 
 // GEMM wrapper from mnist_mlp.rs.
+#[allow(clippy::too_many_arguments)]
 fn sgemm_wrapper(
     m: usize,
     n: usize,
@@ -417,7 +421,7 @@ mod tests {
     #[test]
     fn test_sum_rows_mixed_values() {
         let data = vec![
-            1.0, -2.0, 3.0,  // Row 1
+            1.0, -2.0, 3.0, // Row 1
             -4.0, 5.0, -6.0, // Row 2
         ];
         let mut out = vec![0.0; 3];

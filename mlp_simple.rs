@@ -27,7 +27,11 @@ impl SimpleRng {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos() as u64;
-        self.state = if nanos == 0 { 0x9e3779b97f4a7c15 } else { nanos };
+        self.state = if nanos == 0 {
+            0x9e3779b97f4a7c15
+        } else {
+            nanos
+        };
     }
 
     // Generate a pseudo-random u32 (xorshift).
@@ -78,9 +82,9 @@ struct NeuralNetwork {
 // Initialize weights and biases with small random values.
 fn initialize_layer(input_size: usize, output_size: usize, rng: &mut SimpleRng) -> LinearLayer {
     let mut weights = vec![vec![0.0; output_size]; input_size];
-    for i in 0..input_size {
-        for j in 0..output_size {
-            weights[i][j] = rng.gen_range_f64(-0.5, 0.5);
+    for row in weights.iter_mut() {
+        for w in row.iter_mut() {
+            *w = rng.gen_range_f64(-0.5, 0.5);
         }
     }
 
@@ -111,12 +115,12 @@ fn initialize_network(rng: &mut SimpleRng) -> NeuralNetwork {
 
 // Layer forward: z = W*x + b, followed by sigmoid.
 fn forward_propagation(layer: &LinearLayer, inputs: &[f64], outputs: &mut [f64]) {
-    for i in 0..layer.output_size {
+    for (i, out) in outputs.iter_mut().enumerate().take(layer.output_size) {
         let mut activation = layer.biases[i];
-        for j in 0..layer.input_size {
-            activation += inputs[j] * layer.weights[j][i];
+        for (j, inp) in inputs.iter().enumerate().take(layer.input_size) {
+            activation += inp * layer.weights[j][i];
         }
-        outputs[i] = sigmoid(activation);
+        *out = sigmoid(activation);
     }
 }
 
@@ -130,31 +134,43 @@ fn backward(
     delta_hidden: &mut [f64],
     delta_output: &mut [f64],
 ) {
-    for i in 0..nn.output_layer.output_size {
+    for (i, d_out) in delta_output
+        .iter_mut()
+        .enumerate()
+        .take(nn.output_layer.output_size)
+    {
         // delta_out = error * activation derivative.
-        delta_output[i] = errors[i] * sigmoid_derivative(output_outputs[i]);
+        *d_out = errors[i] * sigmoid_derivative(output_outputs[i]);
     }
 
-    for i in 0..nn.hidden_layer.output_size {
+    for (i, d_hid) in delta_hidden
+        .iter_mut()
+        .enumerate()
+        .take(nn.hidden_layer.output_size)
+    {
         // Error backpropagated from output to hidden layer.
         let mut error = 0.0;
-        for j in 0..nn.output_layer.output_size {
-            error += delta_output[j] * nn.output_layer.weights[i][j];
+        for (j, &d_out) in delta_output
+            .iter()
+            .enumerate()
+            .take(nn.output_layer.output_size)
+        {
+            error += d_out * nn.output_layer.weights[i][j];
         }
-        delta_hidden[i] = error * sigmoid_derivative(hidden_outputs[i]);
+        *d_hid = error * sigmoid_derivative(hidden_outputs[i]);
     }
 }
 
 // Update weights and biases with gradient descent (SGD).
 fn update_weights_biases(layer: &mut LinearLayer, inputs: &[f64], deltas: &[f64]) {
-    for i in 0..layer.input_size {
-        for j in 0..layer.output_size {
-            layer.weights[i][j] += LEARNING_RATE * deltas[j] * inputs[i];
+    for (i, inp) in inputs.iter().enumerate().take(layer.input_size) {
+        for (j, delta) in deltas.iter().enumerate().take(layer.output_size) {
+            layer.weights[i][j] += LEARNING_RATE * delta * inp;
         }
     }
 
-    for i in 0..layer.output_size {
-        layer.biases[i] += LEARNING_RATE * deltas[i];
+    for (i, delta) in deltas.iter().enumerate().take(layer.output_size) {
+        layer.biases[i] += LEARNING_RATE * delta;
     }
 }
 
@@ -209,11 +225,7 @@ fn train(
 }
 
 // Simple evaluation on XOR samples.
-fn test(
-    nn: &NeuralNetwork,
-    inputs: &[[f64; NUM_INPUTS]],
-    expected_outputs: &[[f64; NUM_OUTPUTS]],
-) {
+fn test(nn: &NeuralNetwork, inputs: &[[f64; NUM_INPUTS]], expected_outputs: &[[f64; NUM_OUTPUTS]]) {
     println!("\nTesting the trained network:");
     for sample in 0..NUM_SAMPLES {
         let mut hidden_outputs = [0.0; NUM_HIDDEN];
@@ -225,10 +237,7 @@ fn test(
 
         println!(
             "Input: {:.1}, {:.1}, Expected Output: {:.1}, Predicted Output: {:.3}",
-            inputs[sample][0],
-            inputs[sample][1],
-            expected_outputs[sample][0],
-            output_outputs[0]
+            inputs[sample][0], inputs[sample][1], expected_outputs[sample][0], output_outputs[0]
         );
     }
 }
@@ -275,7 +284,7 @@ mod tests {
         let mut rng = SimpleRng::new(42);
         for _ in 0..100 {
             let val = rng.next_f64();
-            assert!(val >= 0.0 && val < 1.0);
+            assert!((0.0..1.0).contains(&val));
         }
     }
 
@@ -284,7 +293,7 @@ mod tests {
         let mut rng = SimpleRng::new(42);
         for _ in 0..100 {
             let val = rng.gen_range_f64(-1.0, 1.0);
-            assert!(val >= -1.0 && val < 1.0);
+            assert!((-1.0..1.0).contains(&val));
         }
     }
 
@@ -350,8 +359,15 @@ mod tests {
         let mut delta_hidden = [0.0; NUM_HIDDEN];
         let mut delta_output = [0.0; NUM_OUTPUTS];
 
-        backward(&nn, &inputs, &hidden_outputs, &output_outputs, &errors,
-                &mut delta_hidden, &mut delta_output);
+        backward(
+            &nn,
+            &inputs,
+            &hidden_outputs,
+            &output_outputs,
+            &errors,
+            &mut delta_hidden,
+            &mut delta_output,
+        );
 
         assert_ne!(delta_output[0], 0.0);
     }

@@ -33,12 +33,12 @@ struct NeuralNetwork {
 
 // Layer forward: z = W*x + b, followed by sigmoid.
 fn forward_propagation(layer: &LinearLayer, inputs: &[f64], outputs: &mut [f64]) {
-    for i in 0..layer.output_size {
+    for (i, out) in outputs.iter_mut().enumerate().take(layer.output_size) {
         let mut activation = layer.biases[i];
-        for j in 0..layer.input_size {
-            activation += inputs[j] * layer.weights[j][i];
+        for (j, inp) in inputs.iter().enumerate().take(layer.input_size) {
+            activation += inp * layer.weights[j][i];
         }
-        outputs[i] = sigmoid(activation);
+        *out = sigmoid(activation);
     }
 }
 
@@ -52,18 +52,30 @@ fn backward(
     delta_hidden: &mut [f64],
     delta_output: &mut [f64],
 ) {
-    for i in 0..nn.output_layer.output_size {
+    for (i, d_out) in delta_output
+        .iter_mut()
+        .enumerate()
+        .take(nn.output_layer.output_size)
+    {
         // delta_out = error * activation derivative.
-        delta_output[i] = errors[i] * sigmoid_derivative(output_outputs[i]);
+        *d_out = errors[i] * sigmoid_derivative(output_outputs[i]);
     }
 
-    for i in 0..nn.hidden_layer.output_size {
+    for (i, d_hid) in delta_hidden
+        .iter_mut()
+        .enumerate()
+        .take(nn.hidden_layer.output_size)
+    {
         // Error backpropagated from output to hidden layer.
         let mut error = 0.0;
-        for j in 0..nn.output_layer.output_size {
-            error += delta_output[j] * nn.output_layer.weights[i][j];
+        for (j, &d_out) in delta_output
+            .iter()
+            .enumerate()
+            .take(nn.output_layer.output_size)
+        {
+            error += d_out * nn.output_layer.weights[i][j];
         }
-        delta_hidden[i] = error * sigmoid_derivative(hidden_outputs[i]);
+        *d_hid = error * sigmoid_derivative(hidden_outputs[i]);
     }
 }
 
@@ -74,14 +86,14 @@ fn update_weights_biases(
     deltas: &[f64],
     learning_rate: f64,
 ) {
-    for i in 0..layer.input_size {
-        for j in 0..layer.output_size {
-            layer.weights[i][j] += learning_rate * deltas[j] * inputs[i];
+    for (i, inp) in inputs.iter().enumerate().take(layer.input_size) {
+        for (j, delta) in deltas.iter().enumerate().take(layer.output_size) {
+            layer.weights[i][j] += learning_rate * delta * inp;
         }
     }
 
-    for i in 0..layer.output_size {
-        layer.biases[i] += learning_rate * deltas[i];
+    for (i, delta) in deltas.iter().enumerate().take(layer.output_size) {
+        layer.biases[i] += learning_rate * delta;
     }
 }
 
@@ -89,9 +101,13 @@ fn update_weights_biases(
 // MNIST MLP (f32, GEMM-based) - from mnist_mlp.rs
 // ============================================================================
 
+#[cfg(target_os = "macos")]
 extern crate blas_src;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+extern crate openblas_src;
 use cblas::{sgemm, Layout, Transpose};
 
+#[allow(clippy::too_many_arguments)]
 fn sgemm_wrapper(
     m: usize,
     n: usize,
@@ -198,17 +214,16 @@ fn compute_delta_and_loss(
     let mut total_loss = 0.0f32;
     let epsilon = 1e-9f32;
 
-    for row_idx in 0..rows {
+    for (row_idx, &label) in labels.iter().enumerate().take(rows) {
         let row_start = row_idx * cols;
-        let label = labels[row_idx] as usize;
-        let prob = outputs[row_start + label].max(epsilon);
+        let prob = outputs[row_start + label as usize].max(epsilon);
         total_loss -= prob.ln();
 
         let row = &outputs[row_start..row_start + cols];
         let delta_row = &mut delta[row_start..row_start + cols];
         for (j, value) in row.iter().enumerate() {
             let mut v = *value;
-            if j == label {
+            if j == label as usize {
                 v -= 1.0;
             }
             delta_row[j] = v;
@@ -488,12 +503,12 @@ mod tests {
             &mut delta_output,
         );
 
-        for i in 0..3 {
+        for (i, &hidden_output) in hidden_outputs.iter().enumerate().take(3) {
             let mut expected_error = 0.0;
-            for j in 0..2 {
-                expected_error += delta_output[j] * nn.output_layer.weights[i][j];
+            for (j, &delta_val) in delta_output.iter().enumerate().take(2) {
+                expected_error += delta_val * nn.output_layer.weights[i][j];
             }
-            let expected_delta_hidden = expected_error * sigmoid_derivative(hidden_outputs[i]);
+            let expected_delta_hidden = expected_error * sigmoid_derivative(hidden_output);
             assert_relative_eq!(delta_hidden[i], expected_delta_hidden, epsilon = 1e-10);
         }
     }
@@ -520,14 +535,14 @@ mod tests {
         assert_eq!(layer.weights[0].len(), 2);
         assert_eq!(layer.biases.len(), 2);
 
-        for i in 0..3 {
-            for j in 0..2 {
-                assert_ne!(layer.weights[i][j], old_weights[i][j]);
+        for (i, old_weight_row) in old_weights.iter().enumerate().take(3) {
+            for (j, &old_weight_val) in old_weight_row.iter().enumerate().take(2) {
+                assert_ne!(layer.weights[i][j], old_weight_val);
             }
         }
 
-        for i in 0..2 {
-            assert_ne!(layer.biases[i], old_biases[i]);
+        for (i, &old_bias) in old_biases.iter().enumerate().take(2) {
+            assert_ne!(layer.biases[i], old_bias);
         }
     }
 
@@ -549,14 +564,14 @@ mod tests {
 
         update_weights_biases(&mut layer, &inputs, &deltas, learning_rate);
 
-        for i in 0..2 {
-            for j in 0..2 {
-                assert_relative_eq!(layer.weights[i][j], old_weights[i][j], epsilon = 1e-10);
+        for (i, old_weight_row) in old_weights.iter().enumerate().take(2) {
+            for (j, &old_weight_val) in old_weight_row.iter().enumerate().take(2) {
+                assert_relative_eq!(layer.weights[i][j], old_weight_val, epsilon = 1e-10);
             }
         }
 
-        for i in 0..2 {
-            assert_relative_eq!(layer.biases[i], old_biases[i], epsilon = 1e-10);
+        for (i, &old_bias) in old_biases.iter().enumerate().take(2) {
+            assert_relative_eq!(layer.biases[i], old_bias, epsilon = 1e-10);
         }
     }
 
@@ -611,9 +626,9 @@ mod tests {
         let batch_size = 3;
         let num_classes = 5;
 
-        let mut outputs = vec![1.0, 2.0, 3.0, 4.0, 5.0,
-                               5.0, 4.0, 3.0, 2.0, 1.0,
-                               2.0, 3.0, 4.0, 5.0, 6.0];
+        let mut outputs = vec![
+            1.0, 2.0, 3.0, 4.0, 5.0, 5.0, 4.0, 3.0, 2.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0,
+        ];
         softmax_rows(&mut outputs, batch_size, num_classes);
 
         let labels = vec![2, 1, 4];
@@ -670,17 +685,37 @@ mod tests {
         let b2 = vec![0.0f32; output_size];
 
         sgemm_wrapper(
-            batch_size, hidden_size, input_size,
-            &batch_inputs, input_size, &w1, hidden_size,
-            &mut a1, hidden_size, false, false, 1.0, 0.0,
+            batch_size,
+            hidden_size,
+            input_size,
+            &batch_inputs,
+            input_size,
+            &w1,
+            hidden_size,
+            &mut a1,
+            hidden_size,
+            false,
+            false,
+            1.0,
+            0.0,
         );
         add_bias(&mut a1, batch_size, hidden_size, &b1);
         relu_inplace(&mut a1);
 
         sgemm_wrapper(
-            batch_size, output_size, hidden_size,
-            &a1, hidden_size, &w2, output_size,
-            &mut a2, output_size, false, false, 1.0, 0.0,
+            batch_size,
+            output_size,
+            hidden_size,
+            &a1,
+            hidden_size,
+            &w2,
+            output_size,
+            &mut a2,
+            output_size,
+            false,
+            false,
+            1.0,
+            0.0,
         );
         add_bias(&mut a2, batch_size, output_size, &b2);
         softmax_rows(&mut a2, batch_size, output_size);
@@ -691,16 +726,36 @@ mod tests {
         let scale = 1.0f32 / batch_size as f32;
 
         sgemm_wrapper(
-            hidden_size, output_size, batch_size,
-            &a1, hidden_size, &dz2, output_size,
-            &mut grad_w2, output_size, true, false, scale, 0.0,
+            hidden_size,
+            output_size,
+            batch_size,
+            &a1,
+            hidden_size,
+            &dz2,
+            output_size,
+            &mut grad_w2,
+            output_size,
+            true,
+            false,
+            scale,
+            0.0,
         );
         sum_rows(&dz2, batch_size, output_size, &mut grad_b2);
 
         sgemm_wrapper(
-            batch_size, hidden_size, output_size,
-            &dz2, output_size, &w2, output_size,
-            &mut dz1, hidden_size, false, true, 1.0, 0.0,
+            batch_size,
+            hidden_size,
+            output_size,
+            &dz2,
+            output_size,
+            &w2,
+            output_size,
+            &mut dz1,
+            hidden_size,
+            false,
+            true,
+            1.0,
+            0.0,
         );
 
         for i in 0..batch_size * hidden_size {
@@ -710,9 +765,19 @@ mod tests {
         }
 
         sgemm_wrapper(
-            input_size, hidden_size, batch_size,
-            &batch_inputs, input_size, &dz1, hidden_size,
-            &mut grad_w1, hidden_size, true, false, scale, 0.0,
+            input_size,
+            hidden_size,
+            batch_size,
+            &batch_inputs,
+            input_size,
+            &dz1,
+            hidden_size,
+            &mut grad_w1,
+            hidden_size,
+            true,
+            false,
+            scale,
+            0.0,
         );
         sum_rows(&dz1, batch_size, hidden_size, &mut grad_b1);
 
@@ -755,17 +820,37 @@ mod tests {
         let b2 = vec![0.1f32; output_size];
 
         sgemm_wrapper(
-            batch_size, hidden_size, input_size,
-            &batch_inputs, input_size, &w1, hidden_size,
-            &mut a1, hidden_size, false, false, 1.0, 0.0,
+            batch_size,
+            hidden_size,
+            input_size,
+            &batch_inputs,
+            input_size,
+            &w1,
+            hidden_size,
+            &mut a1,
+            hidden_size,
+            false,
+            false,
+            1.0,
+            0.0,
         );
         add_bias(&mut a1, batch_size, hidden_size, &b1);
         relu_inplace(&mut a1);
 
         sgemm_wrapper(
-            batch_size, output_size, hidden_size,
-            &a1, hidden_size, &w2, output_size,
-            &mut a2, output_size, false, false, 1.0, 0.0,
+            batch_size,
+            output_size,
+            hidden_size,
+            &a1,
+            hidden_size,
+            &w2,
+            output_size,
+            &mut a2,
+            output_size,
+            false,
+            false,
+            1.0,
+            0.0,
         );
         add_bias(&mut a2, batch_size, output_size, &b2);
         softmax_rows(&mut a2, batch_size, output_size);
@@ -776,9 +861,19 @@ mod tests {
         let scale = 1.0f32 / batch_size as f32;
 
         sgemm_wrapper(
-            hidden_size, output_size, batch_size,
-            &a1, hidden_size, &dz2, output_size,
-            &mut grad_w2, output_size, true, false, scale, 0.0,
+            hidden_size,
+            output_size,
+            batch_size,
+            &a1,
+            hidden_size,
+            &dz2,
+            output_size,
+            &mut grad_w2,
+            output_size,
+            true,
+            false,
+            scale,
+            0.0,
         );
         sum_rows(&dz2, batch_size, output_size, &mut grad_b2);
 
@@ -826,9 +921,7 @@ mod tests {
         let cols = 4;
 
         let data = vec![
-            1.0, 2.0, 3.0, 4.0,
-            5.0, 6.0, 7.0, 8.0,
-            9.0, 10.0, 11.0, 12.0,
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
         ];
 
         let mut out = vec![0.0f32; cols];
@@ -855,9 +948,19 @@ mod tests {
         let b = vec![0.1, 0.2];
 
         sgemm_wrapper(
-            batch_size, output_size, input_size,
-            &batch_inputs, input_size, &w, output_size,
-            &mut a1, output_size, false, false, 1.0, 0.0,
+            batch_size,
+            output_size,
+            input_size,
+            &batch_inputs,
+            input_size,
+            &w,
+            output_size,
+            &mut a1,
+            output_size,
+            false,
+            false,
+            1.0,
+            0.0,
         );
         add_bias(&mut a1, batch_size, output_size, &b);
         softmax_rows(&mut a1, batch_size, output_size);
@@ -867,9 +970,19 @@ mod tests {
 
         let scale = 1.0f32 / batch_size as f32;
         sgemm_wrapper(
-            input_size, output_size, batch_size,
-            &batch_inputs, input_size, &delta, output_size,
-            &mut grad_w, output_size, true, false, scale, 0.0,
+            input_size,
+            output_size,
+            batch_size,
+            &batch_inputs,
+            input_size,
+            &delta,
+            output_size,
+            &mut grad_w,
+            output_size,
+            true,
+            false,
+            scale,
+            0.0,
         );
 
         for &g in &grad_w {
@@ -900,17 +1013,37 @@ mod tests {
         let b2 = vec![0.1f32; output_size];
 
         sgemm_wrapper(
-            batch_size, hidden_size, input_size,
-            &batch_inputs, input_size, &w1, hidden_size,
-            &mut a1, hidden_size, false, false, 1.0, 0.0,
+            batch_size,
+            hidden_size,
+            input_size,
+            &batch_inputs,
+            input_size,
+            &w1,
+            hidden_size,
+            &mut a1,
+            hidden_size,
+            false,
+            false,
+            1.0,
+            0.0,
         );
         add_bias(&mut a1, batch_size, hidden_size, &b1);
         relu_inplace(&mut a1);
 
         sgemm_wrapper(
-            batch_size, output_size, hidden_size,
-            &a1, hidden_size, &w2, output_size,
-            &mut a2, output_size, false, false, 1.0, 0.0,
+            batch_size,
+            output_size,
+            hidden_size,
+            &a1,
+            hidden_size,
+            &w2,
+            output_size,
+            &mut a2,
+            output_size,
+            false,
+            false,
+            1.0,
+            0.0,
         );
         add_bias(&mut a2, batch_size, output_size, &b2);
         softmax_rows(&mut a2, batch_size, output_size);
@@ -924,16 +1057,36 @@ mod tests {
         let scale = 1.0f32 / batch_size as f32;
 
         sgemm_wrapper(
-            hidden_size, output_size, batch_size,
-            &a1, hidden_size, &dz2, output_size,
-            &mut grad_w2, output_size, true, false, scale, 0.0,
+            hidden_size,
+            output_size,
+            batch_size,
+            &a1,
+            hidden_size,
+            &dz2,
+            output_size,
+            &mut grad_w2,
+            output_size,
+            true,
+            false,
+            scale,
+            0.0,
         );
         sum_rows(&dz2, batch_size, output_size, &mut grad_b2);
 
         sgemm_wrapper(
-            batch_size, hidden_size, output_size,
-            &dz2, output_size, &w2, output_size,
-            &mut dz1, hidden_size, false, true, 1.0, 0.0,
+            batch_size,
+            hidden_size,
+            output_size,
+            &dz2,
+            output_size,
+            &w2,
+            output_size,
+            &mut dz1,
+            hidden_size,
+            false,
+            true,
+            1.0,
+            0.0,
         );
 
         for i in 0..batch_size * hidden_size {
@@ -943,9 +1096,19 @@ mod tests {
         }
 
         sgemm_wrapper(
-            input_size, hidden_size, batch_size,
-            &batch_inputs, input_size, &dz1, hidden_size,
-            &mut grad_w1, hidden_size, true, false, scale, 0.0,
+            input_size,
+            hidden_size,
+            batch_size,
+            &batch_inputs,
+            input_size,
+            &dz1,
+            hidden_size,
+            &mut grad_w1,
+            hidden_size,
+            true,
+            false,
+            scale,
+            0.0,
         );
         sum_rows(&dz1, batch_size, hidden_size, &mut grad_b1);
 

@@ -56,7 +56,11 @@ impl SimpleRng {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos() as u64;
-        self.state = if nanos == 0 { 0x9e3779b97f4a7c15 } else { nanos };
+        self.state = if nanos == 0 {
+            0x9e3779b97f4a7c15
+        } else {
+            nanos
+        };
     }
 
     fn next_u32(&mut self) -> u32 {
@@ -182,6 +186,7 @@ fn gather_batch(
 }
 
 // In-place ReLU for a flat buffer.
+#[allow(dead_code)]
 fn relu_inplace(x: &mut [f32]) {
     for v in x.iter_mut() {
         if *v < 0.0 {
@@ -259,12 +264,7 @@ fn init_cnn(rng: &mut SimpleRng) -> Cnn {
 
 // Forward conv + ReLU.
 // input: [batch * 784], conv_out: [batch * CONV_OUT * 28 * 28]
-fn conv_forward_relu(
-    model: &Cnn,
-    batch: usize,
-    input: &[f32],
-    conv_out: &mut [f32],
-) {
+fn conv_forward_relu(model: &Cnn, batch: usize, input: &[f32], conv_out: &mut [f32]) {
     let spatial = IMG_H * IMG_W;
     let out_spatial = spatial;
 
@@ -306,12 +306,7 @@ fn conv_forward_relu(
 // conv_act: [batch * C * 28 * 28] (post-ReLU)
 // pool_out: [batch * C * 14 * 14]
 // pool_idx: [batch * C * 14 * 14], stores argmax 0..3 (dy*2+dx)
-fn maxpool_forward(
-    batch: usize,
-    conv_act: &[f32],
-    pool_out: &mut [f32],
-    pool_idx: &mut [u8],
-) {
+fn maxpool_forward(batch: usize, conv_act: &[f32], pool_out: &mut [f32], pool_idx: &mut [u8]) {
     let conv_spatial = IMG_H * IMG_W;
     let pool_spatial = POOL_H * POOL_W;
 
@@ -382,9 +377,9 @@ fn softmax_xent_backward(
     softmax_rows(probs_inplace, batch, NUM_CLASSES);
 
     let mut loss = 0.0f32;
-    for b in 0..batch {
+    for (b, &label) in labels.iter().enumerate().take(batch) {
         let base = b * NUM_CLASSES;
-        let y = labels[b] as usize;
+        let y = label as usize;
 
         let p = probs_inplace[base + y].max(eps);
         loss += -p.ln();
@@ -405,7 +400,7 @@ fn fc_backward(
     model: &Cnn,
     batch: usize,
     x: &[f32],
-    delta: &[f32], // [batch*10]
+    delta: &[f32],      // [batch*10]
     grad_w: &mut [f32], // [FC_IN*10]
     grad_b: &mut [f32], // [10]
     d_x: &mut [f32],    // [batch*FC_IN]
@@ -455,7 +450,7 @@ fn fc_backward(
 // MaxPool backward: scatter grads to argmax positions, then apply ReLU mask.
 fn maxpool_backward_relu(
     batch: usize,
-    conv_act: &[f32], // post-ReLU
+    conv_act: &[f32],  // post-ReLU
     pool_grad: &[f32], // [batch*C*14*14]
     pool_idx: &[u8],
     conv_grad: &mut [f32], // [batch*C*28*28]
@@ -465,8 +460,8 @@ fn maxpool_backward_relu(
 
     // Zero conv_grad so we can scatter-add into it.
     let used = batch * CONV_OUT * conv_spatial;
-    for i in 0..used {
-        conv_grad[i] = 0.0;
+    for value in conv_grad.iter_mut().take(used) {
+        *value = 0.0;
     }
 
     for b in 0..batch {
@@ -507,8 +502,8 @@ fn maxpool_backward_relu(
 fn conv_backward(
     model: &Cnn,
     batch: usize,
-    input: &[f32],     // [batch*784]
-    conv_grad: &[f32], // [batch*C*28*28]
+    input: &[f32],      // [batch*784]
+    conv_grad: &[f32],  // [batch*C*28*28]
     grad_w: &mut [f32], // [C*K*K]
     grad_b: &mut [f32], // [C]
 ) {
@@ -524,14 +519,14 @@ fn conv_backward(
         let in_base = b * NUM_INPUTS;
         let g_base_b = b * (CONV_OUT * spatial);
 
-        for oc in 0..CONV_OUT {
+        for (oc, grad_b_val) in grad_b.iter_mut().enumerate().take(CONV_OUT) {
             let w_base = oc * (KERNEL * KERNEL);
             let g_base = g_base_b + oc * spatial;
 
             for oy in 0..IMG_H {
                 for ox in 0..IMG_W {
                     let g = conv_grad[g_base + oy * IMG_W + ox];
-                    grad_b[oc] += g;
+                    *grad_b_val += g;
 
                     for ky in 0..KERNEL {
                         for kx in 0..KERNEL {
@@ -640,7 +635,10 @@ fn main() {
 
     let mut indices: Vec<usize> = (0..train_n).collect();
 
-    println!("Training CNN: epochs={} batch={} lr={}", EPOCHS, BATCH_SIZE, LEARNING_RATE);
+    println!(
+        "Training CNN: epochs={} batch={} lr={}",
+        EPOCHS, BATCH_SIZE, LEARNING_RATE
+    );
 
     for epoch in 0..EPOCHS {
         let start_time = Instant::now();
@@ -669,32 +667,53 @@ fn main() {
             fc_forward(&model, batch, &pool_out, &mut logits);
 
             // Softmax + loss + gradient at logits.
-            let batch_loss = softmax_xent_backward(&mut logits, &batch_labels, batch, &mut delta, scale);
+            let batch_loss =
+                softmax_xent_backward(&mut logits, &batch_labels, batch, &mut delta, scale);
             total_loss += batch_loss;
 
             // Backward: FC -> pool -> conv.
-            fc_backward(&model, batch, &pool_out, &delta, &mut grad_fc_w, &mut grad_fc_b, &mut d_pool);
+            fc_backward(
+                &model,
+                batch,
+                &pool_out,
+                &delta,
+                &mut grad_fc_w,
+                &mut grad_fc_b,
+                &mut d_pool,
+            );
             maxpool_backward_relu(batch, &conv_out, &d_pool, &pool_idx, &mut d_conv);
-            conv_backward(&model, batch, &batch_inputs, &d_conv, &mut grad_conv_w, &mut grad_conv_b);
+            conv_backward(
+                &model,
+                batch,
+                &batch_inputs,
+                &d_conv,
+                &mut grad_conv_w,
+                &mut grad_conv_b,
+            );
 
             // SGD update (no momentum, no weight decay).
-            for i in 0..model.fc_w.len() {
-                model.fc_w[i] -= LEARNING_RATE * grad_fc_w[i];
+            for (model_w, grad_w) in model.fc_w.iter_mut().zip(grad_fc_w.iter()) {
+                *model_w -= LEARNING_RATE * grad_w;
             }
-            for i in 0..model.fc_b.len() {
-                model.fc_b[i] -= LEARNING_RATE * grad_fc_b[i];
+            for (model_b, grad_b) in model.fc_b.iter_mut().zip(grad_fc_b.iter()) {
+                *model_b -= LEARNING_RATE * grad_b;
             }
-            for i in 0..model.conv_w.len() {
-                model.conv_w[i] -= LEARNING_RATE * grad_conv_w[i];
+            for (model_w, grad_w) in model.conv_w.iter_mut().zip(grad_conv_w.iter()) {
+                *model_w -= LEARNING_RATE * grad_w;
             }
-            for i in 0..model.conv_b.len() {
-                model.conv_b[i] -= LEARNING_RATE * grad_conv_b[i];
+            for (model_b, grad_b) in model.conv_b.iter_mut().zip(grad_conv_b.iter()) {
+                *model_b -= LEARNING_RATE * grad_b;
             }
         }
 
         let secs = start_time.elapsed().as_secs_f32();
         let avg_loss = total_loss / train_n as f32;
-        println!("Epoch {} | loss={:.6} | time={:.3}s", epoch + 1, avg_loss, secs);
+        println!(
+            "Epoch {} | loss={:.6} | time={:.3}s",
+            epoch + 1,
+            avg_loss,
+            secs
+        );
         writeln!(log, "{},{},{}", epoch + 1, avg_loss, secs).ok();
     }
 
@@ -731,7 +750,7 @@ mod tests {
         let mut rng = SimpleRng::new(42);
         for _ in 0..100 {
             let val = rng.next_f32();
-            assert!(val >= 0.0 && val < 1.0);
+            assert!((0.0..1.0).contains(&val));
         }
     }
 
@@ -740,7 +759,7 @@ mod tests {
         let mut rng = SimpleRng::new(42);
         for _ in 0..100 {
             let val = rng.gen_range_f32(-1.0, 1.0);
-            assert!(val >= -1.0 && val < 1.0);
+            assert!((-1.0..1.0).contains(&val));
         }
     }
 
@@ -812,7 +831,7 @@ mod tests {
         assert!((row2_sum - 1.0).abs() < 1e-6);
 
         for &val in &data {
-            assert!(val >= 0.0 && val <= 1.0);
+            assert!((0.0..=1.0).contains(&val));
         }
     }
 
