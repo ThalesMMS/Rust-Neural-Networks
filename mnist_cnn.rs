@@ -41,6 +41,8 @@ const LEARNING_RATE: f32 = 0.01;
 const EPOCHS: usize = 3;
 const BATCH_SIZE: usize = 32;
 const VALIDATION_SPLIT: f32 = 0.1; // 10% of training data for validation
+const EARLY_STOPPING_PATIENCE: usize = 3; // Number of epochs without improvement before stopping
+const EARLY_STOPPING_MIN_DELTA: f32 = 0.001; // Minimum change to be considered an improvement
 
 // ============================================================================
 // Internal Abstractions (Inlined for self-contained binary)
@@ -1083,6 +1085,10 @@ fn main() {
 
     let mut indices: Vec<usize> = (0..train_n).collect();
 
+    // Early stopping state
+    let mut best_val_loss = f32::INFINITY;
+    let mut epochs_without_improvement = 0usize;
+
     println!(
         "Training CNN: epochs={} batch={} lr={}",
         EPOCHS, BATCH_SIZE, LEARNING_RATE
@@ -1191,6 +1197,22 @@ fn main() {
             secs
         );
         writeln!(log, "{},{},{},{},{},{}", epoch + 1, avg_loss, secs, val_average_loss, val_accuracy, secs).ok();
+
+        // Early stopping check
+        if val_average_loss < best_val_loss - EARLY_STOPPING_MIN_DELTA {
+            best_val_loss = val_average_loss;
+            epochs_without_improvement = 0;
+        } else {
+            epochs_without_improvement += 1;
+        }
+
+        if epochs_without_improvement >= EARLY_STOPPING_PATIENCE {
+            println!(
+                "\nEarly stopping triggered! No improvement for {} epochs. Best validation loss: {:.6}",
+                EARLY_STOPPING_PATIENCE, best_val_loss
+            );
+            break;
+        }
     }
 
     println!("Testing...");
