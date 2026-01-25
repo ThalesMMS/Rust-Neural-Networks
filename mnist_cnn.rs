@@ -1044,8 +1044,8 @@ fn main() {
     let split_point_images = actual_train_samples * NUM_INPUTS;
     let split_point_labels = actual_train_samples;
 
-    let _val_images = train_images.split_off(split_point_images);
-    let _val_labels = train_labels.split_off(split_point_labels);
+    let val_images = train_images.split_off(split_point_images);
+    let val_labels = train_labels.split_off(split_point_labels);
 
     let train_n = actual_train_samples;
     let test_n = test_labels.len();
@@ -1131,13 +1131,66 @@ fn main() {
 
         let secs = start_time.elapsed().as_secs_f32();
         let avg_loss = total_loss / train_n as f32;
+
+        // Evaluate on validation set
+        let mut val_total_loss = 0.0f32;
+        let mut val_correct = 0usize;
+        let mut val_batch_inputs = vec![0.0f32; BATCH_SIZE * NUM_INPUTS];
+        let mut val_conv_out = vec![0.0f32; BATCH_SIZE * CONV_OUT * IMG_H * IMG_W];
+        let mut val_pool_out = vec![0.0f32; BATCH_SIZE * FC_IN];
+        let mut val_pool_idx = vec![0u8; BATCH_SIZE * CONV_OUT * POOL_H * POOL_W];
+        let mut val_logits = vec![0.0f32; BATCH_SIZE * NUM_CLASSES];
+
+        for batch_start in (0..validation_samples).step_by(BATCH_SIZE) {
+            let batch_count = (validation_samples - batch_start).min(BATCH_SIZE);
+            let input_len = batch_count * NUM_INPUTS;
+            let input_start = batch_start * NUM_INPUTS;
+            val_batch_inputs[..input_len].copy_from_slice(&val_images[input_start..input_start + input_len]);
+
+            // Forward pass
+            conv_forward_relu(&mut model, batch_count, &val_batch_inputs, &mut val_conv_out);
+            maxpool_forward(batch_count, &val_conv_out, &mut val_pool_out, &mut val_pool_idx);
+            fc_forward(&mut model, batch_count, &val_pool_out, &mut val_logits);
+
+            // Apply softmax and compute loss
+            softmax_rows(&mut val_logits[..batch_count * NUM_CLASSES], batch_count, NUM_CLASSES);
+
+            // Compute loss and accuracy
+            let epsilon = 1e-9f32;
+            for row_idx in 0..batch_count {
+                let row_start = row_idx * NUM_CLASSES;
+                let label = val_labels[batch_start + row_idx] as usize;
+                let prob = val_logits[row_start + label].max(epsilon);
+                val_total_loss -= prob.ln();
+
+                // Compute accuracy
+                let row = &val_logits[row_start..row_start + NUM_CLASSES];
+                let mut predicted = 0usize;
+                let mut max_prob = row[0];
+                for (i, &value) in row.iter().enumerate().skip(1) {
+                    if value > max_prob {
+                        max_prob = value;
+                        predicted = i;
+                    }
+                }
+                if predicted == label {
+                    val_correct += 1;
+                }
+            }
+        }
+
+        let val_average_loss = val_total_loss / validation_samples as f32;
+        let val_accuracy = val_correct as f32 / validation_samples as f32 * 100.0;
+
         println!(
-            "Epoch {} | loss={:.6} | time={:.3}s",
+            "Epoch {}, Loss: {:.6}, Val Loss: {:.6}, Val Acc: {:.2}%, Time: {:.6}",
             epoch + 1,
             avg_loss,
+            val_average_loss,
+            val_accuracy,
             secs
         );
-        writeln!(log, "{},{},{}", epoch + 1, avg_loss, secs).ok();
+        writeln!(log, "{},{},{},{},{},{}", epoch + 1, avg_loss, secs, val_average_loss, val_accuracy, secs).ok();
     }
 
     println!("Testing...");
