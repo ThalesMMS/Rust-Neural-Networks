@@ -1262,6 +1262,7 @@ fn main() {
     for epoch in 0..EPOCHS {
         let start_time = Instant::now();
         rng.shuffle_usize(&mut indices);
+        let current_lr = scheduler.get_lr();
 
         let mut total_loss = 0.0f32;
 
@@ -1296,7 +1297,6 @@ fn main() {
             conv_backward(&mut model, batch, &batch_inputs, &d_conv, &mut _grad_input);
 
             // SGD update using Layer trait (no momentum, no weight decay).
-            let current_lr = scheduler.get_lr();
             model.fc_layer.update_parameters(current_lr);
             model.conv_layer.update_parameters(current_lr);
         }
@@ -1369,7 +1369,6 @@ fn main() {
         let val_average_loss = val_total_loss / validation_samples as f32;
         let val_accuracy = val_correct as f32 / validation_samples as f32 * 100.0;
 
-        let current_lr = scheduler.get_lr();
         println!(
             "Epoch {}, Loss: {:.6}, Val Loss: {:.6}, Val Acc: {:.2}%, Time: {:.6}",
             epoch + 1,

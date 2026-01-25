@@ -349,6 +349,7 @@ fn train(
 
     for epoch in 0..EPOCHS {
         let mut total_errors = 0.0f32;
+        let current_lr = scheduler.get_lr();
 
         for sample in 0..NUM_SAMPLES {
             // No need to clear buffers explicitly as they are fully overwritten:
@@ -403,7 +404,6 @@ fn train(
             );
 
             // 4. NOW update both layers (after all gradients are computed).
-            let current_lr = scheduler.get_lr();
             nn.output_layer.update_parameters(current_lr);
             nn.hidden_layer.update_parameters(current_lr);
         }
