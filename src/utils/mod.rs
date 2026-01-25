@@ -4,4 +4,5 @@
 //! activation functions, and other helper functions used across models.
 
 pub mod activations;
+pub mod lr_scheduler;
 pub mod rng;
