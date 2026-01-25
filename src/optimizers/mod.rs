@@ -27,6 +27,10 @@
 //! optimizer.update(&mut weights, &gradients);
 //! ```
 
+pub mod sgd;
+
+pub use sgd::SGD;
+
 /// Core trait for neural network optimizers.
 ///
 /// All optimizer types (SGD, Adam, etc.) implement this trait to provide
