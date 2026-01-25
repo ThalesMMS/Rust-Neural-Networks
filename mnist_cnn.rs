@@ -1195,11 +1195,23 @@ fn main() {
                     "cosine_annealing" => {
                         let min_lr = config.min_lr.unwrap_or(0.0001);
                         let t_max = config.T_max.unwrap_or(EPOCHS);
-                        println!(
-                            "Using CosineAnnealing scheduler: initial_lr={}, min_lr={}, T_max={}",
-                            LEARNING_RATE, min_lr, t_max
-                        );
-                        Box::new(CosineAnnealing::new(LEARNING_RATE, min_lr, t_max))
+                        if min_lr < 0.0 {
+                            eprintln!(
+                                "Invalid CosineAnnealing config: min_lr must be >= 0. Using constant learning rate."
+                            );
+                            Box::new(ConstantLR::new(LEARNING_RATE))
+                        } else if t_max == 0 {
+                            eprintln!(
+                                "Invalid CosineAnnealing config: T_max must be > 0. Using constant learning rate."
+                            );
+                            Box::new(ConstantLR::new(LEARNING_RATE))
+                        } else {
+                            println!(
+                                "Using CosineAnnealing scheduler: initial_lr={}, min_lr={}, T_max={}",
+                                LEARNING_RATE, min_lr, t_max
+                            );
+                            Box::new(CosineAnnealing::new(LEARNING_RATE, min_lr, t_max))
+                        }
                     }
                     _ => {
                         eprintln!(

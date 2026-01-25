@@ -454,39 +454,8 @@ fn test(nn: &NeuralNetwork, inputs: &[[f32; NUM_INPUTS]], expected_outputs: &[[f
     }
 }
 
-/// Train a two-layer neural network on the XOR dataset and print each input with its expected and predicted output.
-///
-/// The program initializes the network with a fixed RNG seed for partial reproducibility,
-/// trains it on the four classical XOR samples, and then prints each input alongside its
-/// expected and predicted output.
-///
-/// Optionally loads a learning rate schedule configuration from a CLI-provided path.
-/// If no config path is provided, uses a constant learning rate of 0.01.
-///
-/// # Examples
-///
-/// ```no_run
-/// // Run the binary to train and evaluate the XOR network.
-/// crate::main();
-/// ```
-fn main() {
-    // Fixed initial seed for partial reproducibility.
-    let mut rng = SimpleRng::new(42);
-
-    // XOR dataset (binary inputs and expected outputs).
-    let inputs: [[f32; NUM_INPUTS]; NUM_SAMPLES] = [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]];
-    let expected_outputs: [[f32; NUM_OUTPUTS]; NUM_SAMPLES] = [[0.0], [1.0], [1.0], [0.0]];
-
-    // Parse command-line arguments for optional config file
-    let args: Vec<String> = std::env::args().collect();
-    let config_path = if args.len() > 1 {
-        Some(args[1].as_str())
-    } else {
-        None
-    };
-
-    // Load config and create scheduler (optional)
-    let mut scheduler: Box<dyn LRScheduler> = if let Some(path) = config_path {
+fn create_scheduler_from_config(config_path: Option<&str>) -> Box<dyn LRScheduler> {
+    if let Some(path) = config_path {
         match load_config(path) {
             Ok(config) => {
                 println!("Loaded config from: {}", path);
@@ -519,11 +488,23 @@ fn main() {
                     "cosine_annealing" => {
                         let min_lr = config.min_lr.unwrap_or(0.0001);
                         let t_max = config.T_max.unwrap_or(EPOCHS);
-                        println!(
-                            "Using CosineAnnealing scheduler: initial_lr={}, min_lr={}, T_max={}",
-                            LEARNING_RATE, min_lr, t_max
-                        );
-                        Box::new(CosineAnnealing::new(LEARNING_RATE, min_lr, t_max))
+                        if min_lr < 0.0 {
+                            println!(
+                                "Invalid CosineAnnealing config: min_lr must be >= 0. Using constant learning rate."
+                            );
+                            Box::new(ConstantLR::new(LEARNING_RATE))
+                        } else if t_max == 0 {
+                            println!(
+                                "Invalid CosineAnnealing config: T_max must be > 0. Using constant learning rate."
+                            );
+                            Box::new(ConstantLR::new(LEARNING_RATE))
+                        } else {
+                            println!(
+                                "Using CosineAnnealing scheduler: initial_lr={}, min_lr={}, T_max={}",
+                                LEARNING_RATE, min_lr, t_max
+                            );
+                            Box::new(CosineAnnealing::new(LEARNING_RATE, min_lr, t_max))
+                        }
                     }
                     _ => {
                         println!(
@@ -548,7 +529,42 @@ fn main() {
             LEARNING_RATE
         );
         Box::new(ConstantLR::new(LEARNING_RATE))
+    }
+}
+
+/// Train a two-layer neural network on the XOR dataset and print each input with its expected and predicted output.
+///
+/// The program initializes the network with a fixed RNG seed for partial reproducibility,
+/// trains it on the four classical XOR samples, and then prints each input alongside its
+/// expected and predicted output.
+///
+/// Optionally loads a learning rate schedule configuration from a CLI-provided path.
+/// If no config path is provided, uses a constant learning rate of 0.01.
+///
+/// # Examples
+///
+/// ```no_run
+/// // Run the binary to train and evaluate the XOR network.
+/// crate::main();
+/// ```
+fn main() {
+    // Fixed initial seed for partial reproducibility.
+    let mut rng = SimpleRng::new(42);
+
+    // XOR dataset (binary inputs and expected outputs).
+    let inputs: [[f32; NUM_INPUTS]; NUM_SAMPLES] = [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]];
+    let expected_outputs: [[f32; NUM_OUTPUTS]; NUM_SAMPLES] = [[0.0], [1.0], [1.0], [0.0]];
+
+    // Parse command-line arguments for optional config file
+    let args: Vec<String> = std::env::args().collect();
+    let config_path = if args.len() > 1 {
+        Some(args[1].as_str())
+    } else {
+        None
     };
+
+    // Load config and create scheduler (optional)
+    let mut scheduler = create_scheduler_from_config(config_path);
 
     // Training and testing in the same process.
     let mut nn = initialize_network(&mut rng);
