@@ -16,6 +16,9 @@ const LEARNING_RATE: f32 = 0.01;
 const EPOCHS: usize = 10;
 const BATCH_SIZE: usize = 64;
 
+// Optimizer selection: "sgd" or "adam"
+const OPTIMIZER_TYPE: &str = "adam";
+
 // ============================================================================
 // Internal Abstractions (Inlined for self-contained binary)
 // ============================================================================
@@ -31,8 +34,98 @@ pub trait Layer {
         batch_size: usize,
     );
     fn update_parameters(&mut self, learning_rate: f32);
+    fn update_with_optimizer(&mut self, optimizer: &mut dyn Optimizer);
     fn input_size(&self) -> usize;
     fn output_size(&self) -> usize;
+}
+
+/// Optimizer trait for parameter updates.
+pub trait Optimizer {
+    fn update(&mut self, parameters: &mut [f32], gradients: &[f32]);
+    fn reset(&mut self);
+}
+
+/// Stochastic Gradient Descent optimizer.
+pub struct SGD {
+    learning_rate: f32,
+}
+
+impl SGD {
+    pub fn new(learning_rate: f32) -> Self {
+        Self { learning_rate }
+    }
+}
+
+impl Optimizer for SGD {
+    fn update(&mut self, parameters: &mut [f32], gradients: &[f32]) {
+        for (param, grad) in parameters.iter_mut().zip(gradients.iter()) {
+            *param -= self.learning_rate * grad;
+        }
+    }
+
+    fn reset(&mut self) {
+        // No state to reset
+    }
+}
+
+/// Adam optimizer with momentum and adaptive learning rates.
+pub struct Adam {
+    learning_rate: f32,
+    beta1: f32,
+    beta2: f32,
+    epsilon: f32,
+    m: Vec<f32>,
+    v: Vec<f32>,
+    t: usize,
+}
+
+impl Adam {
+    pub fn new(learning_rate: f32, beta1: f32, beta2: f32, epsilon: f32) -> Self {
+        Self {
+            learning_rate,
+            beta1,
+            beta2,
+            epsilon,
+            m: Vec::new(),
+            v: Vec::new(),
+            t: 0,
+        }
+    }
+}
+
+impl Optimizer for Adam {
+    fn update(&mut self, parameters: &mut [f32], gradients: &[f32]) {
+        if self.m.is_empty() {
+            self.m = vec![0.0; parameters.len()];
+            self.v = vec![0.0; parameters.len()];
+        }
+
+        if self.m.len() != parameters.len() {
+            self.m.resize(parameters.len(), 0.0);
+            self.v.resize(parameters.len(), 0.0);
+        }
+
+        self.t += 1;
+
+        let bias_correction1 = 1.0 - self.beta1.powi(self.t as i32);
+        let bias_correction2 = 1.0 - self.beta2.powi(self.t as i32);
+
+        for i in 0..parameters.len() {
+            self.m[i] = self.beta1 * self.m[i] + (1.0 - self.beta1) * gradients[i];
+            self.v[i] = self.beta2 * self.v[i] + (1.0 - self.beta2) * gradients[i] * gradients[i];
+
+            let m_hat = self.m[i] / bias_correction1;
+            let v_hat = self.v[i] / bias_correction2;
+
+            parameters[i] -= self.learning_rate * m_hat / (v_hat.sqrt() + self.epsilon);
+        }
+    }
+
+    fn reset(&mut self) {
+        self.m.clear();
+        self.v.clear();
+        self.t = 0;
+    }
 }
 
 /// Simple random number generator.
@@ -230,6 +323,22 @@ impl Layer for DenseLayer {
         }
     }
 
+    fn update_with_optimizer(&mut self, optimizer: &mut dyn Optimizer) {
+        let mut grad_w = self.grad_weights.borrow_mut();
+        let mut grad_b = self.grad_biases.borrow_mut();
+
+        optimizer.update(&mut self.weights, &grad_w);
+        optimizer.update(&mut self.biases, &grad_b);
+
+        // Reset gradients
+        for g in grad_w.iter_mut() {
+            *g = 0.0;
+        }
+        for g in grad_b.iter_mut() {
+            *g = 0.0;
+        }
+    }
+
     fn input_size(&self) -> usize {
         self.input_size
     }
@@ -404,11 +513,24 @@ fn train(
     // Attempt to create logs dir if not exists
     std::fs::create_dir_all("./logs").ok();
 
-    let file = File::create("./logs/training_loss_c.txt").unwrap_or_else(|_| {
+    // Create optimizer based on OPTIMIZER_TYPE
+    let mut optimizer: Box<dyn Optimizer> = match OPTIMIZER_TYPE {
+        "sgd" => Box::new(SGD::new(LEARNING_RATE)),
+        "adam" => Box::new(Adam::new(LEARNING_RATE, 0.9, 0.999, 1e-8)),
+        _ => {
+            eprintln!("Unknown optimizer type: {}", OPTIMIZER_TYPE);
+            process::exit(1);
+        }
+    };
+
+    let log_filename = format!("./logs/training_loss_{}.txt", OPTIMIZER_TYPE);
+    let file = File::create(&log_filename).unwrap_or_else(|_| {
         eprintln!("Could not open file for writing training loss.");
         process::exit(1);
     });
     let mut loss_file = BufWriter::new(file);
+
+    println!("Using {} optimizer with learning rate {}", OPTIMIZER_TYPE.to_uppercase(), LEARNING_RATE);
 
     let mut batch_inputs = vec![0.0f32; BATCH_SIZE * NUM_INPUTS];
     let mut batch_labels = vec![0u8; BATCH_SIZE];
@@ -490,9 +612,9 @@ fn train(
                 batch_count,
             );
 
-            // Update parameters.
-            nn.output_layer.update_parameters(LEARNING_RATE);
-            nn.hidden_layer.update_parameters(LEARNING_RATE);
+            // Update parameters using optimizer.
+            nn.output_layer.update_with_optimizer(optimizer.as_mut());
+            nn.hidden_layer.update_with_optimizer(optimizer.as_mut());
         }
 
         let duration = start_time.elapsed().as_secs_f32();
