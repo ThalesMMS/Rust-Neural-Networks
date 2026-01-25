@@ -63,20 +63,64 @@ struct ConstantLR {
 }
 
 impl ConstantLR {
+    /// Create a ConstantLR scheduler that always yields the same learning rate.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let sched = ConstantLR::new(0.01);
+    /// ```
     fn new(lr: f32) -> Self {
         Self { lr }
     }
 }
 
 impl LRScheduler for ConstantLR {
+    /// Gets the current learning rate.
+    ///
+    /// # Returns
+    ///
+    /// The learning rate value as an `f32`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// // Given a scheduler instance named `scheduler`:
+    /// // let scheduler = ConstantLR::new(0.01);
+    /// // assert_eq!(scheduler.get_lr(), 0.01);
+    /// let _ = scheduler.get_lr();
+    /// ```
     fn get_lr(&self) -> f32 {
         self.lr
     }
 
+    /// No-op step for the constant learning-rate scheduler.
+    ///
+    /// This method intentionally does nothing; it exists to satisfy the `LRScheduler` trait
+    /// interface for schedulers that do not change their learning rate over time.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut sched = ConstantLR::new(0.01);
+    /// sched.step(); // no effect for ConstantLR
+    /// ```
     fn step(&mut self) {
         // No-op for constant learning rate
     }
 
+    /// Reset the scheduler's internal state.
+    ///
+    /// This implementation performs no action; it exists to satisfy the `LRScheduler` trait
+    /// interface for schedulers that maintain no mutable state.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// // Create a constant scheduler and call reset (no-op).
+    /// let mut sched = ConstantLR { lr: 0.01 };
+    /// sched.reset();
+    /// ```
     fn reset(&mut self) {
         // No-op for constant learning rate
     }
