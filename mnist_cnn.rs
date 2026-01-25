@@ -13,10 +13,16 @@
 // Note: educational implementation (no BLAS/GEMM), so it is intentionally slow.
 
 use std::cell::RefCell;
+use std::env;
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::process;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+use rust_neural_networks::config::load_config;
+use rust_neural_networks::utils::lr_scheduler::{
+    CosineAnnealing, ExponentialDecay, LRScheduler, StepDecay,
+};
 
 // MNIST constants (images are flat 28x28 in row-major order).
 const IMG_H: usize = 28;
@@ -47,6 +53,34 @@ const EARLY_STOPPING_MIN_DELTA: f32 = 0.001; // Minimum change to be considered 
 // ============================================================================
 // Internal Abstractions (Inlined for self-contained binary)
 // ============================================================================
+
+/// Constant learning rate scheduler (for backward compatibility).
+///
+/// This scheduler maintains a constant learning rate throughout training.
+/// Used when no config file is provided.
+struct ConstantLR {
+    lr: f32,
+}
+
+impl ConstantLR {
+    fn new(lr: f32) -> Self {
+        Self { lr }
+    }
+}
+
+impl LRScheduler for ConstantLR {
+    fn get_lr(&self) -> f32 {
+        self.lr
+    }
+
+    fn step(&mut self) {
+        // No-op for constant learning rate
+    }
+
+    fn reset(&mut self) {
+        // No-op for constant learning rate
+    }
+}
 
 /// Core trait for neural network layers.
 pub trait Layer {
@@ -1147,6 +1181,68 @@ fn main() {
 
     let mut model = init_cnn(&mut rng);
 
+    // Parse command-line arguments for optional config file
+    let args: Vec<String> = env::args().collect();
+    let config_path = if args.len() > 1 {
+        Some(args[1].as_str())
+    } else {
+        None
+    };
+
+    // Create scheduler based on config or use default constant LR
+    let mut scheduler: Box<dyn LRScheduler> = if let Some(path) = config_path {
+        match load_config(path) {
+            Ok(config) => {
+                println!("Loaded config from: {}", path);
+                match config.scheduler_type.as_str() {
+                    "step_decay" => {
+                        let step_size = config.step_size.unwrap_or(3);
+                        let gamma = config.gamma.unwrap_or(0.5);
+                        println!(
+                            "Using StepDecay scheduler: initial_lr={}, step_size={}, gamma={}",
+                            LEARNING_RATE, step_size, gamma
+                        );
+                        Box::new(StepDecay::new(LEARNING_RATE, step_size, gamma))
+                    }
+                    "exponential" => {
+                        let decay_rate = config.decay_rate.unwrap_or(0.95);
+                        println!(
+                            "Using ExponentialDecay scheduler: initial_lr={}, decay_rate={}",
+                            LEARNING_RATE, decay_rate
+                        );
+                        Box::new(ExponentialDecay::new(LEARNING_RATE, decay_rate))
+                    }
+                    "cosine_annealing" => {
+                        let min_lr = config.min_lr.unwrap_or(0.0001);
+                        let t_max = config.T_max.unwrap_or(EPOCHS);
+                        println!(
+                            "Using CosineAnnealing scheduler: initial_lr={}, min_lr={}, T_max={}",
+                            LEARNING_RATE, min_lr, t_max
+                        );
+                        Box::new(CosineAnnealing::new(LEARNING_RATE, min_lr, t_max))
+                    }
+                    _ => {
+                        eprintln!(
+                            "Unknown scheduler type: {}. Using constant learning rate.",
+                            config.scheduler_type
+                        );
+                        Box::new(ConstantLR::new(LEARNING_RATE))
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "Failed to load config from {}: {}. Using constant learning rate.",
+                    path, e
+                );
+                Box::new(ConstantLR::new(LEARNING_RATE))
+            }
+        }
+    } else {
+        println!("No config file provided. Using constant learning rate: {}", LEARNING_RATE);
+        Box::new(ConstantLR::new(LEARNING_RATE))
+    };
+
     // Training log file.
     fs::create_dir_all("./logs").ok();
     let log_file = File::create("./logs/training_loss_cnn.txt").unwrap_or_else(|_| {
@@ -1217,8 +1313,9 @@ fn main() {
             conv_backward(&mut model, batch, &batch_inputs, &d_conv, &mut _grad_input);
 
             // SGD update using Layer trait (no momentum, no weight decay).
-            model.fc_layer.update_parameters(LEARNING_RATE);
-            model.conv_layer.update_parameters(LEARNING_RATE);
+            let current_lr = scheduler.get_lr();
+            model.fc_layer.update_parameters(current_lr);
+            model.conv_layer.update_parameters(current_lr);
         }
 
         let secs = start_time.elapsed().as_secs_f32();
@@ -1301,6 +1398,9 @@ fn main() {
             );
             break;
         }
+
+        // Update learning rate scheduler
+        scheduler.step();
     }
 
     println!("Testing...");
