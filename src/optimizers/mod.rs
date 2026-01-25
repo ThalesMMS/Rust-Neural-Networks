@@ -27,8 +27,10 @@
 //! optimizer.update(&mut weights, &gradients);
 //! ```
 
+pub mod adam;
 pub mod sgd;
 
+pub use adam::Adam;
 pub use sgd::SGD;
 
 /// Core trait for neural network optimizers.
