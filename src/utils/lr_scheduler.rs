@@ -82,6 +82,96 @@ pub trait LRScheduler {
     fn reset(&mut self);
 }
 
+/// Create a scheduler from an optional config path.
+///
+/// Falls back to a constant learning rate if the config is missing, invalid, or
+/// specifies unsupported parameters.
+pub fn create_scheduler_from_config(
+    initial_lr: f32,
+    default_epochs: usize,
+    config_path: Option<&str>,
+) -> Box<dyn LRScheduler> {
+    if let Some(path) = config_path {
+        match crate::config::load_config(path) {
+            Ok(config) => {
+                println!("Loaded config from: {}", path);
+                match config.scheduler_type.as_str() {
+                    "step_decay" => {
+                        let step_size = config.step_size.unwrap_or(3);
+                        let gamma = config.gamma.unwrap_or(0.5);
+                        match StepDecay::new(initial_lr, step_size, gamma) {
+                            Ok(scheduler) => {
+                                println!(
+                                    "Using StepDecay scheduler: initial_lr={}, step_size={}, gamma={}",
+                                    initial_lr, step_size, gamma
+                                );
+                                Box::new(scheduler)
+                            }
+                            Err(err) => {
+                                eprintln!("Invalid StepDecay config: {}", err);
+                                Box::new(ConstantLR::new(initial_lr))
+                            }
+                        }
+                    }
+                    "exponential" => {
+                        let decay_rate = config.decay_rate.unwrap_or(0.95);
+                        println!(
+                            "Using ExponentialDecay scheduler: initial_lr={}, decay_rate={}",
+                            initial_lr, decay_rate
+                        );
+                        Box::new(ExponentialDecay::new(initial_lr, decay_rate))
+                    }
+                    "cosine_annealing" => {
+                        let min_lr = config.min_lr.unwrap_or(0.0001);
+                        let t_max = config.T_max.unwrap_or(default_epochs);
+                        if min_lr < 0.0 {
+                            eprintln!(
+                                "Invalid CosineAnnealing config: min_lr must be >= 0. Using constant learning rate."
+                            );
+                            Box::new(ConstantLR::new(initial_lr))
+                        } else if t_max == 0 {
+                            eprintln!(
+                                "Invalid CosineAnnealing config: T_max must be > 0. Using constant learning rate."
+                            );
+                            Box::new(ConstantLR::new(initial_lr))
+                        } else {
+                            println!(
+                                "Using CosineAnnealing scheduler: initial_lr={}, min_lr={}, T_max={}",
+                                initial_lr, min_lr, t_max
+                            );
+                            Box::new(CosineAnnealing::new(initial_lr, min_lr, t_max))
+                        }
+                    }
+                    "constant" => {
+                        println!("Using ConstantLR scheduler: initial_lr={}", initial_lr);
+                        Box::new(ConstantLR::new(initial_lr))
+                    }
+                    _ => {
+                        eprintln!(
+                            "Unknown scheduler type '{}', using constant learning rate",
+                            config.scheduler_type
+                        );
+                        Box::new(ConstantLR::new(initial_lr))
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "Failed to load config from {}: {}. Using constant learning rate.",
+                    path, e
+                );
+                Box::new(ConstantLR::new(initial_lr))
+            }
+        }
+    } else {
+        println!(
+            "No config file provided. Using constant learning rate: {}",
+            initial_lr
+        );
+        Box::new(ConstantLR::new(initial_lr))
+    }
+}
+
 /// Constant learning rate scheduler (no decay).
 ///
 /// This scheduler maintains a fixed learning rate throughout training.
@@ -233,8 +323,7 @@ impl LRScheduler for StepDecay {
     ///
     /// ```
     /// use rust_neural_networks::utils::lr_scheduler::LRScheduler;
-    /// let sched = rust_neural_networks::utils::lr_scheduler::StepDecay::new(0.1, 10, 0.5)
-    ///     .expect("step_size must be > 0");
+    /// let sched = rust_neural_networks::utils::lr_scheduler::ExponentialDecay::new(0.1, 0.95);
     /// assert_eq!(sched.get_lr(), 0.1);
     /// ```
     fn get_lr(&self) -> f32 {
@@ -392,8 +481,7 @@ impl LRScheduler for ExponentialDecay {
     ///
     /// ```
     /// use rust_neural_networks::utils::lr_scheduler::LRScheduler;
-    /// let sched = rust_neural_networks::utils::lr_scheduler::StepDecay::new(0.1, 10, 0.5)
-    ///     .expect("step_size must be > 0");
+    /// let sched = rust_neural_networks::utils::lr_scheduler::CosineAnnealing::new(0.1, 0.001, 100);
     /// assert_eq!(sched.get_lr(), 0.1);
     /// ```
     fn get_lr(&self) -> f32 {

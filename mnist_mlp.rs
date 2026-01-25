@@ -5,10 +5,7 @@ use std::io::{BufWriter, Write};
 use std::process;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use rust_neural_networks::config::load_config;
-use rust_neural_networks::utils::lr_scheduler::{
-    ConstantLR, CosineAnnealing, ExponentialDecay, LRScheduler, StepDecay,
-};
+use rust_neural_networks::utils::lr_scheduler::{create_scheduler_from_config, LRScheduler};
 
 // MLP with minibatches for MNIST (Rust port for study).
 // Uses manual loops for layer operations (self-contained, educational).
@@ -52,6 +49,8 @@ pub trait Layer {
 pub trait Optimizer {
     fn update(&mut self, parameters: &mut [f32], gradients: &[f32]);
     fn reset(&mut self);
+    fn learning_rate(&self) -> f32;
+    fn set_learning_rate(&mut self, lr: f32);
 }
 
 /// Stochastic Gradient Descent optimizer.
@@ -74,6 +73,14 @@ impl Optimizer for SGD {
 
     fn reset(&mut self) {
         // No state to reset
+    }
+
+    fn learning_rate(&self) -> f32 {
+        self.learning_rate
+    }
+
+    fn set_learning_rate(&mut self, lr: f32) {
+        self.learning_rate = lr;
     }
 }
 
@@ -134,6 +141,14 @@ impl Optimizer for Adam {
         self.m.clear();
         self.v.clear();
         self.t = 0;
+    }
+
+    fn learning_rate(&self) -> f32 {
+        self.learning_rate
+    }
+
+    fn set_learning_rate(&mut self, lr: f32) {
+        self.learning_rate = lr;
     }
 }
 
@@ -496,7 +511,7 @@ fn gather_batch(
 }
 
 // Training with shuffling and minibatches.
-/// Trains the neural network for the configured number of epochs using minibatch SGD, updating the network in-place and appending per-epoch metrics to ./logs/training_loss_c.txt.
+/// Trains the neural network for the configured number of epochs using minibatch updates and appends per-epoch metrics to ./logs/training_loss_{OPTIMIZER_TYPE}.txt.
 ///
 /// Evaluates on the provided validation set each epoch, uses the scheduler's current learning rate for parameter updates, saves the best model to "mnist_model_best.bin" when validation loss improves, and supports early stopping based on validation loss and configured patience. Progress (training loss, validation loss, validation accuracy, learning rate, and epoch time) is printed to stdout and recorded in CSV format.
 ///
@@ -578,6 +593,7 @@ fn train(
         let mut total_loss = 0.0f32;
         let start_time = Instant::now();
         let current_lr = scheduler.get_lr();
+        optimizer.set_learning_rate(current_lr);
 
         // Fisher-Yates shuffle.
         if num_samples > 1 {
@@ -954,81 +970,7 @@ fn main() {
     };
 
     // Create scheduler based on config or use default constant LR
-    let mut scheduler: Box<dyn LRScheduler> = if let Some(path) = config_path {
-        match load_config(path) {
-            Ok(config) => {
-                println!("Loaded config from: {}", path);
-                match config.scheduler_type.as_str() {
-                    "step_decay" => {
-                        let step_size = config.step_size.unwrap_or(3);
-                        let gamma = config.gamma.unwrap_or(0.5);
-                        match StepDecay::new(LEARNING_RATE, step_size, gamma) {
-                            Ok(scheduler) => {
-                                println!(
-                                    "Using StepDecay scheduler: initial_lr={}, step_size={}, gamma={}",
-                                    LEARNING_RATE, step_size, gamma
-                                );
-                                Box::new(scheduler)
-                            }
-                            Err(err) => {
-                                eprintln!("Invalid StepDecay config: {}", err);
-                                Box::new(ConstantLR::new(LEARNING_RATE))
-                            }
-                        }
-                    }
-                    "exponential" => {
-                        let decay_rate = config.decay_rate.unwrap_or(0.95);
-                        println!(
-                            "Using ExponentialDecay scheduler: initial_lr={}, decay_rate={}",
-                            LEARNING_RATE, decay_rate
-                        );
-                        Box::new(ExponentialDecay::new(LEARNING_RATE, decay_rate))
-                    }
-                    "cosine_annealing" => {
-                        let min_lr = config.min_lr.unwrap_or(0.0001);
-                        let t_max = config.T_max.unwrap_or(EPOCHS);
-                        if min_lr < 0.0 {
-                            eprintln!(
-                                "Invalid CosineAnnealing config: min_lr must be >= 0. Using constant learning rate."
-                            );
-                            Box::new(ConstantLR::new(LEARNING_RATE))
-                        } else if t_max == 0 {
-                            eprintln!(
-                                "Invalid CosineAnnealing config: T_max must be > 0. Using constant learning rate."
-                            );
-                            Box::new(ConstantLR::new(LEARNING_RATE))
-                        } else {
-                            println!(
-                                "Using CosineAnnealing scheduler: initial_lr={}, min_lr={}, T_max={}",
-                                LEARNING_RATE, min_lr, t_max
-                            );
-                            Box::new(CosineAnnealing::new(LEARNING_RATE, min_lr, t_max))
-                        }
-                    }
-                    _ => {
-                        eprintln!(
-                            "Unknown scheduler type: {}. Using constant learning rate.",
-                            config.scheduler_type
-                        );
-                        Box::new(ConstantLR::new(LEARNING_RATE))
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!(
-                    "Failed to load config from {}: {}. Using constant learning rate.",
-                    path, e
-                );
-                Box::new(ConstantLR::new(LEARNING_RATE))
-            }
-        }
-    } else {
-        println!(
-            "No config file provided. Using constant learning rate: {}",
-            LEARNING_RATE
-        );
-        Box::new(ConstantLR::new(LEARNING_RATE))
-    };
+    let mut scheduler = create_scheduler_from_config(LEARNING_RATE, EPOCHS, config_path);
 
     println!("Loading training data...");
     let load_start = Instant::now();
