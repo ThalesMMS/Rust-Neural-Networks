@@ -1,8 +1,14 @@
 use std::cell::RefCell;
+use std::env;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::process;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+use rust_neural_networks::config::load_config;
+use rust_neural_networks::utils::lr_scheduler::{
+    CosineAnnealing, ExponentialDecay, LRScheduler, StepDecay,
+};
 
 // MLP with minibatches for MNIST (Rust port for study).
 // Uses manual loops for layer operations (self-contained, educational).
@@ -22,6 +28,34 @@ const EARLY_STOPPING_MIN_DELTA: f32 = 0.001; // Minimum change to be considered 
 // ============================================================================
 // Internal Abstractions (Inlined for self-contained binary)
 // ============================================================================
+
+/// Constant learning rate scheduler (for backward compatibility).
+///
+/// This scheduler maintains a constant learning rate throughout training.
+/// Used when no config file is provided.
+struct ConstantLR {
+    lr: f32,
+}
+
+impl ConstantLR {
+    fn new(lr: f32) -> Self {
+        Self { lr }
+    }
+}
+
+impl LRScheduler for ConstantLR {
+    fn get_lr(&self) -> f32 {
+        self.lr
+    }
+
+    fn step(&mut self) {
+        // No-op for constant learning rate
+    }
+
+    fn reset(&mut self) {
+        // No-op for constant learning rate
+    }
+}
 
 /// Core trait for neural network layers.
 pub trait Layer {
@@ -408,6 +442,7 @@ fn train(
     val_labels: &[u8],
     val_num_samples: usize,
     rng: &mut SimpleRng,
+    scheduler: &mut dyn LRScheduler,
 ) {
     // Attempt to create logs dir if not exists
     std::fs::create_dir_all("./logs").ok();
@@ -417,6 +452,12 @@ fn train(
         process::exit(1);
     });
     let mut loss_file = BufWriter::new(file);
+
+    // Write CSV header
+    writeln!(loss_file, "epoch,train_loss,train_time,val_loss,val_accuracy,learning_rate").unwrap_or_else(|_| {
+        eprintln!("Failed writing CSV header.");
+        process::exit(1);
+    });
 
     let mut batch_inputs = vec![0.0f32; BATCH_SIZE * NUM_INPUTS];
     let mut batch_labels = vec![0u8; BATCH_SIZE];
@@ -436,6 +477,7 @@ fn train(
     for epoch in 0..EPOCHS {
         let mut total_loss = 0.0f32;
         let start_time = Instant::now();
+        let current_lr = scheduler.get_lr();
 
         // Fisher-Yates shuffle.
         if num_samples > 1 {
@@ -504,8 +546,8 @@ fn train(
             );
 
             // Update parameters.
-            nn.output_layer.update_parameters(LEARNING_RATE);
-            nn.hidden_layer.update_parameters(LEARNING_RATE);
+            nn.output_layer.update_parameters(current_lr);
+            nn.hidden_layer.update_parameters(current_lr);
         }
 
         let duration = start_time.elapsed().as_secs_f32();
@@ -562,14 +604,15 @@ fn train(
         let val_accuracy = val_correct as f32 / val_num_samples as f32 * 100.0;
 
         println!(
-            "Epoch {}, Loss: {:.6}, Val Loss: {:.6}, Val Acc: {:.2}%, Time: {:.6}",
+            "Epoch {}, Loss: {:.6}, Val Loss: {:.6}, Val Acc: {:.2}%, LR: {:.6}, Time: {:.6}",
             epoch + 1,
             average_loss,
             val_average_loss,
             val_accuracy,
+            current_lr,
             duration
         );
-        writeln!(loss_file, "{},{},{},{},{},{}", epoch + 1, average_loss, duration, val_average_loss, val_accuracy, duration).unwrap_or_else(|_| {
+        writeln!(loss_file, "{},{},{},{},{},{}", epoch + 1, average_loss, duration, val_average_loss, val_accuracy, current_lr).unwrap_or_else(|_| {
             eprintln!("Failed writing training loss data.");
             process::exit(1);
         });
@@ -591,6 +634,9 @@ fn train(
             );
             break;
         }
+
+        // Update learning rate for next epoch
+        scheduler.step();
     }
 }
 
@@ -778,6 +824,68 @@ fn read_mnist_labels(filename: &str, num_labels: usize) -> Vec<u8> {
 fn main() {
     let program_start = Instant::now();
 
+    // Parse command-line arguments for optional config file
+    let args: Vec<String> = env::args().collect();
+    let config_path = if args.len() > 1 {
+        Some(args[1].as_str())
+    } else {
+        None
+    };
+
+    // Create scheduler based on config or use default constant LR
+    let mut scheduler: Box<dyn LRScheduler> = if let Some(path) = config_path {
+        match load_config(path) {
+            Ok(config) => {
+                println!("Loaded config from: {}", path);
+                match config.scheduler_type.as_str() {
+                    "step_decay" => {
+                        let step_size = config.step_size.unwrap_or(3);
+                        let gamma = config.gamma.unwrap_or(0.5);
+                        println!(
+                            "Using StepDecay scheduler: initial_lr={}, step_size={}, gamma={}",
+                            LEARNING_RATE, step_size, gamma
+                        );
+                        Box::new(StepDecay::new(LEARNING_RATE, step_size, gamma))
+                    }
+                    "exponential" => {
+                        let decay_rate = config.decay_rate.unwrap_or(0.95);
+                        println!(
+                            "Using ExponentialDecay scheduler: initial_lr={}, decay_rate={}",
+                            LEARNING_RATE, decay_rate
+                        );
+                        Box::new(ExponentialDecay::new(LEARNING_RATE, decay_rate))
+                    }
+                    "cosine_annealing" => {
+                        let min_lr = config.min_lr.unwrap_or(0.0001);
+                        let t_max = config.T_max.unwrap_or(EPOCHS);
+                        println!(
+                            "Using CosineAnnealing scheduler: initial_lr={}, min_lr={}, T_max={}",
+                            LEARNING_RATE, min_lr, t_max
+                        );
+                        Box::new(CosineAnnealing::new(LEARNING_RATE, min_lr, t_max))
+                    }
+                    _ => {
+                        eprintln!(
+                            "Unknown scheduler type: {}. Using constant learning rate.",
+                            config.scheduler_type
+                        );
+                        Box::new(ConstantLR::new(LEARNING_RATE))
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "Failed to load config from {}: {}. Using constant learning rate.",
+                    path, e
+                );
+                Box::new(ConstantLR::new(LEARNING_RATE))
+            }
+        }
+    } else {
+        println!("No config file provided. Using constant learning rate: {}", LEARNING_RATE);
+        Box::new(ConstantLR::new(LEARNING_RATE))
+    };
+
     println!("Loading training data...");
     let load_start = Instant::now();
     let mut train_images = read_mnist_images("./data/train-images.idx3-ubyte", TRAIN_SAMPLES);
@@ -820,6 +928,7 @@ fn main() {
         &val_labels,
         validation_samples,
         &mut rng,
+        scheduler.as_mut(),
     );
     let train_time = train_start.elapsed().as_secs_f64();
     println!("Total training time: {:.2} seconds", train_time);
