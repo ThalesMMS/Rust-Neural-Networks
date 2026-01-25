@@ -126,6 +126,8 @@ const EPOCHS: usize = 8;
 
 const BATCH_SIZE: usize = 32;
 const VALIDATION_SPLIT: f32 = 0.1; // 10% of training data for validation
+const EARLY_STOPPING_PATIENCE: usize = 3; // Number of epochs without improvement before stopping
+const EARLY_STOPPING_MIN_DELTA: f32 = 0.001; // Minimum change to be considered an improvement
 
 // Tiny xorshift RNG for reproducible init without external crates.
 struct SimpleRng {
@@ -1540,6 +1542,10 @@ fn main() {
     println!("Training...");
     let train_start = Instant::now();
 
+    // Early stopping tracking
+    let mut best_val_acc = 0.0f32;
+    let mut epochs_without_improvement = 0usize;
+
     for epoch in 0..EPOCHS {
         let epoch_start = Instant::now();
         rng.shuffle_usize(&mut indices);
@@ -1593,6 +1599,23 @@ fn main() {
             epoch_time
         ) {
             eprintln!("Warning: Failed to write to log file: {}", e);
+        }
+
+        // Early stopping check
+        if val_acc > best_val_acc + EARLY_STOPPING_MIN_DELTA {
+            best_val_acc = val_acc;
+            epochs_without_improvement = 0;
+        } else {
+            epochs_without_improvement += 1;
+            if epochs_without_improvement >= EARLY_STOPPING_PATIENCE {
+                println!();
+                println!(
+                    "Early stopping triggered after {} epochs without improvement (best val_acc: {:.2}%)",
+                    EARLY_STOPPING_PATIENCE, best_val_acc
+                );
+                println!("Stopping at epoch {}", epoch + 1);
+                break;
+            }
         }
     }
 
