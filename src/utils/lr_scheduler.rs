@@ -140,6 +140,33 @@ impl StepDecay {
             current_lr: initial_lr,
         }
     }
+
+    /// Creates a StepDecay scheduler from a TrainingConfig.
+    ///
+    /// Uses LEARNING_RATE constant from the binary as initial learning rate.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Training configuration containing scheduler parameters
+    ///
+    /// # Panics
+    ///
+    /// Panics if required fields (step_size, gamma) are missing from the config.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rust_neural_networks::config::load_config;
+    /// let config = load_config("config/mnist_mlp_step.json").unwrap();
+    /// let scheduler = StepDecay::from_config(&config);
+    /// ```
+    pub fn from_config(config: &crate::config::TrainingConfig) -> Self {
+        let step_size = config.step_size.expect("step_size required for StepDecay");
+        let gamma = config.gamma.expect("gamma required for StepDecay");
+        // Note: initial_lr is set to a placeholder (0.01), but binaries should use
+        // their own LEARNING_RATE constant when creating schedulers
+        Self::new(0.01, step_size, gamma)
+    }
 }
 
 impl LRScheduler for StepDecay {
@@ -218,6 +245,30 @@ impl ExponentialDecay {
             current_epoch: 0,
             current_lr: initial_lr,
         }
+    }
+
+    /// Creates an ExponentialDecay scheduler from a TrainingConfig.
+    ///
+    /// Uses decay_rate from config as gamma parameter.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Training configuration containing scheduler parameters
+    ///
+    /// # Panics
+    ///
+    /// Panics if required field (decay_rate) is missing from the config.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rust_neural_networks::config::load_config;
+    /// let config = load_config("config/mnist_mlp_exponential.json").unwrap();
+    /// let scheduler = ExponentialDecay::from_config(&config);
+    /// ```
+    pub fn from_config(config: &crate::config::TrainingConfig) -> Self {
+        let gamma = config.decay_rate.expect("decay_rate required for ExponentialDecay");
+        Self::new(0.01, gamma)
     }
 }
 
@@ -304,6 +355,31 @@ impl CosineAnnealing {
             current_epoch: 0,
             current_lr: initial_lr,
         }
+    }
+
+    /// Creates a CosineAnnealing scheduler from a TrainingConfig.
+    ///
+    /// Uses min_lr and T_max from config.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Training configuration containing scheduler parameters
+    ///
+    /// # Panics
+    ///
+    /// Panics if required fields (min_lr, T_max) are missing from the config.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rust_neural_networks::config::load_config;
+    /// let config = load_config("config/mnist_mlp_cosine.json").unwrap();
+    /// let scheduler = CosineAnnealing::from_config(&config);
+    /// ```
+    pub fn from_config(config: &crate::config::TrainingConfig) -> Self {
+        let eta_min = config.min_lr.expect("min_lr required for CosineAnnealing");
+        let t_max = config.T_max.expect("T_max required for CosineAnnealing");
+        Self::new(0.01, eta_min, t_max)
     }
 }
 

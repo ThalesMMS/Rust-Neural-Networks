@@ -78,10 +78,16 @@
 //   t10k-images.idx3-ubyte
 //   t10k-labels.idx1-ubyte
 
+use std::env;
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::process;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+use rust_neural_networks::config::load_config;
+use rust_neural_networks::utils::lr_scheduler::{
+    CosineAnnealing, ExponentialDecay, LRScheduler, StepDecay,
+};
 
 // MNIST constants (images are flat 28x28 in row-major order).
 const IMG_H: usize = 28;
@@ -128,6 +134,38 @@ const BATCH_SIZE: usize = 32;
 const VALIDATION_SPLIT: f32 = 0.1; // 10% of training data for validation
 const EARLY_STOPPING_PATIENCE: usize = 3; // Number of epochs without improvement before stopping
 const EARLY_STOPPING_MIN_DELTA: f32 = 0.001; // Minimum change to be considered an improvement
+
+// ============================================================================
+// Internal Abstractions (Inlined for self-contained binary)
+// ============================================================================
+
+/// Constant learning rate scheduler (for backward compatibility).
+///
+/// This scheduler maintains a constant learning rate throughout training.
+/// Used when no config file is provided.
+struct ConstantLR {
+    lr: f32,
+}
+
+impl ConstantLR {
+    fn new(lr: f32) -> Self {
+        Self { lr }
+    }
+}
+
+impl LRScheduler for ConstantLR {
+    fn get_lr(&self) -> f32 {
+        self.lr
+    }
+
+    fn step(&mut self) {
+        // No-op for constant learning rate
+    }
+
+    fn reset(&mut self) {
+        // No-op for constant learning rate
+    }
+}
 
 // Tiny xorshift RNG for reproducible init without external crates.
 struct SimpleRng {
@@ -1595,6 +1633,34 @@ fn main() {
     let mut rng = SimpleRng::new(42);
     let mut model = init_model(&mut rng);
 
+    // Load config from environment variable
+    let config_path = env::var("MNIST_CONFIG").ok();
+
+    // Create scheduler based on config
+    let mut scheduler: Box<dyn LRScheduler> = if let Some(path) = config_path {
+        match load_config(&path) {
+            Ok(config) => {
+                match config.scheduler_type.as_str() {
+                    "step" => Box::new(StepDecay::from_config(&config)),
+                    "exponential" => Box::new(ExponentialDecay::from_config(&config)),
+                    "cosine" => Box::new(CosineAnnealing::from_config(&config)),
+                    _ => {
+                        eprintln!("Unknown scheduler type: {}", config.scheduler_type);
+                        Box::new(ConstantLR::new(LEARNING_RATE))
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to load config from {}: {}", path, e);
+                Box::new(ConstantLR::new(LEARNING_RATE))
+            }
+        }
+    } else {
+        Box::new(ConstantLR::new(LEARNING_RATE))
+    };
+
+    println!("  Initial learning rate: {}", scheduler.get_lr());
+
     // Shuffled indices for mini-batch sampling.
     let mut indices: Vec<usize> = (0..actual_train_samples).collect();
 
@@ -1614,6 +1680,9 @@ fn main() {
     for epoch in 0..EPOCHS {
         let epoch_start = Instant::now();
         rng.shuffle_usize(&mut indices);
+
+        // Get current learning rate from scheduler
+        let current_lr = scheduler.get_lr();
 
         let mut total_loss = 0.0f32;
 
@@ -1637,7 +1706,7 @@ fn main() {
 
             // Backward pass + SGD update.
             backward_batch(&model, batch_count, &mut buf, &mut grads);
-            apply_sgd(&mut model, &grads, LEARNING_RATE);
+            apply_sgd(&mut model, &grads, current_lr);
         }
 
         let avg_loss = total_loss / actual_train_samples as f32;
@@ -1684,6 +1753,9 @@ fn main() {
                 break;
             }
         }
+
+        // Update learning rate at end of epoch
+        scheduler.step();
     }
 
     let train_time = train_start.elapsed().as_secs_f32();
