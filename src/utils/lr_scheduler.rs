@@ -16,7 +16,7 @@
 /// # Example
 ///
 /// ```ignore
-    /// use rust_neural_networks::utils::lr_scheduler::LRScheduler;
+/// use rust_neural_networks::utils::lr_scheduler::LRScheduler;
 /// // Create a scheduler
 /// let mut scheduler = rust_neural_networks::utils::lr_scheduler::StepDecay::new(0.1, 3, 0.5).expect("step_size must be > 0");
 ///
@@ -129,7 +129,7 @@ impl LRScheduler for ConstantLR {
 /// # Example
 ///
 /// ```ignore
-    /// use rust_neural_networks::utils::lr_scheduler::LRScheduler;
+/// use rust_neural_networks::utils::lr_scheduler::LRScheduler;
 /// use rust_neural_networks::utils::lr_scheduler::{LRScheduler, StepDecay};
 ///
 /// let mut scheduler = rust_neural_networks::utils::lr_scheduler::StepDecay::new(0.1, 3, 0.5).expect("step_size must be > 0");
@@ -305,7 +305,7 @@ impl LRScheduler for StepDecay {
 /// # Example
 ///
 /// ```ignore
-    /// use rust_neural_networks::utils::lr_scheduler::LRScheduler;
+/// use rust_neural_networks::utils::lr_scheduler::LRScheduler;
 /// use rust_neural_networks::utils::lr_scheduler::{LRScheduler, ExponentialDecay};
 ///
 /// let mut scheduler = rust_neural_networks::utils::lr_scheduler::ExponentialDecay::new(0.1, 0.95);
@@ -462,7 +462,7 @@ impl LRScheduler for ExponentialDecay {
 /// # Example
 ///
 /// ```ignore
-    /// use rust_neural_networks::utils::lr_scheduler::LRScheduler;
+/// use rust_neural_networks::utils::lr_scheduler::LRScheduler;
 /// use rust_neural_networks::utils::lr_scheduler::{LRScheduler, CosineAnnealing};
 ///
 /// let mut scheduler = rust_neural_networks::utils::lr_scheduler::CosineAnnealing::new(0.1, 0.0, 10);

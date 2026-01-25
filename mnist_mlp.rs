@@ -553,7 +553,11 @@ fn train(
         eprintln!("Failed writing CSV header.");
         process::exit(1);
     });
-    println!("Using {} optimizer with learning rate {}", OPTIMIZER_TYPE.to_uppercase(), LEARNING_RATE);
+    println!(
+        "Using {} optimizer with learning rate {}",
+        OPTIMIZER_TYPE.to_uppercase(),
+        LEARNING_RATE
+    );
 
     let mut batch_inputs = vec![0.0f32; BATCH_SIZE * NUM_INPUTS];
     let mut batch_labels = vec![0u8; BATCH_SIZE];
@@ -640,16 +644,9 @@ fn train(
                 &mut unused_grad[..grad_len],
                 batch_count,
             );
-// TODO: FIX THIS UNRESOLVED MERGE CONFLICT
-// <<<<<<< auto-claude/007-add-learning-rate-scheduling
-            // Update parameters.
-            nn.output_layer.update_parameters(current_lr);
-            nn.hidden_layer.update_parameters(current_lr);
-// =======
             // Update parameters using optimizer.
             nn.output_layer.update_with_optimizer(optimizer.as_mut());
             nn.hidden_layer.update_with_optimizer(optimizer.as_mut());
-// >>>>>>> main
         }
 
         let duration = start_time.elapsed().as_secs_f32();
