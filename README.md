@@ -29,8 +29,9 @@ Scripts (Python):
 Data and outputs:
 
 - `data/` (MNIST IDX files)
-- `logs/` (training loss logs)
-- `mnist_model.bin` (saved model)
+- `logs/` (training loss CSV logs with validation metrics)
+- `mnist_model.bin`, `mnist_cnn_model.bin`, `mnist_attention_model.bin` (final saved models)
+- `*_best.bin` files (best model checkpoints based on validation performance)
 
 Documentation:
 
@@ -105,14 +106,32 @@ Default training parameters:
 - Learning rate: 0.01
 - Batch size: 64
 - Epochs: 10
+- Validation split: 10% (6,000 samples from 60K training set)
+- Early stopping patience: 3 epochs
 
 Expected accuracy: ~94-97% depending on backend and hyperparameters.
+
+Training features:
+
+- **Train/Validation Split**: The 60K MNIST training set is automatically split into 54K training samples and 6K validation samples (`VALIDATION_SPLIT = 0.1`).
+- **Validation Tracking**: Validation loss and accuracy are computed and displayed at the end of each epoch.
+- **Early Stopping**: Training stops if validation loss doesn't improve by at least 0.001 for 3 consecutive epochs (`EARLY_STOPPING_PATIENCE = 3`, `EARLY_STOPPING_MIN_DELTA = 0.001`).
+- **Best Model Checkpointing**: The model with the lowest validation loss is automatically saved to `mnist_model_best.bin`.
+
+Example output:
+```
+Epoch 1/10, Loss: 0.2543, Val Loss: 0.1832, Val Acc: 94.50%, Time: 0.34s
+Epoch 2/10, Loss: 0.1432, Val Loss: 0.1245, Val Acc: 96.12%, Time: 0.33s
+...
+Early stopping triggered after epoch 5 (no improvement for 3 epochs)
+```
 
 Rust MNIST notes:
 
 - Uses `f32` tensors and batched GEMM via BLAS for speed.
 - On macOS the default BLAS backend is Accelerate (via `blas-src`).
 - Threading is controlled by `VECLIB_MAXIMUM_THREADS` when using Accelerate.
+- Test set (10K samples) remains completely separate and is only used for final evaluation.
 
 ## MNIST CNN model
 
@@ -128,6 +147,10 @@ Default training parameters:
 - Learning rate: 0.01
 - Batch size: 32
 - Epochs: 3
+- Validation split: 10% (6,000 samples)
+- Early stopping patience: 3 epochs
+
+Training features: Same as MLP (validation split, early stopping, best model checkpointing to `mnist_cnn_model_best.bin`)
 
 ## MNIST attention model
 
@@ -146,8 +169,12 @@ Default training parameters:
 - Learning rate: 0.01
 - Batch size: 32
 - Epochs: 8
+- Validation split: 10% (6,000 samples)
+- Early stopping patience: 3 epochs
 
 Expected accuracy: ~88-91% depending on random seed initialization.
+
+Training features: Same as MLP (validation split, early stopping, best model checkpointing to `mnist_attention_model_best.bin`)
 
 ## XOR model
 
@@ -228,11 +255,15 @@ Download from:
 
 ## Visualization
 
-To plot training curves:
+To plot training curves (including validation metrics):
 
 ```
 python plot_comparison.py
 ```
+
+The CSV logs in `logs/` now include validation columns:
+- Format: `epoch,train_loss,train_time,val_loss,val_accuracy`
+- Enables plotting both training and validation curves to visualize overfitting
 
 ## Digit recognizer UI
 

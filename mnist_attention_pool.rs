@@ -125,6 +125,9 @@ const LEARNING_RATE: f32 = 0.01;
 const EPOCHS: usize = 8;
 
 const BATCH_SIZE: usize = 32;
+const VALIDATION_SPLIT: f32 = 0.1; // 10% of training data for validation
+const EARLY_STOPPING_PATIENCE: usize = 3; // Number of epochs without improvement before stopping
+const EARLY_STOPPING_MIN_DELTA: f32 = 0.001; // Minimum change to be considered an improvement
 
 // Tiny xorshift RNG for reproducible init without external crates.
 struct SimpleRng {
@@ -1092,6 +1095,71 @@ fn apply_sgd(model: &mut AttnModel, grads: &Grads, lr: f32) {
     }
 }
 
+// Save the attention model in binary (little-endian f32).
+fn save_model(model: &AttnModel, filename: &str) {
+    let file = File::create(filename).unwrap_or_else(|_| {
+        eprintln!("Could not open file {} for writing model", filename);
+        process::exit(1);
+    });
+    let mut writer = BufWriter::new(file);
+
+    let write_f32 = |writer: &mut BufWriter<File>, value: f32| {
+        writer.write_all(&value.to_le_bytes()).unwrap_or_else(|_| {
+            eprintln!("Failed writing model data");
+            process::exit(1);
+        });
+    };
+
+    // Write all model parameters in order
+    for &value in &model.w_patch {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.b_patch {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.pos {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.w_q {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.b_q {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.w_k {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.b_k {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.w_v {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.b_v {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.w_ff1 {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.b_ff1 {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.w_ff2 {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.b_ff2 {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.w_cls {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.b_cls {
+        write_f32(&mut writer, value);
+    }
+
+    println!("Model saved to {}", filename);
+}
+
 // Shared forward inference logic (up to logits/probs) without loss computation.
 // Populates: patches, tok, q/k/v, attn, ffn, pooled, logits, probs.
 fn forward_inference(
@@ -1490,14 +1558,27 @@ fn main() {
     println!();
 
     println!("Loading MNIST data...");
-    let train_images = read_mnist_images("./data/train-images.idx3-ubyte", TRAIN_SAMPLES);
-    let train_labels = read_mnist_labels("./data/train-labels.idx1-ubyte", TRAIN_SAMPLES);
+    let mut train_images = read_mnist_images("./data/train-images.idx3-ubyte", TRAIN_SAMPLES);
+    let mut train_labels = read_mnist_labels("./data/train-labels.idx1-ubyte", TRAIN_SAMPLES);
     let test_images = read_mnist_images("./data/t10k-images.idx3-ubyte", TEST_SAMPLES);
     let test_labels = read_mnist_labels("./data/t10k-labels.idx1-ubyte", TEST_SAMPLES);
 
-    let train_n = train_labels.len();
+    // Split training data into train and validation sets
+    let total_train_samples = train_images.len() / NUM_INPUTS;
+    let validation_samples = (total_train_samples as f32 * VALIDATION_SPLIT) as usize;
+    let actual_train_samples = total_train_samples - validation_samples;
+
+    let split_point_images = actual_train_samples * NUM_INPUTS;
+    let split_point_labels = actual_train_samples;
+
+    let val_images = train_images.split_off(split_point_images);
+    let val_labels = train_labels.split_off(split_point_labels);
+
     let test_n = test_labels.len();
-    println!("Train samples: {} | Test samples: {}", train_n, test_n);
+    println!(
+        "Data split: {} training samples, {} validation samples, {} test samples",
+        actual_train_samples, validation_samples, test_n
+    );
     println!();
 
     // Create logs directory.
@@ -1515,7 +1596,7 @@ fn main() {
     let mut model = init_model(&mut rng);
 
     // Shuffled indices for mini-batch sampling.
-    let mut indices: Vec<usize> = (0..train_n).collect();
+    let mut indices: Vec<usize> = (0..actual_train_samples).collect();
 
     // Training buffers (reused each batch to avoid allocations).
     let mut batch_inputs = vec![0.0f32; BATCH_SIZE * NUM_INPUTS];
@@ -1526,14 +1607,18 @@ fn main() {
     println!("Training...");
     let train_start = Instant::now();
 
+    // Early stopping tracking
+    let mut best_val_acc = 0.0f32;
+    let mut epochs_without_improvement = 0usize;
+
     for epoch in 0..EPOCHS {
         let epoch_start = Instant::now();
         rng.shuffle_usize(&mut indices);
 
         let mut total_loss = 0.0f32;
 
-        for batch_start in (0..train_n).step_by(BATCH_SIZE) {
-            let batch_count = (train_n - batch_start).min(BATCH_SIZE);
+        for batch_start in (0..actual_train_samples).step_by(BATCH_SIZE) {
+            let batch_count = (actual_train_samples - batch_start).min(BATCH_SIZE);
 
             gather_batch(
                 &train_images,
@@ -1555,28 +1640,49 @@ fn main() {
             apply_sgd(&mut model, &grads, LEARNING_RATE);
         }
 
-        let avg_loss = total_loss / train_n as f32;
-        let acc = test_accuracy(&model, &test_images, &test_labels);
+        let avg_loss = total_loss / actual_train_samples as f32;
+
+        // Evaluate on validation set
+        let val_acc = test_accuracy(&model, &val_images, &val_labels);
         let epoch_time = epoch_start.elapsed().as_secs_f32();
 
         println!(
-            "  Epoch {:2}: loss={:.6} | test_acc={:5.2}% | time={:.2}s",
+            "  Epoch {:2}: loss={:.6} | val_acc={:5.2}% | time={:.2}s",
             epoch + 1,
             avg_loss,
-            acc,
+            val_acc,
             epoch_time
         );
 
-        // Log to file: epoch,loss,accuracy,time
+        // Log to file: epoch,loss,val_accuracy,time
         if let Err(e) = writeln!(
             log,
             "{},{:.6},{:.2},{:.2}",
             epoch + 1,
             avg_loss,
-            acc,
+            val_acc,
             epoch_time
         ) {
             eprintln!("Warning: Failed to write to log file: {}", e);
+        }
+
+        // Early stopping check
+        if val_acc > best_val_acc + EARLY_STOPPING_MIN_DELTA {
+            best_val_acc = val_acc;
+            epochs_without_improvement = 0;
+            // Save best model
+            save_model(&model, "mnist_attention_model_best.bin");
+        } else {
+            epochs_without_improvement += 1;
+            if epochs_without_improvement >= EARLY_STOPPING_PATIENCE {
+                println!();
+                println!(
+                    "Early stopping triggered after {} epochs without improvement (best val_acc: {:.2}%)",
+                    EARLY_STOPPING_PATIENCE, best_val_acc
+                );
+                println!("Stopping at epoch {}", epoch + 1);
+                break;
+            }
         }
     }
 

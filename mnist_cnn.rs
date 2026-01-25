@@ -40,6 +40,9 @@ const FC_IN: usize = CONV_OUT * POOL_H * POOL_W; // 8*14*14 = 1568
 const LEARNING_RATE: f32 = 0.01;
 const EPOCHS: usize = 3;
 const BATCH_SIZE: usize = 32;
+const VALIDATION_SPLIT: f32 = 0.1; // 10% of training data for validation
+const EARLY_STOPPING_PATIENCE: usize = 3; // Number of epochs without improvement before stopping
+const EARLY_STOPPING_MIN_DELTA: f32 = 0.001; // Minimum change to be considered an improvement
 
 // ============================================================================
 // Internal Abstractions (Inlined for self-contained binary)
@@ -181,6 +184,14 @@ impl DenseLayer {
             grad_weights: RefCell::new(vec![0.0; input_size * output_size]),
             grad_biases: RefCell::new(vec![0.0; output_size]),
         }
+    }
+
+    pub fn weights(&self) -> &[f32] {
+        &self.weights
+    }
+
+    pub fn biases(&self) -> &[f32] {
+        &self.biases
     }
 }
 
@@ -333,6 +344,14 @@ impl Conv2DLayer {
         ((self.input_width as isize + 2 * self.padding - self.kernel_size as isize)
             / self.stride as isize
             + 1) as usize
+    }
+
+    pub fn weights(&self) -> &[f32] {
+        &self.weights
+    }
+
+    pub fn biases(&self) -> &[f32] {
+        &self.biases
     }
 }
 
@@ -804,7 +823,8 @@ fn softmax_xent_backward(
     scale: f32,
 ) -> f32 {
     let eps = 1e-9f32;
-    softmax_rows(probs_inplace, batch, NUM_CLASSES);
+    let len = batch * NUM_CLASSES;
+    softmax_rows(&mut probs_inplace[..len], batch, NUM_CLASSES);
 
     let mut loss = 0.0f32;
     for (b, &label) in labels.iter().enumerate().take(batch) {
@@ -1008,6 +1028,75 @@ fn test_accuracy(model: &mut Cnn, images: &[f32], labels: &[u8]) -> f32 {
     100.0 * (correct as f32) / (num_samples as f32)
 }
 
+// Save the CNN model in binary (little-endian i32 + f32).
+/// Serializes the CNN model to a binary file using little-endian encoding.
+///
+/// The file contains, in order:
+/// 1. Conv layer metadata: out_channels, in_channels, kernel_size, input_height, input_width (as i32)
+/// 2. All conv layer weights as 32-bit floats.
+/// 3. All conv layer biases as 32-bit floats.
+/// 4. FC layer metadata: input_size, output_size (as i32)
+/// 5. All FC layer weights as 32-bit floats.
+/// 6. All FC layer biases as 32-bit floats.
+///
+/// The function terminates the process with an error message if the file cannot be created or any write fails.
+///
+/// # Examples
+///
+/// ```
+/// // Serializes `model` to "mnist_cnn_model_best.bin".
+/// save_model(&model, "mnist_cnn_model_best.bin");
+/// ```
+fn save_model(model: &Cnn, filename: &str) {
+    let file = File::create(filename).unwrap_or_else(|_| {
+        eprintln!("Could not open file {} for writing model", filename);
+        process::exit(1);
+    });
+    let mut writer = BufWriter::new(file);
+
+    let write_i32 = |writer: &mut BufWriter<File>, value: i32| {
+        writer.write_all(&value.to_le_bytes()).unwrap_or_else(|_| {
+            eprintln!("Failed writing model data");
+            process::exit(1);
+        });
+    };
+    let write_f32 = |writer: &mut BufWriter<File>, value: f32| {
+        writer.write_all(&value.to_le_bytes()).unwrap_or_else(|_| {
+            eprintln!("Failed writing model data");
+            process::exit(1);
+        });
+    };
+
+    // Write conv layer metadata
+    write_i32(&mut writer, model.conv_layer.out_channels as i32);
+    write_i32(&mut writer, model.conv_layer.in_channels as i32);
+    write_i32(&mut writer, model.conv_layer.kernel_size as i32);
+    write_i32(&mut writer, model.conv_layer.input_height as i32);
+    write_i32(&mut writer, model.conv_layer.input_width as i32);
+
+    // Write conv layer weights and biases
+    for &value in model.conv_layer.weights() {
+        write_f32(&mut writer, value);
+    }
+    for &value in model.conv_layer.biases() {
+        write_f32(&mut writer, value);
+    }
+
+    // Write FC layer metadata
+    write_i32(&mut writer, model.fc_layer.input_size() as i32);
+    write_i32(&mut writer, model.fc_layer.output_size() as i32);
+
+    // Write FC layer weights and biases
+    for &value in model.fc_layer.weights() {
+        write_f32(&mut writer, value);
+    }
+    for &value in model.fc_layer.biases() {
+        write_f32(&mut writer, value);
+    }
+
+    println!("Model saved to {}", filename);
+}
+
 /// Entry point for training and evaluating a minimal CNN on the MNIST dataset.
 ///
 /// This program loads MNIST IDX files from ./data, trains a small convolutional
@@ -1030,14 +1119,28 @@ fn test_accuracy(model: &mut Cnn, images: &[f32], labels: &[u8]) -> f32 {
 /// ```
 fn main() {
     println!("Loading MNIST...");
-    let train_images = read_mnist_images("./data/train-images.idx3-ubyte", TRAIN_SAMPLES);
-    let train_labels = read_mnist_labels("./data/train-labels.idx1-ubyte", TRAIN_SAMPLES);
+    let mut train_images = read_mnist_images("./data/train-images.idx3-ubyte", TRAIN_SAMPLES);
+    let mut train_labels = read_mnist_labels("./data/train-labels.idx1-ubyte", TRAIN_SAMPLES);
     let test_images = read_mnist_images("./data/t10k-images.idx3-ubyte", TEST_SAMPLES);
     let test_labels = read_mnist_labels("./data/t10k-labels.idx1-ubyte", TEST_SAMPLES);
 
-    let train_n = train_labels.len();
+    // Split training data into train and validation sets
+    let total_train_samples = train_images.len() / NUM_INPUTS;
+    let validation_samples = (total_train_samples as f32 * VALIDATION_SPLIT) as usize;
+    let actual_train_samples = total_train_samples - validation_samples;
+
+    let split_point_images = actual_train_samples * NUM_INPUTS;
+    let split_point_labels = actual_train_samples;
+
+    let val_images = train_images.split_off(split_point_images);
+    let val_labels = train_labels.split_off(split_point_labels);
+
+    let train_n = actual_train_samples;
     let test_n = test_labels.len();
-    println!("Train: {} | Test: {}", train_n, test_n);
+    println!(
+        "Data split: {} training samples, {} validation samples, {} test samples",
+        actual_train_samples, validation_samples, test_n
+    );
 
     let mut rng = SimpleRng::new(1);
     rng.reseed_from_time();
@@ -1067,6 +1170,10 @@ fn main() {
     let mut _grad_input = vec![0.0f32; BATCH_SIZE * NUM_INPUTS]; // unused (first layer)
 
     let mut indices: Vec<usize> = (0..train_n).collect();
+
+    // Early stopping state
+    let mut best_val_loss = f32::INFINITY;
+    let mut epochs_without_improvement = 0usize;
 
     println!(
         "Training CNN: epochs={} batch={} lr={}",
@@ -1116,13 +1223,84 @@ fn main() {
 
         let secs = start_time.elapsed().as_secs_f32();
         let avg_loss = total_loss / train_n as f32;
+
+        // Evaluate on validation set
+        let mut val_total_loss = 0.0f32;
+        let mut val_correct = 0usize;
+        let mut val_batch_inputs = vec![0.0f32; BATCH_SIZE * NUM_INPUTS];
+        let mut val_conv_out = vec![0.0f32; BATCH_SIZE * CONV_OUT * IMG_H * IMG_W];
+        let mut val_pool_out = vec![0.0f32; BATCH_SIZE * FC_IN];
+        let mut val_pool_idx = vec![0u8; BATCH_SIZE * CONV_OUT * POOL_H * POOL_W];
+        let mut val_logits = vec![0.0f32; BATCH_SIZE * NUM_CLASSES];
+
+        for batch_start in (0..validation_samples).step_by(BATCH_SIZE) {
+            let batch_count = (validation_samples - batch_start).min(BATCH_SIZE);
+            let input_len = batch_count * NUM_INPUTS;
+            let input_start = batch_start * NUM_INPUTS;
+            val_batch_inputs[..input_len].copy_from_slice(&val_images[input_start..input_start + input_len]);
+
+            // Forward pass
+            conv_forward_relu(&mut model, batch_count, &val_batch_inputs, &mut val_conv_out);
+            maxpool_forward(batch_count, &val_conv_out, &mut val_pool_out, &mut val_pool_idx);
+            fc_forward(&mut model, batch_count, &val_pool_out, &mut val_logits);
+
+            // Apply softmax and compute loss
+            softmax_rows(&mut val_logits[..batch_count * NUM_CLASSES], batch_count, NUM_CLASSES);
+
+            // Compute loss and accuracy
+            let epsilon = 1e-9f32;
+            for row_idx in 0..batch_count {
+                let row_start = row_idx * NUM_CLASSES;
+                let label = val_labels[batch_start + row_idx] as usize;
+                let prob = val_logits[row_start + label].max(epsilon);
+                val_total_loss -= prob.ln();
+
+                // Compute accuracy
+                let row = &val_logits[row_start..row_start + NUM_CLASSES];
+                let mut predicted = 0usize;
+                let mut max_prob = row[0];
+                for (i, &value) in row.iter().enumerate().skip(1) {
+                    if value > max_prob {
+                        max_prob = value;
+                        predicted = i;
+                    }
+                }
+                if predicted == label {
+                    val_correct += 1;
+                }
+            }
+        }
+
+        let val_average_loss = val_total_loss / validation_samples as f32;
+        let val_accuracy = val_correct as f32 / validation_samples as f32 * 100.0;
+
         println!(
-            "Epoch {} | loss={:.6} | time={:.3}s",
+            "Epoch {}, Loss: {:.6}, Val Loss: {:.6}, Val Acc: {:.2}%, Time: {:.6}",
             epoch + 1,
             avg_loss,
+            val_average_loss,
+            val_accuracy,
             secs
         );
-        writeln!(log, "{},{},{}", epoch + 1, avg_loss, secs).ok();
+        writeln!(log, "{},{},{},{},{},{}", epoch + 1, avg_loss, secs, val_average_loss, val_accuracy, secs).ok();
+
+        // Early stopping check
+        if val_average_loss < best_val_loss - EARLY_STOPPING_MIN_DELTA {
+            best_val_loss = val_average_loss;
+            epochs_without_improvement = 0;
+            // Save best model
+            save_model(&model, "mnist_cnn_model_best.bin");
+        } else {
+            epochs_without_improvement += 1;
+        }
+
+        if epochs_without_improvement >= EARLY_STOPPING_PATIENCE {
+            println!(
+                "\nEarly stopping triggered! No improvement for {} epochs. Best validation loss: {:.6}",
+                EARLY_STOPPING_PATIENCE, best_val_loss
+            );
+            break;
+        }
     }
 
     println!("Testing...");
