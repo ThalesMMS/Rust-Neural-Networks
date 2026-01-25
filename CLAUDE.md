@@ -14,6 +14,7 @@ Educational neural network implementations in Rust with Python utilities for vis
 2.  **Code Coverage**: The shared library in `src/lib.rs` and `src/` modules is testable via standard unit and integration tests. Binary entry points (`main()`) and I/O code remain difficult to test without mocking, so accept lower coverage for binary-specific code.
 3.  **BLAS Safety**: When modifying matrix operations in `DenseLayer` or direct BLAS calls, double-check all dimensions (M, N, K) and Leading Dimensions (lda, ldb, ldc). Incorrect values passed to the `unsafe` CBLAS FFI will cause immediate segmentation faults.
 4.  **Layer Trait**: All layer implementations (`DenseLayer`, `Conv2DLayer`) must implement the `Layer` trait from `src/layers/trait.rs`. This provides a consistent interface for forward/backward propagation and parameter updates across different layer types.
+5.  **Validation Split**: All MNIST models use a 10% validation split (`VALIDATION_SPLIT = 0.1`), splitting the 60K training set into 54K training and 6K validation samples. The test set remains completely separate.
 
 ## Build and Test Commands
 
@@ -118,3 +119,37 @@ MNIST data files (IDX format) expected in `data/` directory. Download instructio
 -   **RNG**: Xorshift PRNG for reproducibility without external dependencies (in `src/utils/rng.rs`)
 -   **Model serialization**: Little-endian f32 binary format (not ONNX/protobuf)
 -   **Data loading**: Built-in IDX parser, no external loading libraries
+
+### Training Infrastructure
+
+All MNIST models include proper machine learning training practices:
+
+**Data Splitting:**
+-   `VALIDATION_SPLIT = 0.1` - 10% of training data reserved for validation
+-   60K training set → 54K training + 6K validation
+-   10K test set remains completely separate for final evaluation
+
+**Early Stopping:**
+-   `EARLY_STOPPING_PATIENCE = 3` - Stops after 3 epochs without improvement
+-   `EARLY_STOPPING_MIN_DELTA = 0.001` - Minimum improvement threshold
+-   Prevents overfitting and reduces unnecessary training time
+
+**Model Checkpointing:**
+-   Best model automatically saved based on validation loss (MLP/CNN) or accuracy (Attention)
+-   Checkpoint filenames: `mnist_model_best.bin`, `mnist_cnn_model_best.bin`, `mnist_attention_model_best.bin`
+-   Final model saved at end of training to standard filename
+
+**Validation Metrics:**
+-   Validation loss and accuracy computed at end of each epoch
+-   CSV logs include validation metrics: `epoch,train_loss,train_time,val_loss,val_accuracy`
+-   Enables detection of overfitting through training/validation curve comparison
+
+**Training Output Format:**
+```
+Epoch X/Y, Loss: Z, Val Loss: W, Val Acc: V%, Time: Ts
+```
+
+When validation loss plateaus, early stopping message:
+```
+Early stopping triggered after epoch X (no improvement for 3 epochs)
+```
