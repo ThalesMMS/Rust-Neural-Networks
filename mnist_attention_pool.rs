@@ -1504,8 +1504,8 @@ fn main() {
     let split_point_images = actual_train_samples * NUM_INPUTS;
     let split_point_labels = actual_train_samples;
 
-    let _val_images = train_images.split_off(split_point_images);
-    let _val_labels = train_labels.split_off(split_point_labels);
+    let val_images = train_images.split_off(split_point_images);
+    let val_labels = train_labels.split_off(split_point_labels);
 
     let test_n = test_labels.len();
     println!(
@@ -1570,24 +1570,26 @@ fn main() {
         }
 
         let avg_loss = total_loss / actual_train_samples as f32;
-        let acc = test_accuracy(&model, &test_images, &test_labels);
+
+        // Evaluate on validation set
+        let val_acc = test_accuracy(&model, &val_images, &val_labels);
         let epoch_time = epoch_start.elapsed().as_secs_f32();
 
         println!(
-            "  Epoch {:2}: loss={:.6} | test_acc={:5.2}% | time={:.2}s",
+            "  Epoch {:2}: loss={:.6} | val_acc={:5.2}% | time={:.2}s",
             epoch + 1,
             avg_loss,
-            acc,
+            val_acc,
             epoch_time
         );
 
-        // Log to file: epoch,loss,accuracy,time
+        // Log to file: epoch,loss,val_accuracy,time
         if let Err(e) = writeln!(
             log,
             "{},{:.6},{:.2},{:.2}",
             epoch + 1,
             avg_loss,
-            acc,
+            val_acc,
             epoch_time
         ) {
             eprintln!("Warning: Failed to write to log file: {}", e);
