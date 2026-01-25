@@ -77,3 +77,84 @@ pub trait LRScheduler {
     /// ```
     fn reset(&mut self);
 }
+
+/// Step decay learning rate scheduler.
+///
+/// Reduces the learning rate by a multiplicative factor (gamma) every `step_size` epochs.
+/// This is one of the most common learning rate schedules, allowing the model to make
+/// large updates early in training and fine-tune with smaller updates later.
+///
+/// Formula: lr = initial_lr * gamma^(epoch / step_size)
+///
+/// # Fields
+///
+/// * `initial_lr` - Starting learning rate
+/// * `step_size` - Number of epochs between each decay step
+/// * `gamma` - Multiplicative factor for decay (typically 0.1 to 0.5)
+/// * `current_epoch` - Current training epoch (0-indexed)
+/// * `current_lr` - Current learning rate value
+///
+/// # Example
+///
+/// ```ignore
+/// use rust_neural_networks::utils::lr_scheduler::{LRScheduler, StepDecay};
+///
+/// let mut scheduler = StepDecay::new(0.1, 3, 0.5);
+/// assert_eq!(scheduler.get_lr(), 0.1);
+///
+/// // After 3 epochs
+/// for _ in 0..3 {
+///     scheduler.step();
+/// }
+/// assert_eq!(scheduler.get_lr(), 0.05); // 0.1 * 0.5
+/// ```
+pub struct StepDecay {
+    initial_lr: f32,
+    step_size: usize,
+    gamma: f32,
+    current_epoch: usize,
+    current_lr: f32,
+}
+
+impl StepDecay {
+    /// Creates a new step decay scheduler.
+    ///
+    /// # Arguments
+    ///
+    /// * `initial_lr` - Starting learning rate (must be positive)
+    /// * `step_size` - Number of epochs between decay steps (must be > 0)
+    /// * `gamma` - Decay factor applied at each step (typically 0.1-0.5)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let scheduler = StepDecay::new(0.01, 5, 0.1);
+    /// // LR will be: 0.01 for epochs 0-4, 0.001 for epochs 5-9, etc.
+    /// ```
+    pub fn new(initial_lr: f32, step_size: usize, gamma: f32) -> Self {
+        Self {
+            initial_lr,
+            step_size,
+            gamma,
+            current_epoch: 0,
+            current_lr: initial_lr,
+        }
+    }
+}
+
+impl LRScheduler for StepDecay {
+    fn get_lr(&self) -> f32 {
+        self.current_lr
+    }
+
+    fn step(&mut self) {
+        self.current_epoch += 1;
+        let num_decays = self.current_epoch / self.step_size;
+        self.current_lr = self.initial_lr * self.gamma.powi(num_decays as i32);
+    }
+
+    fn reset(&mut self) {
+        self.current_epoch = 0;
+        self.current_lr = self.initial_lr;
+    }
+}
