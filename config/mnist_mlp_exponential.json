@@ -1,0 +1,4 @@
+{
+  "scheduler_type": "exponential",
+  "decay_rate": 0.95
+}

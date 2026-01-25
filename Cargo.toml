@@ -1,0 +1,51 @@
+[package]
+name = "rust_neural_networks"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "rust_neural_networks"
+path = "src/lib.rs"
+
+[dependencies]
+cblas = "0.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[features]
+shared_activations = []
+
+[target.'cfg(target_os = "macos")'.dependencies]
+blas-src = { version = "0.14", features = ["accelerate"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+openblas-src = { version = "0.10", features = ["static", "cblas"] }
+
+# NOTE: Windows requires OpenBLAS to be installed via vcpkg or system package.
+# Install with: vcpkg install openblas:x64-windows
+[target.'cfg(target_os = "windows")'.dependencies]
+openblas-src = { version = "0.10", features = ["system", "cblas"] }
+
+[[bin]]
+name = "mnist_mlp"
+path = "mnist_mlp.rs"
+
+[[bin]]
+name = "mlp_simple"
+path = "mlp_simple.rs"
+
+[[bin]]
+name = "mnist_cnn"
+path = "mnist_cnn.rs"
+
+[[bin]]
+name = "mnist_attention_pool"
+path = "mnist_attention_pool.rs"
+
+[dev-dependencies]
+approx = "0.5"
+tempfile = "3.24.0"
+
+[profile.release]
+lto = true
+codegen-units = 1

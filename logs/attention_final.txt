@@ -1,0 +1,29 @@
+=== MNIST Attention Model (Patch-based Transformer) ===
+Configuration:
+  Model: D_MODEL=64, FF_DIM=128
+  Patches: 7x7 grid (49 tokens)
+  Positional encoding: Sinusoidal (Transformer-style)
+  Training: 8 epochs, batch size 32, LR=0.01
+
+Loading MNIST data...
+Train samples: 60000 | Test samples: 10000
+
+Initializing model with sinusoidal positional encoding...
+Training...
+  Epoch  1: loss=2.208794 | test_acc=30.18% | time=112.81s
+  Epoch  2: loss=1.622909 | test_acc=53.18% | time=96.40s
+  Epoch  3: loss=1.020412 | test_acc=72.33% | time=114.84s
+  Epoch  4: loss=0.736559 | test_acc=80.51% | time=113.01s
+  Epoch  5: loss=0.570142 | test_acc=83.45% | time=99.01s
+  Epoch  6: loss=0.480651 | test_acc=86.31% | time=155.90s
+  Epoch  7: loss=0.408541 | test_acc=89.79% | time=141.02s
+  Epoch  8: loss=0.346679 | test_acc=91.08% | time=143.04s
+
+Training complete in 976.03s
+Evaluating final accuracy...
+
+=== Final Results ===
+Test Accuracy: 91.08%
+Total time: 989.46s
+
+Training log saved to: ./logs/training_loss_attention.txt
