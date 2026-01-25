@@ -1,6 +1,11 @@
 use std::cell::RefCell;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use rust_neural_networks::config::load_config;
+use rust_neural_networks::utils::lr_scheduler::{
+    CosineAnnealing, ExponentialDecay, LRScheduler, StepDecay,
+};
+
 // Small MLP to learn XOR (educational example).
 const NUM_INPUTS: usize = 2;
 const NUM_HIDDEN: usize = 4;
@@ -13,6 +18,34 @@ const EPOCHS: usize = 1_000_000;
 // ============================================================================
 // Internal Abstractions (Inlined for self-contained binary)
 // ============================================================================
+
+/// Constant learning rate scheduler (for backward compatibility).
+///
+/// This scheduler maintains a constant learning rate throughout training.
+/// Used when no config file is provided.
+struct ConstantLR {
+    lr: f32,
+}
+
+impl ConstantLR {
+    fn new(lr: f32) -> Self {
+        Self { lr }
+    }
+}
+
+impl LRScheduler for ConstantLR {
+    fn get_lr(&self) -> f32 {
+        self.lr
+    }
+
+    fn step(&mut self) {
+        // No-op for constant learning rate
+    }
+
+    fn reset(&mut self) {
+        // No-op for constant learning rate
+    }
+}
 
 /// Core trait for neural network layers.
 pub trait Layer {
@@ -304,30 +337,33 @@ fn forward_with_sigmoid(layer: &DenseLayer, inputs: &[f32], outputs: &mut [f32])
 ///
 /// Trains `nn` in-place for the configured number of epochs, performing a forward pass,
 /// computing errors, backpropagating gradients, and updating layer parameters using the
-/// module's learning rate. Progress is printed every 1000 epochs.
+/// provided learning rate scheduler. Progress is printed every 1000 epochs.
 ///
 /// # Parameters
 ///
 /// - `nn`: Mutable reference to the `NeuralNetwork` to train; its layers are updated in-place.
 /// - `inputs`: Array of `NUM_SAMPLES` input vectors, each of length `NUM_INPUTS`.
 /// - `expected_outputs`: Array of `NUM_SAMPLES` expected output vectors, each of length `NUM_OUTPUTS`.
+/// - `scheduler`: Mutable reference to a learning rate scheduler implementing the `LRScheduler` trait.
 ///
 /// # Examples
 ///
 /// ```
 /// # fn run() {
-/// # use crate::{initialize_network, SimpleRng, train};
+/// # use crate::{initialize_network, SimpleRng, train, ConstantLR};
 /// let mut rng = SimpleRng::new(42);
 /// let mut nn = initialize_network(&mut rng);
 /// let inputs = [ [0.0f32, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0] ];
 /// let expected = [ [0.0f32], [1.0], [1.0], [0.0] ];
-/// train(&mut nn, &inputs, &expected);
+/// let mut scheduler = ConstantLR::new(0.01);
+/// train(&mut nn, &inputs, &expected, &mut scheduler);
 /// # }
 /// ```
 fn train(
     nn: &mut NeuralNetwork,
     inputs: &[[f32; NUM_INPUTS]],
     expected_outputs: &[[f32; NUM_OUTPUTS]],
+    scheduler: &mut dyn LRScheduler,
 ) {
     // Buffer pre-allocation
     let mut hidden_outputs = vec![0.0f32; NUM_HIDDEN];
@@ -393,8 +429,9 @@ fn train(
             );
 
             // 4. NOW update both layers (after all gradients are computed).
-            nn.output_layer.update_parameters(LEARNING_RATE);
-            nn.hidden_layer.update_parameters(LEARNING_RATE);
+            let current_lr = scheduler.get_lr();
+            nn.output_layer.update_parameters(current_lr);
+            nn.hidden_layer.update_parameters(current_lr);
         }
 
         // Average loss per epoch, printed every 1000 epochs.
@@ -402,6 +439,9 @@ fn train(
         if (epoch + 1) % 1000 == 0 {
             println!("Epoch {}, Error: {:.6}", epoch + 1, loss);
         }
+
+        // Step the scheduler after each epoch
+        scheduler.step();
     }
 }
 
@@ -446,6 +486,9 @@ fn test(nn: &NeuralNetwork, inputs: &[[f32; NUM_INPUTS]], expected_outputs: &[[f
 /// trains it on the four classical XOR samples, and then prints each input alongside its
 /// expected and predicted output.
 ///
+/// Optionally loads a learning rate schedule configuration from `config.json` if available.
+/// If no config is provided, uses a constant learning rate of 0.01.
+///
 /// # Examples
 ///
 /// ```no_run
@@ -461,9 +504,52 @@ fn main() {
     let inputs: [[f32; NUM_INPUTS]; NUM_SAMPLES] = [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]];
     let expected_outputs: [[f32; NUM_OUTPUTS]; NUM_SAMPLES] = [[0.0], [1.0], [1.0], [0.0]];
 
+    // Load config and create scheduler (optional)
+    let mut scheduler: Box<dyn LRScheduler> = match load_config("config.json") {
+        Ok(config) => {
+            println!("Loaded config.json");
+            match config.scheduler_type.as_str() {
+                "step_decay" => {
+                    let step_size = config.step_size.unwrap_or(3);
+                    let gamma = config.gamma.unwrap_or(0.5);
+                    println!(
+                        "Using StepDecay scheduler: initial_lr={}, step_size={}, gamma={}",
+                        LEARNING_RATE, step_size, gamma
+                    );
+                    Box::new(StepDecay::new(LEARNING_RATE, step_size, gamma))
+                }
+                "exponential" => {
+                    let decay_rate = config.decay_rate.unwrap_or(0.95);
+                    println!(
+                        "Using ExponentialDecay scheduler: initial_lr={}, decay_rate={}",
+                        LEARNING_RATE, decay_rate
+                    );
+                    Box::new(ExponentialDecay::new(LEARNING_RATE, decay_rate))
+                }
+                "cosine_annealing" => {
+                    let min_lr = config.min_lr.unwrap_or(0.0001);
+                    let t_max = config.T_max.unwrap_or(EPOCHS);
+                    println!(
+                        "Using CosineAnnealing scheduler: initial_lr={}, min_lr={}, T_max={}",
+                        LEARNING_RATE, min_lr, t_max
+                    );
+                    Box::new(CosineAnnealing::new(LEARNING_RATE, min_lr, t_max))
+                }
+                _ => {
+                    println!("Unknown scheduler type '{}', using constant learning rate", config.scheduler_type);
+                    Box::new(ConstantLR::new(LEARNING_RATE))
+                }
+            }
+        }
+        Err(_) => {
+            println!("No config.json found, using constant learning rate: {}", LEARNING_RATE);
+            Box::new(ConstantLR::new(LEARNING_RATE))
+        }
+    };
+
     // Training and testing in the same process.
     let mut nn = initialize_network(&mut rng);
-    train(&mut nn, &inputs, &expected_outputs);
+    train(&mut nn, &inputs, &expected_outputs, scheduler.as_mut());
     test(&nn, &inputs, &expected_outputs);
 }
 
