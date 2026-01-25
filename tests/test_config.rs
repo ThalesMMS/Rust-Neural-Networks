@@ -19,8 +19,8 @@ mod valid_config_tests {
 
     #[test]
     fn test_load_step_decay_config() {
-        let config = load_config("config/mnist_mlp_step.json")
-            .expect("Failed to load step decay config");
+        let config =
+            load_config("config/mnist_mlp_step.json").expect("Failed to load step decay config");
 
         assert_eq!(config.scheduler_type, "step_decay");
         assert_eq!(config.step_size, Some(3));
@@ -279,7 +279,10 @@ mod error_handling_tests {
         let result = load_config(temp_file);
         fs::remove_file(temp_file).unwrap();
 
-        assert!(result.is_err(), "Should fail when step_size is not a number");
+        assert!(
+            result.is_err(),
+            "Should fail when step_size is not a number"
+        );
     }
 
     #[test]

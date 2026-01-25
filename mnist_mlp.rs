@@ -433,6 +433,7 @@ fn gather_batch(
 /// let val_labels = vec![0u8; 1]; // validation labels
 /// train(&mut nn, &images, &labels, 1, &val_images, &val_labels, 1, &mut rng);
 /// ```
+#[allow(clippy::too_many_arguments)]
 fn train(
     nn: &mut NeuralNetwork,
     images: &[f32],
@@ -454,7 +455,11 @@ fn train(
     let mut loss_file = BufWriter::new(file);
 
     // Write CSV header
-    writeln!(loss_file, "epoch,train_loss,train_time,val_loss,val_accuracy,learning_rate").unwrap_or_else(|_| {
+    writeln!(
+        loss_file,
+        "epoch,train_loss,train_time,val_loss,val_accuracy,learning_rate"
+    )
+    .unwrap_or_else(|_| {
         eprintln!("Failed writing CSV header.");
         process::exit(1);
     });
@@ -564,11 +569,13 @@ fn train(
             let batch_count = (val_num_samples - batch_start).min(BATCH_SIZE);
             let input_len = batch_count * NUM_INPUTS;
             let input_start = batch_start * NUM_INPUTS;
-            val_batch_inputs[..input_len].copy_from_slice(&val_images[input_start..input_start + input_len]);
+            val_batch_inputs[..input_len]
+                .copy_from_slice(&val_images[input_start..input_start + input_len]);
 
             // Forward: hidden layer
             let val_a1_len = batch_count * NUM_HIDDEN;
-            nn.hidden_layer.forward(&val_batch_inputs, &mut val_a1, batch_count);
+            nn.hidden_layer
+                .forward(&val_batch_inputs, &mut val_a1, batch_count);
             relu_inplace(&mut val_a1[..val_a1_len]);
 
             // Forward: output layer
@@ -612,7 +619,17 @@ fn train(
             current_lr,
             duration
         );
-        writeln!(loss_file, "{},{},{},{},{},{}", epoch + 1, average_loss, duration, val_average_loss, val_accuracy, current_lr).unwrap_or_else(|_| {
+        writeln!(
+            loss_file,
+            "{},{},{},{},{},{}",
+            epoch + 1,
+            average_loss,
+            duration,
+            val_average_loss,
+            val_accuracy,
+            current_lr
+        )
+        .unwrap_or_else(|_| {
             eprintln!("Failed writing training loss data.");
             process::exit(1);
         });
@@ -882,7 +899,10 @@ fn main() {
             }
         }
     } else {
-        println!("No config file provided. Using constant learning rate: {}", LEARNING_RATE);
+        println!(
+            "No config file provided. Using constant learning rate: {}",
+            LEARNING_RATE
+        );
         Box::new(ConstantLR::new(LEARNING_RATE))
     };
 

@@ -267,7 +267,9 @@ impl ExponentialDecay {
     /// let scheduler = ExponentialDecay::from_config(&config);
     /// ```
     pub fn from_config(config: &crate::config::TrainingConfig) -> Self {
-        let gamma = config.decay_rate.expect("decay_rate required for ExponentialDecay");
+        let gamma = config
+            .decay_rate
+            .expect("decay_rate required for ExponentialDecay");
         Self::new(0.01, gamma)
     }
 }

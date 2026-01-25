@@ -1239,7 +1239,10 @@ fn main() {
             }
         }
     } else {
-        println!("No config file provided. Using constant learning rate: {}", LEARNING_RATE);
+        println!(
+            "No config file provided. Using constant learning rate: {}",
+            LEARNING_RATE
+        );
         Box::new(ConstantLR::new(LEARNING_RATE))
     };
 
@@ -1334,15 +1337,30 @@ fn main() {
             let batch_count = (validation_samples - batch_start).min(BATCH_SIZE);
             let input_len = batch_count * NUM_INPUTS;
             let input_start = batch_start * NUM_INPUTS;
-            val_batch_inputs[..input_len].copy_from_slice(&val_images[input_start..input_start + input_len]);
+            val_batch_inputs[..input_len]
+                .copy_from_slice(&val_images[input_start..input_start + input_len]);
 
             // Forward pass
-            conv_forward_relu(&mut model, batch_count, &val_batch_inputs, &mut val_conv_out);
-            maxpool_forward(batch_count, &val_conv_out, &mut val_pool_out, &mut val_pool_idx);
+            conv_forward_relu(
+                &mut model,
+                batch_count,
+                &val_batch_inputs,
+                &mut val_conv_out,
+            );
+            maxpool_forward(
+                batch_count,
+                &val_conv_out,
+                &mut val_pool_out,
+                &mut val_pool_idx,
+            );
             fc_forward(&mut model, batch_count, &val_pool_out, &mut val_logits);
 
             // Apply softmax and compute loss
-            softmax_rows(&mut val_logits[..batch_count * NUM_CLASSES], batch_count, NUM_CLASSES);
+            softmax_rows(
+                &mut val_logits[..batch_count * NUM_CLASSES],
+                batch_count,
+                NUM_CLASSES,
+            );
 
             // Compute loss and accuracy
             let epsilon = 1e-9f32;
@@ -1379,7 +1397,17 @@ fn main() {
             val_accuracy,
             secs
         );
-        writeln!(log, "{},{},{},{},{},{}", epoch + 1, avg_loss, secs, val_average_loss, val_accuracy, secs).ok();
+        writeln!(
+            log,
+            "{},{},{},{},{},{}",
+            epoch + 1,
+            avg_loss,
+            secs,
+            val_average_loss,
+            val_accuracy,
+            secs
+        )
+        .ok();
 
         // Early stopping check
         if val_average_loss < best_val_loss - EARLY_STOPPING_MIN_DELTA {

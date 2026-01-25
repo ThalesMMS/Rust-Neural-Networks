@@ -536,13 +536,19 @@ fn main() {
                     Box::new(CosineAnnealing::new(LEARNING_RATE, min_lr, t_max))
                 }
                 _ => {
-                    println!("Unknown scheduler type '{}', using constant learning rate", config.scheduler_type);
+                    println!(
+                        "Unknown scheduler type '{}', using constant learning rate",
+                        config.scheduler_type
+                    );
                     Box::new(ConstantLR::new(LEARNING_RATE))
                 }
             }
         }
         Err(_) => {
-            println!("No config.json found, using constant learning rate: {}", LEARNING_RATE);
+            println!(
+                "No config.json found, using constant learning rate: {}",
+                LEARNING_RATE
+            );
             Box::new(ConstantLR::new(LEARNING_RATE))
         }
     };

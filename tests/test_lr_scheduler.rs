@@ -6,7 +6,9 @@
 //! - CosineAnnealing: cosine curve decay to minimum
 
 use approx::assert_relative_eq;
-use rust_neural_networks::utils::lr_scheduler::{CosineAnnealing, ExponentialDecay, LRScheduler, StepDecay};
+use rust_neural_networks::utils::lr_scheduler::{
+    CosineAnnealing, ExponentialDecay, LRScheduler, StepDecay,
+};
 
 // ============================================================================
 // StepDecay Tests
@@ -382,7 +384,12 @@ mod cosine_annealing_tests {
             let lr = scheduler.get_lr();
             assert!(lr <= 0.1, "LR {} > initial_lr at epoch {}", lr, i + 1);
             // Note: LR can go slightly below eta_min due to floating point precision
-            assert!(lr >= 0.009, "LR {} significantly below eta_min at epoch {}", lr, i + 1);
+            assert!(
+                lr >= 0.009,
+                "LR {} significantly below eta_min at epoch {}",
+                lr,
+                i + 1
+            );
         }
     }
 
@@ -416,7 +423,10 @@ mod cosine_annealing_tests {
         for _ in 0..5 {
             scheduler.step();
             let curr_lr = scheduler.get_lr();
-            assert!(curr_lr < prev_lr, "LR should decrease monotonically in first half");
+            assert!(
+                curr_lr < prev_lr,
+                "LR should decrease monotonically in first half"
+            );
             prev_lr = curr_lr;
         }
     }
@@ -435,7 +445,12 @@ mod cosine_annealing_tests {
         // Verify smooth decay (no sudden jumps)
         for i in 1..lrs.len() {
             let change = (lrs[i] - lrs[i - 1]).abs();
-            assert!(change < 0.05, "Large LR jump detected: {} to {}", lrs[i - 1], lrs[i]);
+            assert!(
+                change < 0.05,
+                "Large LR jump detected: {} to {}",
+                lrs[i - 1],
+                lrs[i]
+            );
         }
     }
 
@@ -569,8 +584,8 @@ mod comparison_tests {
 
     #[test]
     fn test_exponential_vs_step_decay_pattern() {
-        let mut step = StepDecay::new(0.1, 1, 0.95);  // decay every epoch
-        let mut exp = ExponentialDecay::new(0.1, 0.95);  // decay every epoch
+        let mut step = StepDecay::new(0.1, 1, 0.95); // decay every epoch
+        let mut exp = ExponentialDecay::new(0.1, 0.95); // decay every epoch
 
         // When step_size=1, StepDecay and ExponentialDecay should be identical
         for _ in 0..10 {
@@ -592,8 +607,16 @@ mod comparison_tests {
             step.step();
             exp.step();
 
-            assert_eq!(step.get_lr(), step_initial, "StepDecay changed before boundary at epoch {}", i + 1);
-            assert!(exp.get_lr() < 0.1, "ExponentialDecay should continuously decrease");
+            assert_eq!(
+                step.get_lr(),
+                step_initial,
+                "StepDecay changed before boundary at epoch {}",
+                i + 1
+            );
+            assert!(
+                exp.get_lr() < 0.1,
+                "ExponentialDecay should continuously decrease"
+            );
         }
 
         // At step boundary, StepDecay changes

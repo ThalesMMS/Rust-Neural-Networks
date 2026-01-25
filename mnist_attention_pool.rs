@@ -1639,17 +1639,15 @@ fn main() {
     // Create scheduler based on config
     let mut scheduler: Box<dyn LRScheduler> = if let Some(path) = config_path {
         match load_config(&path) {
-            Ok(config) => {
-                match config.scheduler_type.as_str() {
-                    "step" => Box::new(StepDecay::from_config(&config)),
-                    "exponential" => Box::new(ExponentialDecay::from_config(&config)),
-                    "cosine" => Box::new(CosineAnnealing::from_config(&config)),
-                    _ => {
-                        eprintln!("Unknown scheduler type: {}", config.scheduler_type);
-                        Box::new(ConstantLR::new(LEARNING_RATE))
-                    }
+            Ok(config) => match config.scheduler_type.as_str() {
+                "step" => Box::new(StepDecay::from_config(&config)),
+                "exponential" => Box::new(ExponentialDecay::from_config(&config)),
+                "cosine" => Box::new(CosineAnnealing::from_config(&config)),
+                _ => {
+                    eprintln!("Unknown scheduler type: {}", config.scheduler_type);
+                    Box::new(ConstantLR::new(LEARNING_RATE))
                 }
-            }
+            },
             Err(e) => {
                 eprintln!("Failed to load config from {}: {}", path, e);
                 Box::new(ConstantLR::new(LEARNING_RATE))
