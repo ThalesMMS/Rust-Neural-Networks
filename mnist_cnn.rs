@@ -40,6 +40,7 @@ const FC_IN: usize = CONV_OUT * POOL_H * POOL_W; // 8*14*14 = 1568
 const LEARNING_RATE: f32 = 0.01;
 const EPOCHS: usize = 3;
 const BATCH_SIZE: usize = 32;
+const VALIDATION_SPLIT: f32 = 0.1; // 10% of training data for validation
 
 // ============================================================================
 // Internal Abstractions (Inlined for self-contained binary)
@@ -1030,14 +1031,28 @@ fn test_accuracy(model: &mut Cnn, images: &[f32], labels: &[u8]) -> f32 {
 /// ```
 fn main() {
     println!("Loading MNIST...");
-    let train_images = read_mnist_images("./data/train-images.idx3-ubyte", TRAIN_SAMPLES);
-    let train_labels = read_mnist_labels("./data/train-labels.idx1-ubyte", TRAIN_SAMPLES);
+    let mut train_images = read_mnist_images("./data/train-images.idx3-ubyte", TRAIN_SAMPLES);
+    let mut train_labels = read_mnist_labels("./data/train-labels.idx1-ubyte", TRAIN_SAMPLES);
     let test_images = read_mnist_images("./data/t10k-images.idx3-ubyte", TEST_SAMPLES);
     let test_labels = read_mnist_labels("./data/t10k-labels.idx1-ubyte", TEST_SAMPLES);
 
-    let train_n = train_labels.len();
+    // Split training data into train and validation sets
+    let total_train_samples = train_images.len() / NUM_INPUTS;
+    let validation_samples = (total_train_samples as f32 * VALIDATION_SPLIT) as usize;
+    let actual_train_samples = total_train_samples - validation_samples;
+
+    let split_point_images = actual_train_samples * NUM_INPUTS;
+    let split_point_labels = actual_train_samples;
+
+    let _val_images = train_images.split_off(split_point_images);
+    let _val_labels = train_labels.split_off(split_point_labels);
+
+    let train_n = actual_train_samples;
     let test_n = test_labels.len();
-    println!("Train: {} | Test: {}", train_n, test_n);
+    println!(
+        "Data split: {} training samples, {} validation samples, {} test samples",
+        actual_train_samples, validation_samples, test_n
+    );
 
     let mut rng = SimpleRng::new(1);
     rng.reseed_from_time();
