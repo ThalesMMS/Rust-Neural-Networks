@@ -16,6 +16,8 @@ const LEARNING_RATE: f32 = 0.01;
 const EPOCHS: usize = 10;
 const BATCH_SIZE: usize = 64;
 const VALIDATION_SPLIT: f32 = 0.1; // 10% of training data for validation
+const EARLY_STOPPING_PATIENCE: usize = 3; // Number of epochs without improvement before stopping
+const EARLY_STOPPING_MIN_DELTA: f32 = 0.001; // Minimum change to be considered an improvement
 
 // ============================================================================
 // Internal Abstractions (Inlined for self-contained binary)
@@ -426,6 +428,11 @@ fn train(
     let mut indices: Vec<usize> = (0..num_samples).collect();
 
     let mut unused_grad = vec![0.0f32; BATCH_SIZE * NUM_INPUTS]; // Preallocate reusable buffer.
+
+    // Early stopping state
+    let mut best_val_loss = f32::INFINITY;
+    let mut epochs_without_improvement = 0usize;
+
     for epoch in 0..EPOCHS {
         let mut total_loss = 0.0f32;
         let start_time = Instant::now();
@@ -566,6 +573,22 @@ fn train(
             eprintln!("Failed writing training loss data.");
             process::exit(1);
         });
+
+        // Early stopping check
+        if val_average_loss < best_val_loss - EARLY_STOPPING_MIN_DELTA {
+            best_val_loss = val_average_loss;
+            epochs_without_improvement = 0;
+        } else {
+            epochs_without_improvement += 1;
+        }
+
+        if epochs_without_improvement >= EARLY_STOPPING_PATIENCE {
+            println!(
+                "\nEarly stopping triggered! No improvement for {} epochs. Best validation loss: {:.6}",
+                EARLY_STOPPING_PATIENCE, best_val_loss
+            );
+            break;
+        }
     }
 }
 
