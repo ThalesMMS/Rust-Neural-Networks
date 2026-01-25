@@ -323,7 +323,8 @@ impl LRScheduler for StepDecay {
     ///
     /// ```
     /// use rust_neural_networks::utils::lr_scheduler::LRScheduler;
-    /// let sched = rust_neural_networks::utils::lr_scheduler::ExponentialDecay::new(0.1, 0.95);
+    /// let sched = rust_neural_networks::utils::lr_scheduler::StepDecay::new(0.1, 10, 0.5)
+    ///     .expect("step_size must be > 0");
     /// assert_eq!(sched.get_lr(), 0.1);
     /// ```
     fn get_lr(&self) -> f32 {
@@ -481,7 +482,7 @@ impl LRScheduler for ExponentialDecay {
     ///
     /// ```
     /// use rust_neural_networks::utils::lr_scheduler::LRScheduler;
-    /// let sched = rust_neural_networks::utils::lr_scheduler::CosineAnnealing::new(0.1, 0.001, 100);
+    /// let sched = rust_neural_networks::utils::lr_scheduler::ExponentialDecay::new(0.1, 0.95);
     /// assert_eq!(sched.get_lr(), 0.1);
     /// ```
     fn get_lr(&self) -> f32 {
@@ -644,8 +645,7 @@ impl LRScheduler for CosineAnnealing {
     ///
     /// ```
     /// use rust_neural_networks::utils::lr_scheduler::LRScheduler;
-    /// let sched = rust_neural_networks::utils::lr_scheduler::StepDecay::new(0.1, 10, 0.5)
-    ///     .expect("step_size must be > 0");
+    /// let sched = rust_neural_networks::utils::lr_scheduler::CosineAnnealing::new(0.1, 0.001, 100);
     /// assert_eq!(sched.get_lr(), 0.1);
     /// ```
     fn get_lr(&self) -> f32 {

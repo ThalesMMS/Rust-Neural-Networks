@@ -19,7 +19,7 @@ use std::io::{BufWriter, Write};
 use std::process;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use rust_neural_networks::utils::lr_scheduler::{create_scheduler_from_config, LRScheduler};
+use rust_neural_networks::utils::lr_scheduler::create_scheduler_from_config;
 
 // MNIST constants (images are flat 28x28 in row-major order).
 const IMG_H: usize = 28;
