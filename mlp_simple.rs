@@ -28,20 +28,59 @@ struct ConstantLR {
 }
 
 impl ConstantLR {
+    /// Creates a ConstantLR scheduler with the specified learning rate.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let sched = ConstantLR::new(0.01);
+    /// ```
     fn new(lr: f32) -> Self {
         Self { lr }
     }
 }
 
 impl LRScheduler for ConstantLR {
+    /// Get the current learning rate.
+    ///
+    /// # Returns
+    ///
+    /// The current learning rate value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let sched = ConstantLR::new(0.01);
+    /// assert_eq!(sched.get_lr(), 0.01);
+    /// ```
     fn get_lr(&self) -> f32 {
         self.lr
     }
 
+    /// Advance the scheduler by one step; for ConstantLR this has no effect.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut sched = ConstantLR::new(0.05);
+    /// let lr_before = sched.get_lr();
+    /// sched.step();
+    /// assert_eq!(sched.get_lr(), lr_before);
+    /// ```
     fn step(&mut self) {
         // No-op for constant learning rate
     }
 
+    /// Resets the scheduler to its initial state.
+    ///
+    /// This implementation has no internal state, so calling `reset` has no effect.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut sched = ConstantLR::new(0.1);
+    /// sched.reset();
+    /// ```
     fn reset(&mut self) {
         // No-op for constant learning rate
     }
@@ -333,29 +372,31 @@ fn forward_with_sigmoid(layer: &DenseLayer, inputs: &[f32], outputs: &mut [f32])
 }
 
 // Training with mean squared error per sample.
-/// Trains the neural network on the provided dataset using per-sample gradient updates.
+/// Train the neural network in-place using per-sample gradient updates and a learning-rate scheduler.
 ///
-/// Trains `nn` in-place for the configured number of epochs, performing a forward pass,
-/// computing errors, backpropagating gradients, and updating layer parameters using the
-/// provided learning rate scheduler. Progress is printed every 1000 epochs.
+/// Performs forward passes, computes errors, backpropagates gradients, updates layer parameters
+/// using the scheduler's current learning rate, and steps the scheduler after each epoch.
+/// Prints the average loss every 1000 epochs.
 ///
-/// # Parameters
+/// # Arguments
 ///
-/// - `nn`: Mutable reference to the `NeuralNetwork` to train; its layers are updated in-place.
-/// - `inputs`: Array of `NUM_SAMPLES` input vectors, each of length `NUM_INPUTS`.
-/// - `expected_outputs`: Array of `NUM_SAMPLES` expected output vectors, each of length `NUM_OUTPUTS`.
-/// - `scheduler`: Mutable reference to a learning rate scheduler implementing the `LRScheduler` trait.
+/// * `nn` - Mutable reference to the `NeuralNetwork` to train; its layer parameters are updated in-place.
+/// * `inputs` - Array of `NUM_SAMPLES` input vectors (each of length `NUM_INPUTS`).
+/// * `expected_outputs` - Array of `NUM_SAMPLES` expected output vectors (each of length `NUM_OUTPUTS`).
+/// * `scheduler` - Mutable reference to an `LRScheduler` used to obtain the current learning rate and to be stepped each epoch.
 ///
 /// # Examples
 ///
 /// ```
 /// # fn run() {
-/// # use crate::{initialize_network, SimpleRng, train, ConstantLR};
+/// use crate::{initialize_network, SimpleRng, train, ConstantLR};
+///
 /// let mut rng = SimpleRng::new(42);
 /// let mut nn = initialize_network(&mut rng);
 /// let inputs = [ [0.0f32, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0] ];
 /// let expected = [ [0.0f32], [1.0], [1.0], [0.0] ];
 /// let mut scheduler = ConstantLR::new(0.01);
+///
 /// train(&mut nn, &inputs, &expected, &mut scheduler);
 /// # }
 /// ```
@@ -480,20 +521,15 @@ fn test(nn: &NeuralNetwork, inputs: &[[f32; NUM_INPUTS]], expected_outputs: &[[f
     }
 }
 
-/// Trains a small neural network on the XOR dataset and prints predictions for each input.
+/// Train a two-layer neural network on the XOR dataset and print each input with its expected and predicted output.
 ///
-/// The program initializes the network with a fixed RNG seed for partial reproducibility,
-/// trains it on the four classical XOR samples, and then prints each input alongside its
-/// expected and predicted output.
-///
-/// Optionally loads a learning rate schedule configuration from `config.json` if available.
-/// If no config is provided, uses a constant learning rate of 0.01.
+/// Uses a fixed RNG seed for partial reproducibility. If `config.json` is present, a learning-rate scheduler
+/// specified there is used; otherwise a constant learning rate is applied.
 ///
 /// # Examples
 ///
 /// ```no_run
 /// // Run the binary to train and evaluate the XOR network.
-/// // Executing the program trains the network and displays test results.
 /// crate::main();
 /// ```
 fn main() {

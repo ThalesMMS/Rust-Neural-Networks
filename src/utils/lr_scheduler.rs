@@ -117,19 +117,22 @@ pub struct StepDecay {
 }
 
 impl StepDecay {
-    /// Creates a new step decay scheduler.
+    /// Creates a step-wise learning rate scheduler that multiplies the learning rate by `gamma` every `step_size` epochs.
     ///
-    /// # Arguments
+    /// # Parameters
     ///
-    /// * `initial_lr` - Starting learning rate (must be positive)
-    /// * `step_size` - Number of epochs between decay steps (must be > 0)
-    /// * `gamma` - Decay factor applied at each step (typically 0.1-0.5)
+    /// - `initial_lr`: Starting learning rate; must be greater than 0.0.
+    /// - `step_size`: Number of epochs between decay steps; must be greater than 0.
+    /// - `gamma`: Decay factor applied at each step; typically between 0.0 and 1.0.
     ///
-    /// # Example
+    /// # Examples
     ///
-    /// ```ignore
-    /// let scheduler = StepDecay::new(0.01, 5, 0.1);
-    /// // LR will be: 0.01 for epochs 0-4, 0.001 for epochs 5-9, etc.
+    /// ```
+    /// let mut scheduler = StepDecay::new(0.01, 5, 0.1);
+    /// assert_eq!(scheduler.get_lr(), 0.01);
+    /// // advance 5 epochs
+    /// for _ in 0..5 { scheduler.step(); }
+    /// assert_eq!(scheduler.get_lr(), 0.001);
     /// ```
     pub fn new(initial_lr: f32, step_size: usize, gamma: f32) -> Self {
         Self {
@@ -141,24 +144,24 @@ impl StepDecay {
         }
     }
 
-    /// Creates a StepDecay scheduler from a TrainingConfig.
+    /// Create a StepDecay scheduler from a TrainingConfig.
     ///
-    /// Uses LEARNING_RATE constant from the binary as initial learning rate.
-    ///
-    /// # Arguments
-    ///
-    /// * `config` - Training configuration containing scheduler parameters
+    /// The `config` must provide `step_size` and `gamma`; those values are used to
+    /// construct the scheduler. This function sets the scheduler's initial learning
+    /// rate to 0.01 as a placeholder.
     ///
     /// # Panics
     ///
-    /// Panics if required fields (step_size, gamma) are missing from the config.
+    /// Panics if `step_size` or `gamma` are missing from `config`.
     ///
-    /// # Example
+    /// # Examples
     ///
-    /// ```ignore
+    /// ```
     /// use rust_neural_networks::config::load_config;
+    ///
     /// let config = load_config("config/mnist_mlp_step.json").unwrap();
-    /// let scheduler = StepDecay::from_config(&config);
+    /// let scheduler = rust_neural_networks::utils::lr_scheduler::StepDecay::from_config(&config);
+    /// assert_eq!(scheduler.get_lr(), 0.01);
     /// ```
     pub fn from_config(config: &crate::config::TrainingConfig) -> Self {
         let step_size = config.step_size.expect("step_size required for StepDecay");
@@ -170,16 +173,59 @@ impl StepDecay {
 }
 
 impl LRScheduler for StepDecay {
+    /// Retrieve the current learning rate used for training.
+    ///
+    /// # Returns
+    ///
+    /// The current learning rate (`f32`).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let sched = crate::utils::lr_scheduler::StepDecay::new(0.1, 10, 0.5);
+    /// assert_eq!(sched.get_lr(), 0.1);
+    /// ```
     fn get_lr(&self) -> f32 {
         self.current_lr
     }
 
+    /// Advances the scheduler by one epoch and updates the current learning rate.
+    ///
+    /// After calling this method the scheduler's internal epoch counter is incremented
+    /// and the current learning rate is recalculated according to the schedule.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut sched = crate::utils::lr_scheduler::StepDecay::new(0.1, 2, 0.5);
+    /// assert_eq!(sched.get_lr(), 0.1);
+    /// sched.step(); // epoch 1 -> no decay yet
+    /// assert_eq!(sched.get_lr(), 0.1);
+    /// sched.step(); // epoch 2 -> one decay applied
+    /// assert_eq!(sched.get_lr(), 0.05);
+    /// ```
     fn step(&mut self) {
         self.current_epoch += 1;
         let num_decays = self.current_epoch / self.step_size;
         self.current_lr = self.initial_lr * self.gamma.powi(num_decays as i32);
     }
 
+    /// Resets the scheduler to its initial state.
+    ///
+    /// After calling this method the current epoch is set to 0 and the current learning rate
+    /// is restored to the scheduler's initial learning rate.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut sched = StepDecay::new(0.1, 5, 0.5);
+    /// // advance the scheduler so lr changes
+    /// sched.step();
+    /// assert_ne!(sched.get_lr(), 0.1);
+    /// // reset to initial state
+    /// sched.reset();
+    /// assert_eq!(sched.get_lr(), 0.1);
+    /// ```
     fn reset(&mut self) {
         self.current_epoch = 0;
         self.current_lr = self.initial_lr;
@@ -225,18 +271,21 @@ pub struct ExponentialDecay {
 }
 
 impl ExponentialDecay {
-    /// Creates a new exponential decay scheduler.
+    /// Creates an exponential learning-rate scheduler that multiplies the learning rate by `gamma` each epoch.
     ///
     /// # Arguments
     ///
-    /// * `initial_lr` - Starting learning rate (must be positive)
-    /// * `gamma` - Decay factor applied each epoch (typically 0.95-0.99)
+    /// * `initial_lr` - Starting learning rate; should be greater than 0.0.
+    /// * `gamma` - Decay factor applied each epoch (typical values are between 0.0 and 1.0, e.g., 0.95–0.99).
     ///
-    /// # Example
+    /// # Examples
     ///
-    /// ```ignore
-    /// let scheduler = ExponentialDecay::new(0.01, 0.96);
-    /// // LR will be: 0.01 at epoch 0, 0.0096 at epoch 1, 0.009216 at epoch 2, etc.
+    /// ```
+    /// let mut sched = ExponentialDecay::new(0.01, 0.96);
+    /// // epoch 0
+    /// assert!((sched.get_lr() - 0.01).abs() < 1e-8);
+    /// sched.step(); // advance to epoch 1
+    /// assert!((sched.get_lr() - 0.01 * 0.96).abs() < 1e-8);
     /// ```
     pub fn new(initial_lr: f32, gamma: f32) -> Self {
         Self {
@@ -249,22 +298,16 @@ impl ExponentialDecay {
 
     /// Creates an ExponentialDecay scheduler from a TrainingConfig.
     ///
-    /// Uses decay_rate from config as gamma parameter.
-    ///
-    /// # Arguments
-    ///
-    /// * `config` - Training configuration containing scheduler parameters
-    ///
     /// # Panics
+    /// Panics if `config.decay_rate` is `None`.
     ///
-    /// Panics if required field (decay_rate) is missing from the config.
+    /// # Examples
     ///
-    /// # Example
-    ///
-    /// ```ignore
+    /// ```
     /// use rust_neural_networks::config::load_config;
     /// let config = load_config("config/mnist_mlp_exponential.json").unwrap();
     /// let scheduler = ExponentialDecay::from_config(&config);
+    /// assert_eq!(scheduler.get_lr(), 0.01);
     /// ```
     pub fn from_config(config: &crate::config::TrainingConfig) -> Self {
         let gamma = config
@@ -275,15 +318,57 @@ impl ExponentialDecay {
 }
 
 impl LRScheduler for ExponentialDecay {
+    /// Retrieve the current learning rate used for training.
+    ///
+    /// # Returns
+    ///
+    /// The current learning rate (`f32`).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let sched = crate::utils::lr_scheduler::StepDecay::new(0.1, 10, 0.5);
+    /// assert_eq!(sched.get_lr(), 0.1);
+    /// ```
     fn get_lr(&self) -> f32 {
         self.current_lr
     }
 
+    /// Advance the scheduler by one epoch and update the current learning rate.
+    ///
+    /// Increments the internal epoch counter and recalculates `current_lr` based on
+    /// the initial learning rate and the decay factor.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut sched = ExponentialDecay::new(0.1, 0.9);
+    /// assert_eq!(sched.get_lr(), 0.1);
+    /// sched.step();
+    /// let expected = 0.1 * 0.9_f32.powi(1);
+    /// assert!((sched.get_lr() - expected).abs() < 1e-6);
+    /// ```
     fn step(&mut self) {
         self.current_epoch += 1;
         self.current_lr = self.initial_lr * self.gamma.powi(self.current_epoch as i32);
     }
 
+    /// Resets the scheduler to its initial state.
+    ///
+    /// After calling this method the current epoch is set to 0 and the current learning rate
+    /// is restored to the scheduler's initial learning rate.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut sched = StepDecay::new(0.1, 5, 0.5);
+    /// // advance the scheduler so lr changes
+    /// sched.step();
+    /// assert_ne!(sched.get_lr(), 0.1);
+    /// // reset to initial state
+    /// sched.reset();
+    /// assert_eq!(sched.get_lr(), 0.1);
+    /// ```
     fn reset(&mut self) {
         self.current_epoch = 0;
         self.current_lr = self.initial_lr;
@@ -335,19 +420,21 @@ pub struct CosineAnnealing {
 }
 
 impl CosineAnnealing {
-    /// Creates a new cosine annealing scheduler.
+    /// Creates a cosine-annealing learning rate scheduler that decays the learning rate
+    /// from `initial_lr` down to `eta_min` following a half-cosine curve over `t_max` epochs.
     ///
-    /// # Arguments
+    /// `initial_lr` should be greater than 0. `t_max` must be greater than 0; `eta_min` may be
+    /// equal to or greater than 0.
     ///
-    /// * `initial_lr` - Maximum learning rate at the start (must be positive)
-    /// * `eta_min` - Minimum learning rate at the end of the cycle (typically 0.0)
-    /// * `t_max` - Number of epochs for one complete cosine cycle (must be > 0)
+    /// # Examples
     ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let scheduler = CosineAnnealing::new(0.01, 0.0001, 50);
-    /// // LR will smoothly decay from 0.01 to 0.0001 over 50 epochs
+    /// ```rust
+    /// let mut sched = CosineAnnealing::new(0.01, 0.0001, 50);
+    /// // initial learning rate is the starting value
+    /// assert_eq!(sched.get_lr(), 0.01);
+    /// // advancing the scheduler reduces the learning rate
+    /// sched.step();
+    /// assert!(sched.get_lr() < 0.01);
     /// ```
     pub fn new(initial_lr: f32, eta_min: f32, t_max: usize) -> Self {
         Self {
@@ -359,24 +446,20 @@ impl CosineAnnealing {
         }
     }
 
-    /// Creates a CosineAnnealing scheduler from a TrainingConfig.
+    /// Constructs a CosineAnnealing scheduler from a TrainingConfig.
     ///
-    /// Uses min_lr and T_max from config.
-    ///
-    /// # Arguments
-    ///
-    /// * `config` - Training configuration containing scheduler parameters
+    /// Reads `min_lr` and `T_max` from the provided config and uses them as `eta_min`
+    /// and `t_max` respectively. Panics if either `min_lr` or `T_max` is missing.
     ///
     /// # Panics
     ///
-    /// Panics if required fields (min_lr, T_max) are missing from the config.
+    /// Panics if `config.min_lr` or `config.T_max` is `None`.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```ignore
-    /// use rust_neural_networks::config::load_config;
-    /// let config = load_config("config/mnist_mlp_cosine.json").unwrap();
-    /// let scheduler = CosineAnnealing::from_config(&config);
+    /// let config = crate::config::load_config("config/mnist_mlp_cosine.json").unwrap();
+    /// let scheduler = crate::utils::lr_scheduler::CosineAnnealing::from_config(&config);
     /// ```
     pub fn from_config(config: &crate::config::TrainingConfig) -> Self {
         let eta_min = config.min_lr.expect("min_lr required for CosineAnnealing");
@@ -386,10 +469,36 @@ impl CosineAnnealing {
 }
 
 impl LRScheduler for CosineAnnealing {
+    /// Retrieve the current learning rate used for training.
+    ///
+    /// # Returns
+    ///
+    /// The current learning rate (`f32`).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let sched = crate::utils::lr_scheduler::StepDecay::new(0.1, 10, 0.5);
+    /// assert_eq!(sched.get_lr(), 0.1);
+    /// ```
     fn get_lr(&self) -> f32 {
         self.current_lr
     }
 
+    /// Advances the scheduler by one epoch and updates the current learning rate using cosine annealing.
+    ///
+    /// Increments the internal epoch counter and sets `current_lr` to a value between `initial_lr`
+    /// and `eta_min` according to the cosine progression over `t_max` epochs.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut sched = CosineAnnealing::new(0.1, 0.001, 100);
+    /// let before = sched.get_lr();
+    /// sched.step();
+    /// let after = sched.get_lr();
+    /// assert!(after >= 0.001 && after <= before);
+    /// ```
     fn step(&mut self) {
         self.current_epoch += 1;
         let progress = (self.current_epoch as f32) / (self.t_max as f32);
@@ -397,6 +506,22 @@ impl LRScheduler for CosineAnnealing {
         self.current_lr = self.eta_min + (self.initial_lr - self.eta_min) * cosine_term;
     }
 
+    /// Resets the scheduler to its initial state.
+    ///
+    /// After calling this method the current epoch is set to 0 and the current learning rate
+    /// is restored to the scheduler's initial learning rate.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut sched = StepDecay::new(0.1, 5, 0.5);
+    /// // advance the scheduler so lr changes
+    /// sched.step();
+    /// assert_ne!(sched.get_lr(), 0.1);
+    /// // reset to initial state
+    /// sched.reset();
+    /// assert_eq!(sched.get_lr(), 0.1);
+    /// ```
     fn reset(&mut self) {
         self.current_epoch = 0;
         self.current_lr = self.initial_lr;

@@ -49,36 +49,19 @@ pub struct TrainingConfig {
 
 /// Loads a training configuration from a JSON file.
 ///
-/// This function reads a JSON file at the specified path and deserializes it into
-/// a `TrainingConfig` struct. The file should contain valid JSON matching the
-/// structure defined by `TrainingConfig`.
-///
-/// # Arguments
-///
-/// * `path` - Path to the JSON configuration file
+/// Reads the file at `path` and deserializes its JSON contents into a `TrainingConfig`.
 ///
 /// # Returns
 ///
-/// Returns `Ok(TrainingConfig)` if the file is successfully read and parsed,
-/// or an error if the file cannot be read or contains invalid JSON.
-///
-/// # Errors
-///
-/// This function will return an error if:
-/// - The file does not exist or cannot be read
-/// - The file contains invalid JSON syntax
-/// - The JSON structure does not match the expected `TrainingConfig` format
+/// `Ok(TrainingConfig)` on success, or an error if the file cannot be read or the JSON is invalid.
 ///
 /// # Examples
 ///
-/// ```ignore
-/// use rust_neural_networks::config::load_config;
+/// ```no_run
+/// use crate::config::load_config;
 ///
-/// // Load a step decay scheduler configuration
-/// let config = load_config("config/mnist_mlp_step.json").unwrap();
-/// assert_eq!(config.scheduler_type, "step_decay");
-/// assert_eq!(config.step_size, Some(3));
-/// assert_eq!(config.gamma, Some(0.5));
+/// let cfg = load_config("config/mnist_mlp_step.json").unwrap();
+/// assert_eq!(cfg.scheduler_type, "step_decay");
 /// ```
 pub fn load_config(path: &str) -> Result<TrainingConfig, Box<dyn Error>> {
     let contents = fs::read_to_string(path)?;

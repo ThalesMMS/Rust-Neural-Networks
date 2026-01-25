@@ -38,20 +38,61 @@ struct ConstantLR {
 }
 
 impl ConstantLR {
+    /// Create a `ConstantLR` that always yields the given learning rate.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let sched = ConstantLR::new(0.01);
+    /// assert_eq!(sched.get_lr(), 0.01);
+    /// ```
     fn new(lr: f32) -> Self {
         Self { lr }
     }
 }
 
 impl LRScheduler for ConstantLR {
+    /// Retrieve the configured constant learning rate.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let sched = ConstantLR::new(0.01);
+    /// let lr = sched.get_lr();
+    /// assert_eq!(lr, 0.01_f32);
+    /// ```
     fn get_lr(&self) -> f32 {
         self.lr
     }
 
+    /// Advance the scheduler to the next step. For `ConstantLR` this is a no-op.
+    ///
+    /// This implementation does not change the learning rate or any internal state.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut s = ConstantLR::new(0.01);
+    /// let lr_before = s.get_lr();
+    /// s.step();
+    /// assert_eq!(s.get_lr(), lr_before);
+    /// ```
     fn step(&mut self) {
         // No-op for constant learning rate
     }
 
+    /// Resets the scheduler to its initial state.
+    ///
+    /// For ConstantLR this operation has no effect.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut scheduler = ConstantLR::new(0.01);
+    /// scheduler.step();
+    /// scheduler.reset();
+    /// assert_eq!(scheduler.get_lr(), 0.01);
+    /// ```
     fn reset(&mut self) {
         // No-op for constant learning rate
     }
@@ -415,23 +456,21 @@ fn gather_batch(
 }
 
 // Training with shuffling and minibatches.
-/// Trains the neural network using minibatch stochastic gradient descent, logging per-epoch loss, validation metrics, and duration.
+/// Trains the neural network for the configured number of epochs using minibatch SGD, updating the network in-place and appending per-epoch metrics to ./logs/training_loss_c.txt.
 ///
-/// This function performs training for a fixed number of epochs using minibatches, updates the
-/// network parameters in-place, and appends per-epoch training loss, validation loss, validation accuracy,
-/// and elapsed time to ./logs/training_loss_c.txt. It also prints epoch-level metrics and timing to standard output.
+/// Evaluates on the provided validation set each epoch, uses the scheduler's current learning rate for parameter updates, saves the best model to "mnist_model_best.bin" when validation loss improves, and supports early stopping based on validation loss and configured patience. Progress (training loss, validation loss, validation accuracy, learning rate, and epoch time) is printed to stdout and recorded in CSV format.
 ///
 /// # Examples
 ///
 /// ```
-/// // Construct a tiny example network and dataset, then run one training invocation.
 /// let mut rng = SimpleRng::new(42);
 /// let mut nn = initialize_network(&mut rng);
-/// let images = vec![0.0f32; NUM_INPUTS * 1]; // single example with zeroed pixels
-/// let labels = vec![0u8; 1]; // single label
-/// let val_images = vec![0.0f32; NUM_INPUTS * 1]; // validation images
-/// let val_labels = vec![0u8; 1]; // validation labels
-/// train(&mut nn, &images, &labels, 1, &val_images, &val_labels, 1, &mut rng);
+/// let images = vec![0.0f32; NUM_INPUTS * 1];
+/// let labels = vec![0u8; 1];
+/// let val_images = vec![0.0f32; NUM_INPUTS * 1];
+/// let val_labels = vec![0u8; 1];
+/// let mut scheduler = ConstantLR::new(0.01);
+/// train(&mut nn, &images, &labels, 1, &val_images, &val_labels, 1, &mut rng, &mut scheduler);
 /// ```
 #[allow(clippy::too_many_arguments)]
 fn train(
@@ -838,6 +877,16 @@ fn read_mnist_labels(filename: &str, num_labels: usize) -> Vec<u8> {
     data[offset..offset + actual_count].to_vec()
 }
 
+/// Program entry point that loads MNIST data, constructs a learning-rate scheduler and neural network, trains and evaluates the model, and saves the trained parameters.
+///
+/// The function parses an optional CLI config path to select a learning-rate scheduler, measures and reports timings for data loading, training, and testing, and writes the final model to `mnist_model.bin`.
+///
+/// # Examples
+///
+/// ```
+/// // Run the program entry point (typically executed by the runtime).
+/// main();
+/// ```
 fn main() {
     let program_start = Instant::now();
 

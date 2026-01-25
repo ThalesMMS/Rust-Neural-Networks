@@ -148,20 +148,73 @@ struct ConstantLR {
 }
 
 impl ConstantLR {
+    /// Creates a ConstantLR scheduler configured with the specified learning rate.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let sched = ConstantLR::new(0.01);
+    /// assert!((sched.get_lr() - 0.01).abs() < 1e-6);
+    /// ```
     fn new(lr: f32) -> Self {
         Self { lr }
     }
 }
 
 impl LRScheduler for ConstantLR {
+    /// Returns the scheduler's current learning rate.
+    ///
+    /// # Returns
+    ///
+    /// The current learning rate value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let sched = ConstantLR { lr: 0.01 };
+    /// assert_eq!(sched.get_lr(), 0.01);
+    /// ```
     fn get_lr(&self) -> f32 {
         self.lr
     }
 
+    /// Advance the scheduler's internal state (no effect for a constant learning rate).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut sched = ConstantLR::new(0.01);
+    /// let lr_before = sched.get_lr();
+    /// sched.step();
+    /// assert_eq!(sched.get_lr(), lr_before);
+    /// ```
     fn step(&mut self) {
         // No-op for constant learning rate
     }
 
+    /// Reset the scheduler to its initial state.
+    
+    ///
+    
+    /// For `ConstantLR` this is a no-op and does not change the learning rate.
+    
+    ///
+    
+    /// # Examples
+    
+    ///
+    
+    /// ```
+    
+    /// let mut sched = ConstantLR::new(0.01);
+    
+    /// let lr_before = sched.get_lr();
+    
+    /// sched.reset();
+    
+    /// assert_eq!(sched.get_lr(), lr_before);
+    
+    /// ```
     fn reset(&mut self) {
         // No-op for constant learning rate
     }
@@ -1565,20 +1618,17 @@ fn train_model_with_lr(
     )
 }
 
-/// Entry point that trains and evaluates the patch-based single-head attention model on MNIST.
+/// Trains and evaluates the patch-based single-head attention MNIST classifier and reports final results.
 ///
-/// Loads MNIST data, initializes the model with Transformer-style sinusoidal positional
-/// embeddings, performs batched SGD training while logging per-epoch loss and test accuracy to
-/// ./logs/training_loss_attention.txt, and prints final test accuracy and timing information.
-///
-/// The function orchestrates data loading, model initialization, per-epoch shuffling and batching,
-/// forward/backward passes, parameter updates, periodic evaluation on the test set, and final
-/// reporting; it does not return a value.
+/// This program loads MNIST data, initializes the model with Transformer-style sinusoidal positional
+/// embeddings, performs batched SGD with optional LR scheduling, logs per-epoch loss and validation
+/// accuracy to ./logs/training_loss_attention.txt, applies early stopping, saves the best model, and
+/// prints final test accuracy and timing information.
 ///
 /// # Examples
 ///
 /// ```ignore
-/// // Run the full training/evaluation routine (invokes the program entrypoint).
+/// // Run the full training/evaluation routine (program entry point).
 /// main();
 /// ```
 fn main() {

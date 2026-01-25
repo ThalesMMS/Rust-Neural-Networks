@@ -52,6 +52,21 @@ mod step_decay_tests {
         assert_relative_eq!(scheduler.get_lr(), 0.05, epsilon = 1e-6); // 0.1 * 0.5
     }
 
+    /// Verifies that StepDecay applies successive multiplicative decays every `step_size` epochs.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut scheduler = StepDecay::new(0.1, 3, 0.5);
+    ///
+    /// // After 6 epochs (2 decay steps)
+    /// for _ in 0..6 { scheduler.step(); }
+    /// assert_relative_eq!(scheduler.get_lr(), 0.025, epsilon = 1e-6); // 0.1 * 0.5^2
+    ///
+    /// // After 9 epochs (3 decay steps)
+    /// for _ in 0..3 { scheduler.step(); }
+    /// assert_relative_eq!(scheduler.get_lr(), 0.0125, epsilon = 1e-6); // 0.1 * 0.5^3
+    /// ```
     #[test]
     fn test_step_decay_multiple_steps() {
         let mut scheduler = StepDecay::new(0.1, 3, 0.5);
@@ -113,6 +128,21 @@ mod step_decay_tests {
         assert_relative_eq!(scheduler.get_lr(), 0.81, epsilon = 1e-6); // 0.9^2
     }
 
+    /// Verifies that a StepDecay scheduler with a large `step_size` holds the initial learning rate until the decay boundary, then applies a single decay at that boundary.
+    ///
+    /// The learning rate remains at the configured `initial_lr` for epochs 0 through 99 and is multiplied by `gamma` at epoch 100.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut scheduler = StepDecay::new(0.1, 100, 0.5);
+    /// for _ in 0..99 {
+    ///     scheduler.step();
+    ///     assert_eq!(scheduler.get_lr(), 0.1);
+    /// }
+    /// scheduler.step();
+    /// assert_relative_eq!(scheduler.get_lr(), 0.05, epsilon = 1e-6);
+    /// ```
     #[test]
     fn test_step_decay_large_step_size() {
         let mut scheduler = StepDecay::new(0.1, 100, 0.5);
@@ -274,6 +304,19 @@ mod exponential_decay_tests {
         assert_eq!(scheduler.get_lr(), 0.5);
     }
 
+    /// Verifies that two `ExponentialDecay` schedulers constructed with the same configuration produce identical learning rate sequences.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut a = ExponentialDecay::new(0.1, 0.95);
+    /// let mut b = ExponentialDecay::new(0.1, 0.95);
+    /// for _ in 0..20 {
+    ///     a.step();
+    ///     b.step();
+    ///     assert_relative_eq!(a.get_lr(), b.get_lr(), epsilon = 1e-6);
+    /// }
+    /// ```
     #[test]
     fn test_exponential_decay_consistency() {
         let mut scheduler1 = ExponentialDecay::new(0.1, 0.95);
@@ -454,6 +497,17 @@ mod cosine_annealing_tests {
         }
     }
 
+    /// Verifies CosineAnnealing performs rapid decay for a short cycle (T_max = 2).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut scheduler = CosineAnnealing::new(0.1, 0.01, 2);
+    /// scheduler.step(); // epoch 1
+    /// assert!(scheduler.get_lr() > 0.01);
+    /// scheduler.step(); // epoch 2
+    /// assert_relative_eq!(scheduler.get_lr(), 0.01, epsilon = 1e-5);
+    /// ```
     #[test]
     fn test_cosine_annealing_short_cycle() {
         let mut scheduler = CosineAnnealing::new(0.1, 0.01, 2);
@@ -536,6 +590,32 @@ mod comparison_tests {
         assert_eq!(cos.get_lr(), 0.1);
     }
 
+    /// Verifies that three scheduler implementations decrease their learning rates after several steps.
+    ///
+    /// Confirms that ExponentialDecay and CosineAnnealing produce strictly lower learning rates after a few steps,
+    /// and that StepDecay does not increase (it may remain equal until a decay boundary).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut step = StepDecay::new(0.1, 2, 0.5);
+    /// let mut exp = ExponentialDecay::new(0.1, 0.95);
+    /// let mut cos = CosineAnnealing::new(0.1, 0.0, 10);
+    ///
+    /// let initial_step = step.get_lr();
+    /// let initial_exp = exp.get_lr();
+    /// let initial_cos = cos.get_lr();
+    ///
+    /// for _ in 0..5 {
+    ///     step.step();
+    ///     exp.step();
+    ///     cos.step();
+    /// }
+    ///
+    /// assert!(step.get_lr() <= initial_step);
+    /// assert!(exp.get_lr() < initial_exp);
+    /// assert!(cos.get_lr() < initial_cos);
+    /// ```
     #[test]
     fn test_all_schedulers_decrease_lr() {
         let mut step = StepDecay::new(0.1, 2, 0.5);
@@ -582,6 +662,19 @@ mod comparison_tests {
         assert_eq!(cos.get_lr(), 0.1);
     }
 
+    /// Ensures that a StepDecay configured with step_size = 1 produces the same learning-rate sequence as an ExponentialDecay with the same gamma.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut step = StepDecay::new(0.1, 1, 0.95);
+    /// let mut exp = ExponentialDecay::new(0.1, 0.95);
+    /// for _ in 0..10 {
+    ///     step.step();
+    ///     exp.step();
+    ///     assert_relative_eq!(step.get_lr(), exp.get_lr(), epsilon = 1e-6);
+    /// }
+    /// ```
     #[test]
     fn test_exponential_vs_step_decay_pattern() {
         let mut step = StepDecay::new(0.1, 1, 0.95); // decay every epoch
