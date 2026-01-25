@@ -15,6 +15,7 @@ const TEST_SAMPLES: usize = 10000;
 const LEARNING_RATE: f32 = 0.01;
 const EPOCHS: usize = 10;
 const BATCH_SIZE: usize = 64;
+const VALIDATION_SPLIT: f32 = 0.1; // 10% of training data for validation
 
 // ============================================================================
 // Internal Abstractions (Inlined for self-contained binary)
@@ -696,8 +697,8 @@ fn main() {
 
     println!("Loading training data...");
     let load_start = Instant::now();
-    let train_images = read_mnist_images("./data/train-images.idx3-ubyte", TRAIN_SAMPLES);
-    let train_labels = read_mnist_labels("./data/train-labels.idx1-ubyte", TRAIN_SAMPLES);
+    let mut train_images = read_mnist_images("./data/train-images.idx3-ubyte", TRAIN_SAMPLES);
+    let mut train_labels = read_mnist_labels("./data/train-labels.idx1-ubyte", TRAIN_SAMPLES);
 
     println!("Loading test data...");
     let test_images = read_mnist_images("./data/t10k-images.idx3-ubyte", TEST_SAMPLES);
@@ -705,18 +706,33 @@ fn main() {
     let load_time = load_start.elapsed().as_secs_f64();
     println!("Data loading time: {:.2} seconds", load_time);
 
+    // Split training data into train and validation sets
+    let total_train_samples = train_images.len() / NUM_INPUTS;
+    let validation_samples = (total_train_samples as f32 * VALIDATION_SPLIT) as usize;
+    let actual_train_samples = total_train_samples - validation_samples;
+
+    let split_point_images = actual_train_samples * NUM_INPUTS;
+    let split_point_labels = actual_train_samples;
+
+    let _val_images = train_images.split_off(split_point_images);
+    let _val_labels = train_labels.split_off(split_point_labels);
+
+    println!(
+        "Data split: {} training samples, {} validation samples, {} test samples",
+        actual_train_samples, validation_samples, TEST_SAMPLES
+    );
+
     println!("Initializing neural network...");
     let mut rng = SimpleRng::new(1);
     let mut nn = initialize_network(&mut rng);
 
     println!("Training neural network...");
     let train_start = Instant::now();
-    let train_samples = train_images.len() / NUM_INPUTS;
     train(
         &mut nn,
         &train_images,
         &train_labels,
-        train_samples,
+        actual_train_samples,
         &mut rng,
     );
     let train_time = train_start.elapsed().as_secs_f64();
