@@ -1170,11 +1170,19 @@ fn main() {
                     "step_decay" => {
                         let step_size = config.step_size.unwrap_or(3);
                         let gamma = config.gamma.unwrap_or(0.5);
-                        println!(
-                            "Using StepDecay scheduler: initial_lr={}, step_size={}, gamma={}",
-                            LEARNING_RATE, step_size, gamma
-                        );
-                        Box::new(StepDecay::new(LEARNING_RATE, step_size, gamma))
+                        match StepDecay::new(LEARNING_RATE, step_size, gamma) {
+                            Ok(scheduler) => {
+                                println!(
+                                    "Using StepDecay scheduler: initial_lr={}, step_size={}, gamma={}",
+                                    LEARNING_RATE, step_size, gamma
+                                );
+                                Box::new(scheduler)
+                            }
+                            Err(err) => {
+                                eprintln!("Invalid StepDecay config: {}", err);
+                                Box::new(ConstantLR::new(LEARNING_RATE))
+                            }
+                        }
                     }
                     "exponential" => {
                         let decay_rate = config.decay_rate.unwrap_or(0.95);

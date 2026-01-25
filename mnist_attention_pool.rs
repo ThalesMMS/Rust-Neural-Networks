@@ -1537,20 +1537,17 @@ fn train_model_with_lr(
     )
 }
 
-/// Entry point that trains and evaluates the patch-based single-head attention model on MNIST.
+/// Trains and evaluates the patch-based single-head attention MNIST classifier and reports final results.
 ///
-/// Loads MNIST data, initializes the model with Transformer-style sinusoidal positional
-/// embeddings, performs batched SGD training while logging per-epoch loss and test accuracy to
-/// ./logs/training_loss_attention.txt, and prints final test accuracy and timing information.
-///
-/// The function orchestrates data loading, model initialization, per-epoch shuffling and batching,
-/// forward/backward passes, parameter updates, periodic evaluation on the test set, and final
-/// reporting; it does not return a value.
+/// This program loads MNIST data, initializes the model with Transformer-style sinusoidal positional
+/// embeddings, performs batched SGD with optional LR scheduling, logs per-epoch loss and validation
+/// accuracy to ./logs/training_loss_attention.txt, applies early stopping, saves the best model, and
+/// prints final test accuracy and timing information.
 ///
 /// # Examples
 ///
 /// ```ignore
-/// // Run the full training/evaluation routine (invokes the program entrypoint).
+/// // Run the full training/evaluation routine (program entry point).
 /// main();
 /// ```
 fn main() {
@@ -1612,7 +1609,13 @@ fn main() {
     let mut scheduler: Box<dyn LRScheduler> = if let Some(path) = config_path {
         match load_config(&path) {
             Ok(config) => match config.scheduler_type.as_str() {
-                "step_decay" => Box::new(StepDecay::from_config(LEARNING_RATE, &config)),
+                "step_decay" => match StepDecay::from_config(LEARNING_RATE, &config) {
+                    Ok(scheduler) => Box::new(scheduler),
+                    Err(err) => {
+                        eprintln!("Invalid StepDecay config: {}", err);
+                        Box::new(ConstantLR::new(LEARNING_RATE))
+                    }
+                },
                 "exponential" => Box::new(ExponentialDecay::from_config(LEARNING_RATE, &config)),
                 "cosine_annealing" => {
                     Box::new(CosineAnnealing::from_config(LEARNING_RATE, &config))

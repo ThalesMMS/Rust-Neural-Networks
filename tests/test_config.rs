@@ -51,6 +51,19 @@ mod valid_config_tests {
         assert_eq!(config.T_max, None);
     }
 
+    /// Verifies that a cosine annealing scheduler configuration is loaded correctly from the example JSON.
+    ///
+    /// Asserts that `scheduler_type` equals `"cosine_annealing"`, `min_lr` and `T_max` are present with the expected values,
+    /// and that `step_size`, `gamma`, and `decay_rate` are `None`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let config = rust_neural_networks::config::load_config("config/mnist_mlp_cosine.json").unwrap();
+    /// assert_eq!(config.scheduler_type, "cosine_annealing");
+    /// assert_eq!(config.min_lr, Some(0.0001));
+    /// assert_eq!(config.T_max, Some(10));
+    /// ```
     #[test]
     fn test_load_cosine_annealing_config() {
         let config = load_config("config/mnist_mlp_cosine.json")
@@ -144,6 +157,15 @@ mod temp_config_tests {
         assert_eq!(config.T_max, Some(20));
     }
 
+    /// Verifies that a JSON config containing all scheduler fields parses with every field populated.
+    ///
+    /// Writes a temporary config including `scheduler_type`, `step_size`, `gamma`, `decay_rate`, `min_lr`, and `T_max`, loads it via `load_config`, and asserts the parsed `TrainingConfig` contains the expected values for each field.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// // Equivalent to the test: create a temp file with all fields, call `load_config`, then assert each field.
+    /// ```
     #[test]
     fn test_parse_all_fields() {
         let config_json = r#"{
@@ -331,6 +353,25 @@ mod structure_tests {
         assert!(debug_str.contains("step_decay"));
     }
 
+    /// Verifies that optional scheduler configuration fields are absent when not provided.
+    ///
+    /// Loads a minimal config containing only `scheduler_type` and asserts `step_size`, `gamma`, `decay_rate`, `min_lr`, and `T_max` are `None`.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::fs;
+    /// use rust_neural_networks::config::load_config;
+    ///
+    /// fs::write("tmp_minimal.json", r#"{"scheduler_type":"custom"}"#).unwrap();
+    /// let cfg = load_config("tmp_minimal.json").unwrap();
+    /// fs::remove_file("tmp_minimal.json").unwrap();
+    /// assert!(cfg.step_size.is_none());
+    /// assert!(cfg.gamma.is_none());
+    /// assert!(cfg.decay_rate.is_none());
+    /// assert!(cfg.min_lr.is_none());
+    /// assert!(cfg.T_max.is_none());
+    /// ```
     #[test]
     fn test_optional_fields_are_optional() {
         // Create a config with only required field
