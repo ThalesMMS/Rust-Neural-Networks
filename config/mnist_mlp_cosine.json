@@ -1,0 +1,5 @@
+{
+  "scheduler_type": "cosine_annealing",
+  "min_lr": 0.0001,
+  "T_max": 10
+}

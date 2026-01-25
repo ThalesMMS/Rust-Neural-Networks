@@ -1,0 +1,5 @@
+{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5
+}
