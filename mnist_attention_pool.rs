@@ -1095,6 +1095,71 @@ fn apply_sgd(model: &mut AttnModel, grads: &Grads, lr: f32) {
     }
 }
 
+// Save the attention model in binary (little-endian f32).
+fn save_model(model: &AttnModel, filename: &str) {
+    let file = File::create(filename).unwrap_or_else(|_| {
+        eprintln!("Could not open file {} for writing model", filename);
+        process::exit(1);
+    });
+    let mut writer = BufWriter::new(file);
+
+    let write_f32 = |writer: &mut BufWriter<File>, value: f32| {
+        writer.write_all(&value.to_le_bytes()).unwrap_or_else(|_| {
+            eprintln!("Failed writing model data");
+            process::exit(1);
+        });
+    };
+
+    // Write all model parameters in order
+    for &value in &model.w_patch {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.b_patch {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.pos {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.w_q {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.b_q {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.w_k {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.b_k {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.w_v {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.b_v {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.w_ff1 {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.b_ff1 {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.w_ff2 {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.b_ff2 {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.w_cls {
+        write_f32(&mut writer, value);
+    }
+    for &value in &model.b_cls {
+        write_f32(&mut writer, value);
+    }
+
+    println!("Model saved to {}", filename);
+}
+
 // Shared forward inference logic (up to logits/probs) without loss computation.
 // Populates: patches, tok, q/k/v, attn, ffn, pooled, logits, probs.
 fn forward_inference(
@@ -1605,6 +1670,8 @@ fn main() {
         if val_acc > best_val_acc + EARLY_STOPPING_MIN_DELTA {
             best_val_acc = val_acc;
             epochs_without_improvement = 0;
+            // Save best model
+            save_model(&model, "mnist_attention_model_best.bin");
         } else {
             epochs_without_improvement += 1;
             if epochs_without_improvement >= EARLY_STOPPING_PATIENCE {
