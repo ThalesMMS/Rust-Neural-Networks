@@ -4,6 +4,8 @@
 //! particularly learning rate scheduling configurations.
 
 use serde::Deserialize;
+use std::error::Error;
+use std::fs;
 
 /// Configuration for training, including learning rate scheduler settings
 ///
@@ -43,4 +45,43 @@ pub struct TrainingConfig {
 
     /// Total number of epochs for CosineAnnealing scheduler
     pub T_max: Option<usize>,
+}
+
+/// Loads a training configuration from a JSON file.
+///
+/// This function reads a JSON file at the specified path and deserializes it into
+/// a `TrainingConfig` struct. The file should contain valid JSON matching the
+/// structure defined by `TrainingConfig`.
+///
+/// # Arguments
+///
+/// * `path` - Path to the JSON configuration file
+///
+/// # Returns
+///
+/// Returns `Ok(TrainingConfig)` if the file is successfully read and parsed,
+/// or an error if the file cannot be read or contains invalid JSON.
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// - The file does not exist or cannot be read
+/// - The file contains invalid JSON syntax
+/// - The JSON structure does not match the expected `TrainingConfig` format
+///
+/// # Examples
+///
+/// ```ignore
+/// use rust_neural_networks::config::load_config;
+///
+/// // Load a step decay scheduler configuration
+/// let config = load_config("config/mnist_mlp_step.json").unwrap();
+/// assert_eq!(config.scheduler_type, "step_decay");
+/// assert_eq!(config.step_size, Some(3));
+/// assert_eq!(config.gamma, Some(0.5));
+/// ```
+pub fn load_config(path: &str) -> Result<TrainingConfig, Box<dyn Error>> {
+    let contents = fs::read_to_string(path)?;
+    let config: TrainingConfig = serde_json::from_str(&contents)?;
+    Ok(config)
 }
