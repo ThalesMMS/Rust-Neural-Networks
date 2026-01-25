@@ -550,6 +550,29 @@ impl Layer for DenseLayer {
             .for_each(|g| *g = 0.0);
     }
 
+    fn update_with_optimizer(&mut self, optimizer: &mut dyn crate::optimizers::Optimizer) {
+        let grad_w = self.grad_weights.borrow();
+        let grad_b = self.grad_biases.borrow();
+
+        // Update weights using optimizer
+        optimizer.update(&mut self.weights, &grad_w);
+
+        // Update biases using optimizer
+        optimizer.update(&mut self.biases, &grad_b);
+
+        // Clear gradients for next iteration
+        drop(grad_w);
+        drop(grad_b);
+        self.grad_weights
+            .borrow_mut()
+            .iter_mut()
+            .for_each(|g| *g = 0.0);
+        self.grad_biases
+            .borrow_mut()
+            .iter_mut()
+            .for_each(|g| *g = 0.0);
+    }
+
     /// Number of input features expected by the layer.
     ///
     /// # Returns
