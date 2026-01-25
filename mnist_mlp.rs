@@ -578,6 +578,8 @@ fn train(
         if val_average_loss < best_val_loss - EARLY_STOPPING_MIN_DELTA {
             best_val_loss = val_average_loss;
             epochs_without_improvement = 0;
+            // Save best model
+            save_model(nn, "mnist_model_best.bin");
         } else {
             epochs_without_improvement += 1;
         }
