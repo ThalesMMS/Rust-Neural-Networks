@@ -50,6 +50,7 @@ impl SGD {
     ///
     /// ```
     /// use rust_neural_networks::optimizers::sgd::SGD;
+    /// use rust_neural_networks::optimizers::Optimizer;
     ///
     /// let optimizer = SGD::new(0.01);
     /// assert_eq!(optimizer.learning_rate(), 0.01);

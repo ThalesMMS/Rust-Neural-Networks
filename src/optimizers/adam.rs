@@ -92,6 +92,7 @@ impl Adam {
     ///
     /// ```
     /// use rust_neural_networks::optimizers::adam::Adam;
+    /// use rust_neural_networks::optimizers::Optimizer;
     ///
     /// // Default Adam hyperparameters from the paper
     /// let optimizer = Adam::new(0.001, 0.9, 0.999, 1e-8);
