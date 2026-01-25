@@ -20,19 +20,25 @@ mod step_decay_tests {
 
     #[test]
     fn test_step_decay_creation() {
-        let scheduler = StepDecay::new(0.1, 3, 0.5);
+        let scheduler = StepDecay::new(0.1, 3, 0.5).expect("step_size must be > 0");
         assert_eq!(scheduler.get_lr(), 0.1);
     }
 
     #[test]
+    fn test_step_decay_rejects_zero_step_size() {
+        let result = StepDecay::new(0.1, 0, 0.5);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_step_decay_initial_lr() {
-        let scheduler = StepDecay::new(0.01, 5, 0.1);
+        let scheduler = StepDecay::new(0.01, 5, 0.1).expect("step_size must be > 0");
         assert_eq!(scheduler.get_lr(), 0.01);
     }
 
     #[test]
     fn test_step_decay_before_first_step() {
-        let mut scheduler = StepDecay::new(0.1, 3, 0.5);
+        let mut scheduler = StepDecay::new(0.1, 3, 0.5).expect("step_size must be > 0");
 
         // Before first step boundary, LR should remain constant
         for _ in 0..2 {
@@ -43,7 +49,7 @@ mod step_decay_tests {
 
     #[test]
     fn test_step_decay_at_first_step() {
-        let mut scheduler = StepDecay::new(0.1, 3, 0.5);
+        let mut scheduler = StepDecay::new(0.1, 3, 0.5).expect("step_size must be > 0");
 
         // At epoch 3, LR should decay
         for _ in 0..3 {
@@ -57,7 +63,7 @@ mod step_decay_tests {
     /// # Examples
     ///
     /// ```
-    /// let mut scheduler = StepDecay::new(0.1, 3, 0.5);
+    /// let mut scheduler = StepDecay::new(0.1, 3, 0.5).expect("step_size must be > 0");
     ///
     /// // After 6 epochs (2 decay steps)
     /// for _ in 0..6 { scheduler.step(); }
@@ -69,7 +75,7 @@ mod step_decay_tests {
     /// ```
     #[test]
     fn test_step_decay_multiple_steps() {
-        let mut scheduler = StepDecay::new(0.1, 3, 0.5);
+        let mut scheduler = StepDecay::new(0.1, 3, 0.5).expect("step_size must be > 0");
 
         // After 6 epochs (2 decay steps)
         for _ in 0..6 {
@@ -86,7 +92,7 @@ mod step_decay_tests {
 
     #[test]
     fn test_step_decay_different_gamma() {
-        let mut scheduler = StepDecay::new(0.1, 2, 0.1);
+        let mut scheduler = StepDecay::new(0.1, 2, 0.1).expect("step_size must be > 0");
 
         // After 2 epochs
         for _ in 0..2 {
@@ -97,7 +103,7 @@ mod step_decay_tests {
 
     #[test]
     fn test_step_decay_reset() {
-        let mut scheduler = StepDecay::new(0.1, 3, 0.5);
+        let mut scheduler = StepDecay::new(0.1, 3, 0.5).expect("step_size must be > 0");
 
         // Decay LR
         for _ in 0..6 {
@@ -118,7 +124,7 @@ mod step_decay_tests {
 
     #[test]
     fn test_step_decay_step_size_one() {
-        let mut scheduler = StepDecay::new(1.0, 1, 0.9);
+        let mut scheduler = StepDecay::new(1.0, 1, 0.9).expect("step_size must be > 0");
 
         // With step_size=1, decay happens every epoch
         scheduler.step();
@@ -135,7 +141,7 @@ mod step_decay_tests {
     /// # Examples
     ///
     /// ```
-    /// let mut scheduler = StepDecay::new(0.1, 100, 0.5);
+    /// let mut scheduler = StepDecay::new(0.1, 100, 0.5).expect("step_size must be > 0");
     /// for _ in 0..99 {
     ///     scheduler.step();
     ///     assert_eq!(scheduler.get_lr(), 0.1);
@@ -145,7 +151,7 @@ mod step_decay_tests {
     /// ```
     #[test]
     fn test_step_decay_large_step_size() {
-        let mut scheduler = StepDecay::new(0.1, 100, 0.5);
+        let mut scheduler = StepDecay::new(0.1, 100, 0.5).expect("step_size must be > 0");
 
         // With large step_size, LR should stay constant for many epochs
         for _ in 0..99 {
@@ -160,15 +166,15 @@ mod step_decay_tests {
 
     #[test]
     fn test_step_decay_zero_epoch() {
-        let scheduler = StepDecay::new(0.5, 5, 0.2);
+        let scheduler = StepDecay::new(0.5, 5, 0.2).expect("step_size must be > 0");
         // At epoch 0 (initial), LR should be initial_lr
         assert_eq!(scheduler.get_lr(), 0.5);
     }
 
     #[test]
     fn test_step_decay_consistency() {
-        let mut scheduler1 = StepDecay::new(0.1, 3, 0.5);
-        let mut scheduler2 = StepDecay::new(0.1, 3, 0.5);
+        let mut scheduler1 = StepDecay::new(0.1, 3, 0.5).expect("step_size must be > 0");
+        let mut scheduler2 = StepDecay::new(0.1, 3, 0.5).expect("step_size must be > 0");
 
         // Same configuration should produce same results
         for _ in 0..10 {
@@ -581,7 +587,7 @@ mod comparison_tests {
 
     #[test]
     fn test_all_schedulers_start_at_initial_lr() {
-        let step = StepDecay::new(0.1, 5, 0.5);
+        let step = StepDecay::new(0.1, 5, 0.5).expect("step_size must be > 0");
         let exp = ExponentialDecay::new(0.1, 0.95);
         let cos = CosineAnnealing::new(0.1, 0.0, 10);
 
@@ -598,7 +604,7 @@ mod comparison_tests {
     /// # Examples
     ///
     /// ```
-    /// let mut step = StepDecay::new(0.1, 2, 0.5);
+    /// let mut step = StepDecay::new(0.1, 2, 0.5).expect("step_size must be > 0");
     /// let mut exp = ExponentialDecay::new(0.1, 0.95);
     /// let mut cos = CosineAnnealing::new(0.1, 0.0, 10);
     ///
@@ -618,7 +624,7 @@ mod comparison_tests {
     /// ```
     #[test]
     fn test_all_schedulers_decrease_lr() {
-        let mut step = StepDecay::new(0.1, 2, 0.5);
+        let mut step = StepDecay::new(0.1, 2, 0.5).expect("step_size must be > 0");
         let mut exp = ExponentialDecay::new(0.1, 0.95);
         let mut cos = CosineAnnealing::new(0.1, 0.0, 10);
 
@@ -640,7 +646,7 @@ mod comparison_tests {
 
     #[test]
     fn test_all_schedulers_reset_works() {
-        let mut step = StepDecay::new(0.1, 2, 0.5);
+        let mut step = StepDecay::new(0.1, 2, 0.5).expect("step_size must be > 0");
         let mut exp = ExponentialDecay::new(0.1, 0.95);
         let mut cos = CosineAnnealing::new(0.1, 0.0, 10);
 
@@ -667,7 +673,7 @@ mod comparison_tests {
     /// # Examples
     ///
     /// ```
-    /// let mut step = StepDecay::new(0.1, 1, 0.95);
+    /// let mut step = StepDecay::new(0.1, 1, 0.95).expect("step_size must be > 0");
     /// let mut exp = ExponentialDecay::new(0.1, 0.95);
     /// for _ in 0..10 {
     ///     step.step();
@@ -677,7 +683,7 @@ mod comparison_tests {
     /// ```
     #[test]
     fn test_exponential_vs_step_decay_pattern() {
-        let mut step = StepDecay::new(0.1, 1, 0.95); // decay every epoch
+        let mut step = StepDecay::new(0.1, 1, 0.95).expect("step_size must be > 0"); // decay every epoch
         let mut exp = ExponentialDecay::new(0.1, 0.95); // decay every epoch
 
         // When step_size=1, StepDecay and ExponentialDecay should be identical
@@ -690,7 +696,7 @@ mod comparison_tests {
 
     #[test]
     fn test_step_decay_holds_constant_vs_exponential_continuous() {
-        let mut step = StepDecay::new(0.1, 5, 0.5);
+        let mut step = StepDecay::new(0.1, 5, 0.5).expect("step_size must be > 0");
         let mut exp = ExponentialDecay::new(0.1, 0.95);
 
         let step_initial = step.get_lr();
