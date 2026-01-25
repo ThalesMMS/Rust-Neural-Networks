@@ -236,3 +236,91 @@ impl LRScheduler for ExponentialDecay {
         self.current_lr = self.initial_lr;
     }
 }
+
+/// Cosine annealing learning rate scheduler.
+///
+/// Adjusts the learning rate following a cosine curve from the initial learning rate
+/// down to a minimum learning rate over T_max epochs. This provides smooth decay that
+/// starts fast and slows down, which can help with convergence.
+///
+/// Formula: lr = eta_min + 0.5 * (initial_lr - eta_min) * (1 + cos(π * epoch / T_max))
+///
+/// # Fields
+///
+/// * `initial_lr` - Maximum learning rate at the start of the cycle
+/// * `eta_min` - Minimum learning rate at the end of the cycle
+/// * `t_max` - Number of epochs for one complete cosine cycle
+/// * `current_epoch` - Current training epoch (0-indexed)
+/// * `current_lr` - Current learning rate value
+///
+/// # Example
+///
+/// ```ignore
+/// use rust_neural_networks::utils::lr_scheduler::{LRScheduler, CosineAnnealing};
+///
+/// let mut scheduler = CosineAnnealing::new(0.1, 0.0, 10);
+/// assert_eq!(scheduler.get_lr(), 0.1);
+///
+/// // After 5 epochs (halfway through cycle)
+/// for _ in 0..5 {
+///     scheduler.step();
+/// }
+/// // LR will be close to eta_min (0.0)
+///
+/// // After 10 epochs (end of cycle)
+/// for _ in 0..5 {
+///     scheduler.step();
+/// }
+/// assert!(scheduler.get_lr() < 0.01); // Near eta_min
+/// ```
+pub struct CosineAnnealing {
+    initial_lr: f32,
+    eta_min: f32,
+    t_max: usize,
+    current_epoch: usize,
+    current_lr: f32,
+}
+
+impl CosineAnnealing {
+    /// Creates a new cosine annealing scheduler.
+    ///
+    /// # Arguments
+    ///
+    /// * `initial_lr` - Maximum learning rate at the start (must be positive)
+    /// * `eta_min` - Minimum learning rate at the end of the cycle (typically 0.0)
+    /// * `t_max` - Number of epochs for one complete cosine cycle (must be > 0)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let scheduler = CosineAnnealing::new(0.01, 0.0001, 50);
+    /// // LR will smoothly decay from 0.01 to 0.0001 over 50 epochs
+    /// ```
+    pub fn new(initial_lr: f32, eta_min: f32, t_max: usize) -> Self {
+        Self {
+            initial_lr,
+            eta_min,
+            t_max,
+            current_epoch: 0,
+            current_lr: initial_lr,
+        }
+    }
+}
+
+impl LRScheduler for CosineAnnealing {
+    fn get_lr(&self) -> f32 {
+        self.current_lr
+    }
+
+    fn step(&mut self) {
+        self.current_epoch += 1;
+        let progress = (self.current_epoch as f32) / (self.t_max as f32);
+        let cosine_term = (1.0 + (std::f32::consts::PI * progress).cos()) / 2.0;
+        self.current_lr = self.eta_min + (self.initial_lr - self.eta_min) * cosine_term;
+    }
+
+    fn reset(&mut self) {
+        self.current_epoch = 0;
+        self.current_lr = self.initial_lr;
+    }
+}
