@@ -4,6 +4,8 @@
 //! The trait provides a common interface for forward propagation, backward propagation,
 //! and parameter updates.
 
+use crate::optimizers::Optimizer;
+
 /// Core trait for neural network layers.
 ///
 /// All layer types (Dense, Conv2D, etc.) implement this trait to provide
@@ -83,6 +85,43 @@ pub trait Layer {
     /// - This should be called after one or more backward passes
     /// - Implementations should clear accumulated gradients after updating
     fn update_parameters(&mut self, learning_rate: f32);
+
+    /// Update layer parameters using an optimizer.
+    ///
+    /// Applies the optimizer's update rule to weights and biases. This method
+    /// provides more flexibility than `update_parameters`, allowing the use of
+    /// advanced optimizers like Adam that maintain momentum and adaptive learning rates.
+    ///
+    /// # Arguments
+    ///
+    /// * `optimizer` - Mutable reference to an optimizer implementing the Optimizer trait
+    ///
+    /// # Notes
+    ///
+    /// - This should be called after one or more backward passes
+    /// - The optimizer's update method is called separately for weights and biases
+    /// - Implementations should clear accumulated gradients after updating
+    /// - The optimizer manages its own internal state (momentum, adaptive rates, etc.)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rust_neural_networks::optimizers::{Optimizer, Adam};
+    /// use rust_neural_networks::layers::Layer;
+    ///
+    /// let mut layer = DenseLayer::new(784, 512, &mut rng);
+    /// let mut optimizer = Adam::new(0.001, 0.9, 0.999, 1e-8);
+    ///
+    /// // In training loop:
+    /// layer.forward(&input, &mut output, batch_size);
+    /// layer.backward(&input, &grad_output, &mut grad_input, batch_size);
+    /// layer.update_with_optimizer(&mut optimizer);
+    /// ```
+    fn update_with_optimizer(&mut self, optimizer: &mut dyn Optimizer) {
+        // Default implementation uses the optimizer's learning rate with vanilla SGD
+        // Layer implementations should override this to properly use optimizer state
+        self.update_parameters(optimizer.learning_rate());
+    }
 
     /// Get the input size of the layer.
     ///
