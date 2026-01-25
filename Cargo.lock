@@ -500,6 +500,7 @@ dependencies = [
  "openblas-src",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

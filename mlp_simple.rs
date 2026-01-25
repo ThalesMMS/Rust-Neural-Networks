@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rust_neural_networks::config::load_config;
 use rust_neural_networks::utils::lr_scheduler::{
-    CosineAnnealing, ExponentialDecay, LRScheduler, StepDecay,
+    ConstantLR, CosineAnnealing, ExponentialDecay, LRScheduler, StepDecay,
 };
 
 // Small MLP to learn XOR (educational example).
@@ -18,34 +18,6 @@ const EPOCHS: usize = 1_000_000;
 // ============================================================================
 // Internal Abstractions (Inlined for self-contained binary)
 // ============================================================================
-
-/// Constant learning rate scheduler (for backward compatibility).
-///
-/// This scheduler maintains a constant learning rate throughout training.
-/// Used when no config file is provided.
-struct ConstantLR {
-    lr: f32,
-}
-
-impl ConstantLR {
-    fn new(lr: f32) -> Self {
-        Self { lr }
-    }
-}
-
-impl LRScheduler for ConstantLR {
-    fn get_lr(&self) -> f32 {
-        self.lr
-    }
-
-    fn step(&mut self) {
-        // No-op for constant learning rate
-    }
-
-    fn reset(&mut self) {
-        // No-op for constant learning rate
-    }
-}
 
 /// Core trait for neural network layers.
 pub trait Layer {
@@ -350,7 +322,8 @@ fn forward_with_sigmoid(layer: &DenseLayer, inputs: &[f32], outputs: &mut [f32])
 ///
 /// ```
 /// # fn run() {
-/// # use crate::{initialize_network, SimpleRng, train, ConstantLR};
+/// # use crate::{initialize_network, SimpleRng, train};
+/// # use rust_neural_networks::utils::lr_scheduler::ConstantLR;
 /// let mut rng = SimpleRng::new(42);
 /// let mut nn = initialize_network(&mut rng);
 /// let inputs = [ [0.0f32, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0] ];
@@ -486,8 +459,8 @@ fn test(nn: &NeuralNetwork, inputs: &[[f32; NUM_INPUTS]], expected_outputs: &[[f
 /// trains it on the four classical XOR samples, and then prints each input alongside its
 /// expected and predicted output.
 ///
-/// Optionally loads a learning rate schedule configuration from `config.json` if available.
-/// If no config is provided, uses a constant learning rate of 0.01.
+/// Optionally loads a learning rate schedule configuration from a CLI-provided path.
+/// If no config path is provided, uses a constant learning rate of 0.01.
 ///
 /// # Examples
 ///
@@ -504,53 +477,69 @@ fn main() {
     let inputs: [[f32; NUM_INPUTS]; NUM_SAMPLES] = [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]];
     let expected_outputs: [[f32; NUM_OUTPUTS]; NUM_SAMPLES] = [[0.0], [1.0], [1.0], [0.0]];
 
+    // Parse command-line arguments for optional config file
+    let args: Vec<String> = std::env::args().collect();
+    let config_path = if args.len() > 1 {
+        Some(args[1].as_str())
+    } else {
+        None
+    };
+
     // Load config and create scheduler (optional)
-    let mut scheduler: Box<dyn LRScheduler> = match load_config("config.json") {
-        Ok(config) => {
-            println!("Loaded config.json");
-            match config.scheduler_type.as_str() {
-                "step_decay" => {
-                    let step_size = config.step_size.unwrap_or(3);
-                    let gamma = config.gamma.unwrap_or(0.5);
-                    println!(
-                        "Using StepDecay scheduler: initial_lr={}, step_size={}, gamma={}",
-                        LEARNING_RATE, step_size, gamma
-                    );
-                    Box::new(StepDecay::new(LEARNING_RATE, step_size, gamma))
-                }
-                "exponential" => {
-                    let decay_rate = config.decay_rate.unwrap_or(0.95);
-                    println!(
-                        "Using ExponentialDecay scheduler: initial_lr={}, decay_rate={}",
-                        LEARNING_RATE, decay_rate
-                    );
-                    Box::new(ExponentialDecay::new(LEARNING_RATE, decay_rate))
-                }
-                "cosine_annealing" => {
-                    let min_lr = config.min_lr.unwrap_or(0.0001);
-                    let t_max = config.T_max.unwrap_or(EPOCHS);
-                    println!(
-                        "Using CosineAnnealing scheduler: initial_lr={}, min_lr={}, T_max={}",
-                        LEARNING_RATE, min_lr, t_max
-                    );
-                    Box::new(CosineAnnealing::new(LEARNING_RATE, min_lr, t_max))
-                }
-                _ => {
-                    println!(
-                        "Unknown scheduler type '{}', using constant learning rate",
-                        config.scheduler_type
-                    );
-                    Box::new(ConstantLR::new(LEARNING_RATE))
+    let mut scheduler: Box<dyn LRScheduler> = if let Some(path) = config_path {
+        match load_config(path) {
+            Ok(config) => {
+                println!("Loaded config from: {}", path);
+                match config.scheduler_type.as_str() {
+                    "step_decay" => {
+                        let step_size = config.step_size.unwrap_or(3);
+                        let gamma = config.gamma.unwrap_or(0.5);
+                        println!(
+                            "Using StepDecay scheduler: initial_lr={}, step_size={}, gamma={}",
+                            LEARNING_RATE, step_size, gamma
+                        );
+                        Box::new(StepDecay::new(LEARNING_RATE, step_size, gamma))
+                    }
+                    "exponential" => {
+                        let decay_rate = config.decay_rate.unwrap_or(0.95);
+                        println!(
+                            "Using ExponentialDecay scheduler: initial_lr={}, decay_rate={}",
+                            LEARNING_RATE, decay_rate
+                        );
+                        Box::new(ExponentialDecay::new(LEARNING_RATE, decay_rate))
+                    }
+                    "cosine_annealing" => {
+                        let min_lr = config.min_lr.unwrap_or(0.0001);
+                        let t_max = config.T_max.unwrap_or(EPOCHS);
+                        println!(
+                            "Using CosineAnnealing scheduler: initial_lr={}, min_lr={}, T_max={}",
+                            LEARNING_RATE, min_lr, t_max
+                        );
+                        Box::new(CosineAnnealing::new(LEARNING_RATE, min_lr, t_max))
+                    }
+                    _ => {
+                        println!(
+                            "Unknown scheduler type '{}', using constant learning rate",
+                            config.scheduler_type
+                        );
+                        Box::new(ConstantLR::new(LEARNING_RATE))
+                    }
                 }
             }
+            Err(e) => {
+                println!(
+                    "Failed to load config from {}: {}. Using constant learning rate.",
+                    path, e
+                );
+                Box::new(ConstantLR::new(LEARNING_RATE))
+            }
         }
-        Err(_) => {
-            println!(
-                "No config.json found, using constant learning rate: {}",
-                LEARNING_RATE
-            );
-            Box::new(ConstantLR::new(LEARNING_RATE))
-        }
+    } else {
+        println!(
+            "No config file provided. Using constant learning rate: {}",
+            LEARNING_RATE
+        );
+        Box::new(ConstantLR::new(LEARNING_RATE))
     };
 
     // Training and testing in the same process.

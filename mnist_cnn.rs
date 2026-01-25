@@ -21,7 +21,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use rust_neural_networks::config::load_config;
 use rust_neural_networks::utils::lr_scheduler::{
-    CosineAnnealing, ExponentialDecay, LRScheduler, StepDecay,
+    ConstantLR, CosineAnnealing, ExponentialDecay, LRScheduler, StepDecay,
 };
 
 // MNIST constants (images are flat 28x28 in row-major order).
@@ -53,34 +53,6 @@ const EARLY_STOPPING_MIN_DELTA: f32 = 0.001; // Minimum change to be considered 
 // ============================================================================
 // Internal Abstractions (Inlined for self-contained binary)
 // ============================================================================
-
-/// Constant learning rate scheduler (for backward compatibility).
-///
-/// This scheduler maintains a constant learning rate throughout training.
-/// Used when no config file is provided.
-struct ConstantLR {
-    lr: f32,
-}
-
-impl ConstantLR {
-    fn new(lr: f32) -> Self {
-        Self { lr }
-    }
-}
-
-impl LRScheduler for ConstantLR {
-    fn get_lr(&self) -> f32 {
-        self.lr
-    }
-
-    fn step(&mut self) {
-        // No-op for constant learning rate
-    }
-
-    fn reset(&mut self) {
-        // No-op for constant learning rate
-    }
-}
 
 /// Core trait for neural network layers.
 pub trait Layer {
@@ -1389,6 +1361,7 @@ fn main() {
         let val_average_loss = val_total_loss / validation_samples as f32;
         let val_accuracy = val_correct as f32 / validation_samples as f32 * 100.0;
 
+        let current_lr = scheduler.get_lr();
         println!(
             "Epoch {}, Loss: {:.6}, Val Loss: {:.6}, Val Acc: {:.2}%, Time: {:.6}",
             epoch + 1,
@@ -1405,7 +1378,7 @@ fn main() {
             secs,
             val_average_loss,
             val_accuracy,
-            secs
+            current_lr
         )
         .ok();
 

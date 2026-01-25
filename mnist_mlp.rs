@@ -7,7 +7,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use rust_neural_networks::config::load_config;
 use rust_neural_networks::utils::lr_scheduler::{
-    CosineAnnealing, ExponentialDecay, LRScheduler, StepDecay,
+    ConstantLR, CosineAnnealing, ExponentialDecay, LRScheduler, StepDecay,
 };
 
 // MLP with minibatches for MNIST (Rust port for study).
@@ -28,34 +28,6 @@ const EARLY_STOPPING_MIN_DELTA: f32 = 0.001; // Minimum change to be considered 
 // ============================================================================
 // Internal Abstractions (Inlined for self-contained binary)
 // ============================================================================
-
-/// Constant learning rate scheduler (for backward compatibility).
-///
-/// This scheduler maintains a constant learning rate throughout training.
-/// Used when no config file is provided.
-struct ConstantLR {
-    lr: f32,
-}
-
-impl ConstantLR {
-    fn new(lr: f32) -> Self {
-        Self { lr }
-    }
-}
-
-impl LRScheduler for ConstantLR {
-    fn get_lr(&self) -> f32 {
-        self.lr
-    }
-
-    fn step(&mut self) {
-        // No-op for constant learning rate
-    }
-
-    fn reset(&mut self) {
-        // No-op for constant learning rate
-    }
-}
 
 /// Core trait for neural network layers.
 pub trait Layer {

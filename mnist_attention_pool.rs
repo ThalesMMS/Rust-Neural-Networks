@@ -86,7 +86,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use rust_neural_networks::config::load_config;
 use rust_neural_networks::utils::lr_scheduler::{
-    CosineAnnealing, ExponentialDecay, LRScheduler, StepDecay,
+    ConstantLR, CosineAnnealing, ExponentialDecay, LRScheduler, StepDecay,
 };
 
 // MNIST constants (images are flat 28x28 in row-major order).
@@ -138,34 +138,6 @@ const EARLY_STOPPING_MIN_DELTA: f32 = 0.001; // Minimum change to be considered 
 // ============================================================================
 // Internal Abstractions (Inlined for self-contained binary)
 // ============================================================================
-
-/// Constant learning rate scheduler (for backward compatibility).
-///
-/// This scheduler maintains a constant learning rate throughout training.
-/// Used when no config file is provided.
-struct ConstantLR {
-    lr: f32,
-}
-
-impl ConstantLR {
-    fn new(lr: f32) -> Self {
-        Self { lr }
-    }
-}
-
-impl LRScheduler for ConstantLR {
-    fn get_lr(&self) -> f32 {
-        self.lr
-    }
-
-    fn step(&mut self) {
-        // No-op for constant learning rate
-    }
-
-    fn reset(&mut self) {
-        // No-op for constant learning rate
-    }
-}
 
 // Tiny xorshift RNG for reproducible init without external crates.
 struct SimpleRng {
@@ -1640,9 +1612,11 @@ fn main() {
     let mut scheduler: Box<dyn LRScheduler> = if let Some(path) = config_path {
         match load_config(&path) {
             Ok(config) => match config.scheduler_type.as_str() {
-                "step" => Box::new(StepDecay::from_config(&config)),
-                "exponential" => Box::new(ExponentialDecay::from_config(&config)),
-                "cosine" => Box::new(CosineAnnealing::from_config(&config)),
+                "step_decay" => Box::new(StepDecay::from_config(LEARNING_RATE, &config)),
+                "exponential" => Box::new(ExponentialDecay::from_config(LEARNING_RATE, &config)),
+                "cosine_annealing" => {
+                    Box::new(CosineAnnealing::from_config(LEARNING_RATE, &config))
+                }
                 _ => {
                     eprintln!("Unknown scheduler type: {}", config.scheduler_type);
                     Box::new(ConstantLR::new(LEARNING_RATE))

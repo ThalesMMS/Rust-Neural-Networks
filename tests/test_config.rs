@@ -8,7 +8,15 @@
 //! - Handling missing optional fields with defaults
 
 use rust_neural_networks::config::load_config;
-use std::fs;
+use std::io::Write;
+use tempfile::NamedTempFile;
+
+fn write_temp_config(contents: &str) -> NamedTempFile {
+    let mut file = NamedTempFile::new().expect("failed to create temp file");
+    file.write_all(contents.as_bytes())
+        .expect("failed to write temp config");
+    file
+}
 
 // ============================================================================
 // Valid Config Loading Tests
@@ -92,16 +100,14 @@ mod temp_config_tests {
 
     #[test]
     fn test_parse_minimal_step_decay() {
-        let temp_file = "test_temp_step.json";
         let config_json = r#"{
   "scheduler_type": "step_decay",
   "step_size": 5,
   "gamma": 0.1
 }"#;
 
-        fs::write(temp_file, config_json).unwrap();
-        let config = load_config(temp_file).unwrap();
-        fs::remove_file(temp_file).unwrap();
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
 
         assert_eq!(config.scheduler_type, "step_decay");
         assert_eq!(config.step_size, Some(5));
@@ -110,15 +116,13 @@ mod temp_config_tests {
 
     #[test]
     fn test_parse_minimal_exponential() {
-        let temp_file = "test_temp_exponential.json";
         let config_json = r#"{
   "scheduler_type": "exponential",
   "decay_rate": 0.9
 }"#;
 
-        fs::write(temp_file, config_json).unwrap();
-        let config = load_config(temp_file).unwrap();
-        fs::remove_file(temp_file).unwrap();
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
 
         assert_eq!(config.scheduler_type, "exponential");
         assert_eq!(config.decay_rate, Some(0.9));
@@ -126,16 +130,14 @@ mod temp_config_tests {
 
     #[test]
     fn test_parse_minimal_cosine() {
-        let temp_file = "test_temp_cosine.json";
         let config_json = r#"{
   "scheduler_type": "cosine_annealing",
   "min_lr": 0.00001,
   "T_max": 20
 }"#;
 
-        fs::write(temp_file, config_json).unwrap();
-        let config = load_config(temp_file).unwrap();
-        fs::remove_file(temp_file).unwrap();
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
 
         assert_eq!(config.scheduler_type, "cosine_annealing");
         assert_eq!(config.min_lr, Some(0.00001));
@@ -144,7 +146,6 @@ mod temp_config_tests {
 
     #[test]
     fn test_parse_all_fields() {
-        let temp_file = "test_temp_all_fields.json";
         let config_json = r#"{
   "scheduler_type": "step_decay",
   "step_size": 2,
@@ -154,9 +155,8 @@ mod temp_config_tests {
   "T_max": 15
 }"#;
 
-        fs::write(temp_file, config_json).unwrap();
-        let config = load_config(temp_file).unwrap();
-        fs::remove_file(temp_file).unwrap();
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
 
         // All fields should be present
         assert_eq!(config.scheduler_type, "step_decay");
@@ -169,14 +169,12 @@ mod temp_config_tests {
 
     #[test]
     fn test_parse_only_scheduler_type() {
-        let temp_file = "test_temp_minimal.json";
         let config_json = r#"{
   "scheduler_type": "constant"
 }"#;
 
-        fs::write(temp_file, config_json).unwrap();
-        let config = load_config(temp_file).unwrap();
-        fs::remove_file(temp_file).unwrap();
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
 
         // Only scheduler_type required, all optional fields should be None
         assert_eq!(config.scheduler_type, "constant");
@@ -203,7 +201,6 @@ mod error_handling_tests {
 
     #[test]
     fn test_invalid_json_syntax() {
-        let temp_file = "test_temp_invalid.json";
         let invalid_json = r#"{
   "scheduler_type": "step_decay",
   "step_size": 3,
@@ -211,36 +208,31 @@ mod error_handling_tests {
   // Missing closing brace
 "#;
 
-        fs::write(temp_file, invalid_json).unwrap();
-        let result = load_config(temp_file);
-        fs::remove_file(temp_file).unwrap();
+        let temp_file = write_temp_config(invalid_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
 
         assert!(result.is_err(), "Should fail on invalid JSON");
     }
 
     #[test]
     fn test_malformed_json() {
-        let temp_file = "test_temp_malformed.json";
         let malformed_json = "not valid json at all";
 
-        fs::write(temp_file, malformed_json).unwrap();
-        let result = load_config(temp_file);
-        fs::remove_file(temp_file).unwrap();
+        let temp_file = write_temp_config(malformed_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
 
         assert!(result.is_err(), "Should fail on malformed JSON");
     }
 
     #[test]
     fn test_missing_scheduler_type() {
-        let temp_file = "test_temp_missing_type.json";
         let config_json = r#"{
   "step_size": 3,
   "gamma": 0.5
 }"#;
 
-        fs::write(temp_file, config_json).unwrap();
-        let result = load_config(temp_file);
-        fs::remove_file(temp_file).unwrap();
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
 
         assert!(
             result.is_err(),
@@ -250,15 +242,13 @@ mod error_handling_tests {
 
     #[test]
     fn test_wrong_type_scheduler_type() {
-        let temp_file = "test_temp_wrong_type.json";
         let config_json = r#"{
   "scheduler_type": 123,
   "step_size": 3
 }"#;
 
-        fs::write(temp_file, config_json).unwrap();
-        let result = load_config(temp_file);
-        fs::remove_file(temp_file).unwrap();
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
 
         assert!(
             result.is_err(),
@@ -268,16 +258,14 @@ mod error_handling_tests {
 
     #[test]
     fn test_wrong_type_step_size() {
-        let temp_file = "test_temp_wrong_step_size.json";
         let config_json = r#"{
   "scheduler_type": "step_decay",
   "step_size": "three",
   "gamma": 0.5
 }"#;
 
-        fs::write(temp_file, config_json).unwrap();
-        let result = load_config(temp_file);
-        fs::remove_file(temp_file).unwrap();
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
 
         assert!(
             result.is_err(),
@@ -287,36 +275,30 @@ mod error_handling_tests {
 
     #[test]
     fn test_wrong_type_gamma() {
-        let temp_file = "test_temp_wrong_gamma.json";
         let config_json = r#"{
   "scheduler_type": "step_decay",
   "step_size": 3,
   "gamma": "zero point five"
 }"#;
 
-        fs::write(temp_file, config_json).unwrap();
-        let result = load_config(temp_file);
-        fs::remove_file(temp_file).unwrap();
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
 
         assert!(result.is_err(), "Should fail when gamma is not a number");
     }
 
     #[test]
     fn test_empty_file() {
-        let temp_file = "test_temp_empty.json";
-        fs::write(temp_file, "").unwrap();
-        let result = load_config(temp_file);
-        fs::remove_file(temp_file).unwrap();
+        let temp_file = write_temp_config("");
+        let result = load_config(temp_file.path().to_str().unwrap());
 
         assert!(result.is_err(), "Should fail on empty file");
     }
 
     #[test]
     fn test_empty_json_object() {
-        let temp_file = "test_temp_empty_obj.json";
-        fs::write(temp_file, "{}").unwrap();
-        let result = load_config(temp_file);
-        fs::remove_file(temp_file).unwrap();
+        let temp_file = write_temp_config("{}");
+        let result = load_config(temp_file.path().to_str().unwrap());
 
         assert!(result.is_err(), "Should fail on empty JSON object");
     }
@@ -351,16 +333,13 @@ mod structure_tests {
 
     #[test]
     fn test_optional_fields_are_optional() {
-        let temp_file = "test_temp_optional.json";
-
         // Create a config with only required field
         let config_json = r#"{
   "scheduler_type": "custom"
 }"#;
 
-        fs::write(temp_file, config_json).unwrap();
-        let config = load_config(temp_file).unwrap();
-        fs::remove_file(temp_file).unwrap();
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
 
         // All optional fields should be None
         assert!(config.step_size.is_none());
@@ -380,16 +359,14 @@ mod edge_case_tests {
 
     #[test]
     fn test_zero_values() {
-        let temp_file = "test_temp_zeros.json";
         let config_json = r#"{
   "scheduler_type": "step_decay",
   "step_size": 0,
   "gamma": 0.0
 }"#;
 
-        fs::write(temp_file, config_json).unwrap();
-        let config = load_config(temp_file).unwrap();
-        fs::remove_file(temp_file).unwrap();
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
 
         assert_eq!(config.step_size, Some(0));
         assert_eq!(config.gamma, Some(0.0));
@@ -397,16 +374,14 @@ mod edge_case_tests {
 
     #[test]
     fn test_large_values() {
-        let temp_file = "test_temp_large.json";
         let config_json = r#"{
   "scheduler_type": "step_decay",
   "step_size": 1000000,
   "gamma": 0.999999
 }"#;
 
-        fs::write(temp_file, config_json).unwrap();
-        let config = load_config(temp_file).unwrap();
-        fs::remove_file(temp_file).unwrap();
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
 
         assert_eq!(config.step_size, Some(1000000));
         assert!((config.gamma.unwrap() - 0.999999).abs() < 1e-6);
@@ -414,25 +389,20 @@ mod edge_case_tests {
 
     #[test]
     fn test_negative_float_values() {
-        let temp_file = "test_temp_negative.json";
         let config_json = r#"{
   "scheduler_type": "test",
   "gamma": -0.5,
   "min_lr": -0.001
 }"#;
 
-        fs::write(temp_file, config_json).unwrap();
-        let config = load_config(temp_file).unwrap();
-        fs::remove_file(temp_file).unwrap();
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
 
-        // JSON allows negative numbers, even if they might not make sense for the application
-        assert_eq!(config.gamma, Some(-0.5));
-        assert_eq!(config.min_lr, Some(-0.001));
+        assert!(result.is_err(), "Should fail on negative numeric values");
     }
 
     #[test]
     fn test_extra_whitespace() {
-        let temp_file = "test_temp_whitespace.json";
         let config_json = r#"
 
         {
@@ -443,9 +413,8 @@ mod edge_case_tests {
 
         "#;
 
-        fs::write(temp_file, config_json).unwrap();
-        let config = load_config(temp_file).unwrap();
-        fs::remove_file(temp_file).unwrap();
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
 
         assert_eq!(config.scheduler_type, "step_decay");
         assert_eq!(config.step_size, Some(3));
@@ -454,32 +423,28 @@ mod edge_case_tests {
 
     #[test]
     fn test_unicode_in_strings() {
-        let temp_file = "test_temp_unicode.json";
         let config_json = r#"{
   "scheduler_type": "step_decay_🚀",
   "step_size": 3,
   "gamma": 0.5
 }"#;
 
-        fs::write(temp_file, config_json).unwrap();
-        let config = load_config(temp_file).unwrap();
-        fs::remove_file(temp_file).unwrap();
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
 
         assert_eq!(config.scheduler_type, "step_decay_🚀");
     }
 
     #[test]
     fn test_scientific_notation() {
-        let temp_file = "test_temp_scientific.json";
         let config_json = r#"{
   "scheduler_type": "exponential",
   "decay_rate": 1e-3,
   "min_lr": 1.5e-4
 }"#;
 
-        fs::write(temp_file, config_json).unwrap();
-        let config = load_config(temp_file).unwrap();
-        fs::remove_file(temp_file).unwrap();
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
 
         assert!((config.decay_rate.unwrap() - 0.001).abs() < 1e-6);
         assert!((config.min_lr.unwrap() - 0.00015).abs() < 1e-6);

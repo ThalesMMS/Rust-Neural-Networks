@@ -44,6 +44,7 @@ path = "mnist_attention_pool.rs"
 
 [dev-dependencies]
 approx = "0.5"
+tempfile = "3.10"
 
 [profile.release]
 lto = true

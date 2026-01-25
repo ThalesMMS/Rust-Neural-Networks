@@ -83,5 +83,37 @@ pub struct TrainingConfig {
 pub fn load_config(path: &str) -> Result<TrainingConfig, Box<dyn Error>> {
     let contents = fs::read_to_string(path)?;
     let config: TrainingConfig = serde_json::from_str(&contents)?;
+    validate_config(&config)?;
     Ok(config)
+}
+
+fn validate_config(config: &TrainingConfig) -> Result<(), Box<dyn Error>> {
+    if let Some(gamma) = config.gamma {
+        if gamma < 0.0 {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "gamma must be non-negative",
+            )));
+        }
+    }
+
+    if let Some(decay_rate) = config.decay_rate {
+        if decay_rate < 0.0 {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "decay_rate must be non-negative",
+            )));
+        }
+    }
+
+    if let Some(min_lr) = config.min_lr {
+        if min_lr < 0.0 {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "min_lr must be non-negative",
+            )));
+        }
+    }
+
+    Ok(())
 }
