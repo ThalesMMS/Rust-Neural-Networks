@@ -158,3 +158,81 @@ impl LRScheduler for StepDecay {
         self.current_lr = self.initial_lr;
     }
 }
+
+/// Exponential decay learning rate scheduler.
+///
+/// Reduces the learning rate by a multiplicative factor (gamma) every epoch.
+/// This provides smooth, continuous decay compared to step decay, allowing for
+/// gradual reduction in learning rate throughout training.
+///
+/// Formula: lr = initial_lr * gamma^epoch
+///
+/// # Fields
+///
+/// * `initial_lr` - Starting learning rate
+/// * `gamma` - Multiplicative decay factor applied each epoch (typically 0.95 to 0.99)
+/// * `current_epoch` - Current training epoch (0-indexed)
+/// * `current_lr` - Current learning rate value
+///
+/// # Example
+///
+/// ```ignore
+/// use rust_neural_networks::utils::lr_scheduler::{LRScheduler, ExponentialDecay};
+///
+/// let mut scheduler = ExponentialDecay::new(0.1, 0.95);
+/// assert_eq!(scheduler.get_lr(), 0.1);
+///
+/// // After 1 epoch
+/// scheduler.step();
+/// assert_eq!(scheduler.get_lr(), 0.095); // 0.1 * 0.95
+///
+/// // After 2 epochs total
+/// scheduler.step();
+/// assert_eq!(scheduler.get_lr(), 0.09025); // 0.1 * 0.95^2
+/// ```
+pub struct ExponentialDecay {
+    initial_lr: f32,
+    gamma: f32,
+    current_epoch: usize,
+    current_lr: f32,
+}
+
+impl ExponentialDecay {
+    /// Creates a new exponential decay scheduler.
+    ///
+    /// # Arguments
+    ///
+    /// * `initial_lr` - Starting learning rate (must be positive)
+    /// * `gamma` - Decay factor applied each epoch (typically 0.95-0.99)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let scheduler = ExponentialDecay::new(0.01, 0.96);
+    /// // LR will be: 0.01 at epoch 0, 0.0096 at epoch 1, 0.009216 at epoch 2, etc.
+    /// ```
+    pub fn new(initial_lr: f32, gamma: f32) -> Self {
+        Self {
+            initial_lr,
+            gamma,
+            current_epoch: 0,
+            current_lr: initial_lr,
+        }
+    }
+}
+
+impl LRScheduler for ExponentialDecay {
+    fn get_lr(&self) -> f32 {
+        self.current_lr
+    }
+
+    fn step(&mut self) {
+        self.current_epoch += 1;
+        self.current_lr = self.initial_lr * self.gamma.powi(self.current_epoch as i32);
+    }
+
+    fn reset(&mut self) {
+        self.current_epoch = 0;
+        self.current_lr = self.initial_lr;
+    }
+}
