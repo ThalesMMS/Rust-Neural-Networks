@@ -379,11 +379,11 @@ fn gather_batch(
 }
 
 // Training with shuffling and minibatches.
-/// Trains the neural network using minibatch stochastic gradient descent, logging per-epoch loss and duration.
+/// Trains the neural network using minibatch stochastic gradient descent, logging per-epoch loss, validation metrics, and duration.
 ///
 /// This function performs training for a fixed number of epochs using minibatches, updates the
-/// network parameters in-place, and appends per-epoch loss and elapsed time to ./logs/training_loss_c.txt.
-/// It also prints epoch-level loss and timing to standard output.
+/// network parameters in-place, and appends per-epoch training loss, validation loss, validation accuracy,
+/// and elapsed time to ./logs/training_loss_c.txt. It also prints epoch-level metrics and timing to standard output.
 ///
 /// # Examples
 ///
@@ -393,13 +393,18 @@ fn gather_batch(
 /// let mut nn = initialize_network(&mut rng);
 /// let images = vec![0.0f32; NUM_INPUTS * 1]; // single example with zeroed pixels
 /// let labels = vec![0u8; 1]; // single label
-/// train(&mut nn, &images, &labels, 1, &mut rng);
+/// let val_images = vec![0.0f32; NUM_INPUTS * 1]; // validation images
+/// let val_labels = vec![0u8; 1]; // validation labels
+/// train(&mut nn, &images, &labels, 1, &val_images, &val_labels, 1, &mut rng);
 /// ```
 fn train(
     nn: &mut NeuralNetwork,
     images: &[f32],
     labels: &[u8],
     num_samples: usize,
+    val_images: &[f32],
+    val_labels: &[u8],
+    val_num_samples: usize,
     rng: &mut SimpleRng,
 ) {
     // Attempt to create logs dir if not exists
@@ -498,13 +503,66 @@ fn train(
 
         let duration = start_time.elapsed().as_secs_f32();
         let average_loss = total_loss / num_samples as f32;
+
+        // Evaluate on validation set
+        let mut val_total_loss = 0.0f32;
+        let mut val_correct = 0usize;
+        let mut val_batch_inputs = vec![0.0f32; BATCH_SIZE * NUM_INPUTS];
+        let mut val_a1 = vec![0.0f32; BATCH_SIZE * NUM_HIDDEN];
+        let mut val_a2 = vec![0.0f32; BATCH_SIZE * NUM_OUTPUTS];
+
+        for batch_start in (0..val_num_samples).step_by(BATCH_SIZE) {
+            let batch_count = (val_num_samples - batch_start).min(BATCH_SIZE);
+            let input_len = batch_count * NUM_INPUTS;
+            let input_start = batch_start * NUM_INPUTS;
+            val_batch_inputs[..input_len].copy_from_slice(&val_images[input_start..input_start + input_len]);
+
+            // Forward: hidden layer
+            let val_a1_len = batch_count * NUM_HIDDEN;
+            nn.hidden_layer.forward(&val_batch_inputs, &mut val_a1, batch_count);
+            relu_inplace(&mut val_a1[..val_a1_len]);
+
+            // Forward: output layer
+            let val_a2_len = batch_count * NUM_OUTPUTS;
+            nn.output_layer.forward(&val_a1, &mut val_a2, batch_count);
+            softmax_rows(&mut val_a2[..val_a2_len], batch_count, NUM_OUTPUTS);
+
+            // Compute loss
+            let epsilon = 1e-9f32;
+            for row_idx in 0..batch_count {
+                let row_start = row_idx * NUM_OUTPUTS;
+                let label = val_labels[batch_start + row_idx] as usize;
+                let prob = val_a2[row_start + label].max(epsilon);
+                val_total_loss -= prob.ln();
+
+                // Compute accuracy
+                let row = &val_a2[row_start..row_start + NUM_OUTPUTS];
+                let mut predicted = 0usize;
+                let mut max_prob = row[0];
+                for (i, &value) in row.iter().enumerate().skip(1) {
+                    if value > max_prob {
+                        max_prob = value;
+                        predicted = i;
+                    }
+                }
+                if predicted == label {
+                    val_correct += 1;
+                }
+            }
+        }
+
+        let val_average_loss = val_total_loss / val_num_samples as f32;
+        let val_accuracy = val_correct as f32 / val_num_samples as f32 * 100.0;
+
         println!(
-            "Epoch {}, Loss: {:.6} Time: {:.6}",
+            "Epoch {}, Loss: {:.6}, Val Loss: {:.6}, Val Acc: {:.2}%, Time: {:.6}",
             epoch + 1,
             average_loss,
+            val_average_loss,
+            val_accuracy,
             duration
         );
-        writeln!(loss_file, "{},{},{}", epoch + 1, average_loss, duration).unwrap_or_else(|_| {
+        writeln!(loss_file, "{},{},{},{},{},{}", epoch + 1, average_loss, duration, val_average_loss, val_accuracy, duration).unwrap_or_else(|_| {
             eprintln!("Failed writing training loss data.");
             process::exit(1);
         });
@@ -714,8 +772,8 @@ fn main() {
     let split_point_images = actual_train_samples * NUM_INPUTS;
     let split_point_labels = actual_train_samples;
 
-    let _val_images = train_images.split_off(split_point_images);
-    let _val_labels = train_labels.split_off(split_point_labels);
+    let val_images = train_images.split_off(split_point_images);
+    let val_labels = train_labels.split_off(split_point_labels);
 
     println!(
         "Data split: {} training samples, {} validation samples, {} test samples",
@@ -733,6 +791,9 @@ fn main() {
         &train_images,
         &train_labels,
         actual_train_samples,
+        &val_images,
+        &val_labels,
+        validation_samples,
         &mut rng,
     );
     let train_time = train_start.elapsed().as_secs_f64();
