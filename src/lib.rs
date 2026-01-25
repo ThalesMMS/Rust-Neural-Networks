@@ -7,6 +7,8 @@
 //!
 //! - `layers`: Layer trait and implementations (Dense, Conv2D, etc.)
 //! - `utils`: Shared utilities (RNG, activation functions, etc.)
+//! - `config`: Training configuration structures
 
+pub mod config;
 pub mod layers;
 pub mod utils;
