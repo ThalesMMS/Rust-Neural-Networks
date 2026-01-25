@@ -125,6 +125,7 @@ const LEARNING_RATE: f32 = 0.01;
 const EPOCHS: usize = 8;
 
 const BATCH_SIZE: usize = 32;
+const VALIDATION_SPLIT: f32 = 0.1; // 10% of training data for validation
 
 // Tiny xorshift RNG for reproducible init without external crates.
 struct SimpleRng {
@@ -1490,14 +1491,27 @@ fn main() {
     println!();
 
     println!("Loading MNIST data...");
-    let train_images = read_mnist_images("./data/train-images.idx3-ubyte", TRAIN_SAMPLES);
-    let train_labels = read_mnist_labels("./data/train-labels.idx1-ubyte", TRAIN_SAMPLES);
+    let mut train_images = read_mnist_images("./data/train-images.idx3-ubyte", TRAIN_SAMPLES);
+    let mut train_labels = read_mnist_labels("./data/train-labels.idx1-ubyte", TRAIN_SAMPLES);
     let test_images = read_mnist_images("./data/t10k-images.idx3-ubyte", TEST_SAMPLES);
     let test_labels = read_mnist_labels("./data/t10k-labels.idx1-ubyte", TEST_SAMPLES);
 
-    let train_n = train_labels.len();
+    // Split training data into train and validation sets
+    let total_train_samples = train_images.len() / NUM_INPUTS;
+    let validation_samples = (total_train_samples as f32 * VALIDATION_SPLIT) as usize;
+    let actual_train_samples = total_train_samples - validation_samples;
+
+    let split_point_images = actual_train_samples * NUM_INPUTS;
+    let split_point_labels = actual_train_samples;
+
+    let _val_images = train_images.split_off(split_point_images);
+    let _val_labels = train_labels.split_off(split_point_labels);
+
     let test_n = test_labels.len();
-    println!("Train samples: {} | Test samples: {}", train_n, test_n);
+    println!(
+        "Data split: {} training samples, {} validation samples, {} test samples",
+        actual_train_samples, validation_samples, test_n
+    );
     println!();
 
     // Create logs directory.
@@ -1515,7 +1529,7 @@ fn main() {
     let mut model = init_model(&mut rng);
 
     // Shuffled indices for mini-batch sampling.
-    let mut indices: Vec<usize> = (0..train_n).collect();
+    let mut indices: Vec<usize> = (0..actual_train_samples).collect();
 
     // Training buffers (reused each batch to avoid allocations).
     let mut batch_inputs = vec![0.0f32; BATCH_SIZE * NUM_INPUTS];
@@ -1532,8 +1546,8 @@ fn main() {
 
         let mut total_loss = 0.0f32;
 
-        for batch_start in (0..train_n).step_by(BATCH_SIZE) {
-            let batch_count = (train_n - batch_start).min(BATCH_SIZE);
+        for batch_start in (0..actual_train_samples).step_by(BATCH_SIZE) {
+            let batch_count = (actual_train_samples - batch_start).min(BATCH_SIZE);
 
             gather_batch(
                 &train_images,
@@ -1555,7 +1569,7 @@ fn main() {
             apply_sgd(&mut model, &grads, LEARNING_RATE);
         }
 
-        let avg_loss = total_loss / train_n as f32;
+        let avg_loss = total_loss / actual_train_samples as f32;
         let acc = test_accuracy(&model, &test_images, &test_labels);
         let epoch_time = epoch_start.elapsed().as_secs_f32();
 
