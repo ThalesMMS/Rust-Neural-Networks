@@ -1,0 +1,14 @@
+{
+  "layers": [
+    {
+      "layer_type": "dense",
+      "input_size": 784,
+      "output_size": 256
+    },
+    {
+      "layer_type": "dense",
+      "input_size": 256,
+      "output_size": 10
+    }
+  ]
+}

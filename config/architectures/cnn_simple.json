@@ -1,0 +1,24 @@
+{
+  "layers": [
+    {
+      "layer_type": "conv2d",
+      "in_channels": 1,
+      "out_channels": 8,
+      "kernel_size": 3,
+      "padding": 1,
+      "stride": 1,
+      "input_height": 28,
+      "input_width": 28
+    },
+    {
+      "layer_type": "dense",
+      "input_size": 6272,
+      "output_size": 128
+    },
+    {
+      "layer_type": "dense",
+      "input_size": 128,
+      "output_size": 10
+    }
+  ]
+}

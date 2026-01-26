@@ -9,7 +9,9 @@
 //! - `optimizers`: Optimizer trait and implementations (SGD, Adam, etc.)
 //! - `utils`: Shared utilities (RNG, activation functions, etc.)
 //! - `config`: Training configuration structures
+//! - `architecture`: Architecture configuration and model building
 
+pub mod architecture;
 pub mod config;
 pub mod layers;
 pub mod optimizers;

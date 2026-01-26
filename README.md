@@ -113,6 +113,30 @@ Training uses 1,000,000 epochs by default.
 - Best checkpoints are saved when validation improves.
 - An optional learning-rate scheduler can be provided via a JSON config file (see `config/`).
 
+## Architecture configuration
+
+The project supports defining neural network architectures via JSON configuration files, enabling rapid experimentation without code changes.
+
+**Features:**
+- Define architectures by specifying a sequence of layers (Dense, Conv2D, BatchNorm, Dropout)
+- Automatic validation of layer connections and parameters
+- Example configs provided in `config/architectures/`
+
+**Example configs:**
+- `mlp_simple.json` - Simple 784→256→10 MLP
+- `mlp_medium.json` - Medium 784→512→256→10 MLP
+- `cnn_simple.json` - Convolutional network with Conv2D + Dense layers
+
+**Usage in code:**
+```rust
+use rust_neural_networks::architecture::{load_architecture, build_model};
+
+let config = load_architecture("config/architectures/mlp_simple.json")?;
+let layers = build_model(&config, &mut rng)?;
+```
+
+For detailed documentation including layer types, parameters, validation rules, and more examples, see [`docs/architecture_config.md`](docs/architecture_config.md).
+
 ## Build and run (Rust)
 
 Build:

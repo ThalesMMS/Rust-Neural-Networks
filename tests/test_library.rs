@@ -6,9 +6,12 @@
 //! - Activation functions: relu, softmax
 //! - SimpleRng: random number generation
 
+#[cfg(feature = "shared_activations")]
 use approx::assert_relative_eq;
 use rust_neural_networks::layers::{Conv2DLayer, DenseLayer, Layer};
-use rust_neural_networks::utils::activations::{relu_inplace, softmax_rows};
+use rust_neural_networks::utils::activations::relu_inplace;
+#[cfg(feature = "shared_activations")]
+use rust_neural_networks::utils::activations::softmax_rows;
 use rust_neural_networks::utils::rng::SimpleRng;
 
 // ============================================================================
