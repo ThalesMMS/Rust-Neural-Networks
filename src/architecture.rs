@@ -408,6 +408,47 @@ fn validate_layer(layer: &LayerConfig, index: usize) -> Result<(), Box<dyn Error
                     )));
                 }
             }
+            if let Some(input_height) = layer.input_height {
+                if input_height == 0 {
+                    return Err(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("Layer {}: input_height must be greater than 0", index),
+                    )));
+                }
+            }
+            if let Some(input_width) = layer.input_width {
+                if input_width == 0 {
+                    return Err(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("Layer {}: input_width must be greater than 0", index),
+                    )));
+                }
+            }
+
+            let input_height = layer.input_height.unwrap();
+            let input_width = layer.input_width.unwrap();
+            let kernel_size = layer.kernel_size.unwrap();
+            let padding = layer.padding.unwrap_or(0);
+            let h_num = input_height as isize + 2 * padding - kernel_size as isize;
+            if h_num < 0 {
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "Layer {}: invalid Conv2D configuration: input_height + 2*padding - kernel_size must be >= 0",
+                        index
+                    ),
+                )));
+            }
+            let w_num = input_width as isize + 2 * padding - kernel_size as isize;
+            if w_num < 0 {
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "Layer {}: invalid Conv2D configuration: input_width + 2*padding - kernel_size must be >= 0",
+                        index
+                    ),
+                )));
+            }
         }
         "batchnorm" => {
             if layer.size.is_none() {
@@ -519,6 +560,7 @@ pub fn build_model(
     config: &ArchitectureConfig,
     rng: &mut SimpleRng,
 ) -> Result<Vec<Box<dyn Layer>>, Box<dyn Error>> {
+    validate_architecture(config)?;
     let mut layers: Vec<Box<dyn Layer>> = Vec::new();
 
     for (i, layer_config) in config.layers.iter().enumerate() {

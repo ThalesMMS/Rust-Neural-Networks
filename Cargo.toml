@@ -42,6 +42,10 @@ path = "mnist_cnn.rs"
 name = "mnist_attention_pool"
 path = "mnist_attention_pool.rs"
 
+[[bin]]
+name = "cifar10_cnn"
+path = "cifar10_cnn.rs"
+
 [dev-dependencies]
 approx = "0.5"
 tempfile = "3.24.0"

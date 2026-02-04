@@ -10,9 +10,11 @@
 //! - `utils`: Shared utilities (RNG, activation functions, etc.)
 //! - `config`: Training configuration structures
 //! - `architecture`: Architecture configuration and model building
+//! - `data`: Data loading utilities for various datasets
 
 pub mod architecture;
 pub mod config;
+pub mod data;
 pub mod layers;
 pub mod optimizers;
 pub mod utils;

@@ -2,6 +2,7 @@
 //!
 //! This module provides a Conv2DLayer that performs 2D convolution operations,
 //! commonly used in computer vision tasks like image classification.
+//! Inputs are expected in channels-last (pixel-interleaved) order.
 
 use crate::layers::Layer;
 use crate::utils::rng::SimpleRng;
@@ -225,6 +226,26 @@ impl Conv2DLayer {
             + 1) as usize
     }
 
+    /// Returns the input height configured for this convolution layer.
+    pub fn input_height(&self) -> usize {
+        self.input_height
+    }
+
+    /// Returns the input width configured for this convolution layer.
+    pub fn input_width(&self) -> usize {
+        self.input_width
+    }
+
+    /// Immutable view of the convolution filter weights.
+    pub fn weights(&self) -> &[f32] {
+        &self.weights
+    }
+
+    /// Immutable view of the convolution bias values.
+    pub fn biases(&self) -> &[f32] {
+        &self.biases
+    }
+
     /// Total number of trainable parameters in the layer.
     ///
     /// # Examples
@@ -252,14 +273,15 @@ impl Conv2DLayer {
 impl Layer for Conv2DLayer {
     /// Applies this convolutional layer to `input` and writes the computed feature maps into `output`.
     ///
-    /// The expected memory layout for `input` and `output` is contiguous row-major with dimensions
-    /// [batch, channels, height, width]. `input` must have length `batch_size * layer.input_size()` and
-    /// `output` must have length `batch_size * layer.output_size()`. The method reads the layer's weights
-    /// and biases and computes a standard 2D convolution using the configured `padding` and `stride`.
+    /// The expected memory layout for `input` is contiguous row-major with channels-last ordering
+    /// [batch, height, width, channels] (pixel-interleaved RGBRGB...). `input` must have length
+    /// `batch_size * layer.input_size()` and `output` must have length
+    /// `batch_size * layer.output_size()`. The method reads the layer's weights and biases and computes
+    /// a standard 2D convolution using the configured `padding` and `stride`.
     ///
     /// # Parameters
     ///
-    /// - `input`: Flattened input tensor with layout [batch, in_channels, input_height, input_width].
+    /// - `input`: Flattened input tensor with layout [batch, input_height, input_width, in_channels].
     /// - `output`: Mutable flattened output buffer with layout [batch, out_channels, output_height, output_width].
     /// - `batch_size`: Number of examples in the batch.
     ///
@@ -301,7 +323,6 @@ impl Layer for Conv2DLayer {
                         for ic in 0..self.in_channels {
                             let w_base =
                                 (oc * self.in_channels + ic) * self.kernel_size * self.kernel_size;
-                            let in_base_c = in_base + ic * in_spatial;
 
                             // Convolve kernel over input
                             for ky in 0..self.kernel_size {
@@ -318,7 +339,9 @@ impl Layer for Conv2DLayer {
                                     {
                                         let iyy = iy as usize;
                                         let ixx = ix as usize;
-                                        let in_idx = in_base_c + iyy * self.input_width + ixx;
+                                        let in_idx = in_base
+                                            + (iyy * self.input_width + ixx) * self.in_channels
+                                            + ic;
                                         let w_idx = w_base + ky * self.kernel_size + kx;
                                         sum += input[in_idx] * self.weights[w_idx];
                                     }
@@ -337,12 +360,14 @@ impl Layer for Conv2DLayer {
     /// Computes and accumulates gradients for this convolutional layer and writes the input gradients.
     ///
     /// This method updates the layer's internal gradient accumulators (`grad_weights` and `grad_biases`) by
-    /// accumulating gradients from `grad_output` across the batch and spatial locations, scales those accumulators
-    /// by 1 / `batch_size`, and writes the gradient with respect to the layer input into `grad_input`.
+    /// accumulating gradients from `grad_output` across the batch and spatial locations, and writes the gradient
+    /// with respect to the layer input into `grad_input`.
     ///
-    /// Parameters are expected in contiguous row-major layout with the ordering (batch, channel, height, width):
-    /// - `input`: length `batch_size * in_channels * input_height * input_width`.
-    /// - `grad_output`: length `batch_size * out_channels * output_height() * output_width()`.
+    /// Parameters are expected in contiguous row-major layout with ordering (batch, height, width, channel).
+    /// `input`/`grad_input` use NHWC (channels-last) layout, while `grad_output` follows the layer output
+    /// layout [batch, out_channels, out_h, out_w].
+    /// - `input`: length `batch_size * layer.input_size()`.
+    /// - `grad_output`: length `batch_size * layer.output_size()`.
     /// - `grad_input`: mutable buffer with the same length and layout as `input`; it is overwritten with computed gradients.
     /// - `batch_size`: number of examples in the first dimension of `input` and `grad_output`.
     ///
@@ -368,7 +393,6 @@ impl Layer for Conv2DLayer {
         grad_input: &mut [f32],
         batch_size: usize,
     ) {
-        let scale = 1.0f32 / batch_size as f32;
         let out_h = self.output_height();
         let out_w = self.output_width();
         let out_spatial = out_h * out_w;
@@ -405,7 +429,6 @@ impl Layer for Conv2DLayer {
                 // Accumulate weight gradients
                 for ic in 0..self.in_channels {
                     let w_base = (oc * self.in_channels + ic) * self.kernel_size * self.kernel_size;
-                    let in_base_c = in_base + ic * in_spatial;
 
                     for oy in 0..out_h {
                         for ox in 0..out_w {
@@ -425,7 +448,9 @@ impl Layer for Conv2DLayer {
                                     {
                                         let iyy = iy as usize;
                                         let ixx = ix as usize;
-                                        let in_idx = in_base_c + iyy * self.input_width + ixx;
+                                        let in_idx = in_base
+                                            + (iyy * self.input_width + ixx) * self.in_channels
+                                            + ic;
                                         let w_idx = w_base + ky * self.kernel_size + kx;
                                         grad_w[w_idx] += g * input[in_idx];
                                     }
@@ -435,14 +460,6 @@ impl Layer for Conv2DLayer {
                     }
                 }
             }
-        }
-
-        // Scale gradients by batch size
-        for g in grad_w.iter_mut() {
-            *g *= scale;
-        }
-        for g in grad_b.iter_mut() {
-            *g *= scale;
         }
 
         // Compute gradient with respect to input
@@ -455,8 +472,6 @@ impl Layer for Conv2DLayer {
             let g_base_b = b * (self.out_channels * out_spatial);
 
             for ic in 0..self.in_channels {
-                let in_base_c = in_base + ic * in_spatial;
-
                 for oc in 0..self.out_channels {
                     let g_base = g_base_b + oc * out_spatial;
                     let w_base = (oc * self.in_channels + ic) * self.kernel_size * self.kernel_size;
@@ -479,7 +494,9 @@ impl Layer for Conv2DLayer {
                                     {
                                         let iyy = iy as usize;
                                         let ixx = ix as usize;
-                                        let in_idx = in_base_c + iyy * self.input_width + ixx;
+                                        let in_idx = in_base
+                                            + (iyy * self.input_width + ixx) * self.in_channels
+                                            + ic;
                                         let w_idx = w_base + ky * self.kernel_size + kx;
                                         grad_input[in_idx] += g * self.weights[w_idx];
                                     }

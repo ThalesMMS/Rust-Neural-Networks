@@ -7,6 +7,7 @@ Authors: Antonio Neto and Thales Matheus
 This repository contains small neural networks in Rust for:
 
 - MNIST digit classification (MLP, CNN, and single-head self-attention + FFN)
+- CIFAR-10 object classification (CNN)
 - XOR toy example (2->4->1)
 
 Python utilities are included for visualization and digit recognition. The Swift implementation lives in the companion Swift-Neural-Networks repository. The design and binary model format are inspired by https://github.com/djbyrne/mlp.c.
@@ -15,7 +16,7 @@ Python utilities are included for visualization and digit recognition. The Swift
 
 Rust source:
 
-- `mnist_mlp.rs`, `mnist_cnn.rs`, `mnist_attention_pool.rs`, `mlp_simple.rs` (standalone binaries)
+- `mnist_mlp.rs`, `mnist_cnn.rs`, `mnist_attention_pool.rs`, `cifar10_cnn.rs`, `mlp_simple.rs` (standalone binaries)
 - `src/` (shared layers, optimizers, utils, config)
 - `tests/` (integration tests)
 - `Cargo.toml` / `Cargo.lock`
@@ -33,7 +34,7 @@ Scripts:
 
 Data and outputs:
 
-- `data/` (MNIST IDX files)
+- `data/` (MNIST IDX files, CIFAR-10 binary files)
 - `logs/` (training metrics logs)
 - `mnist_model.bin`, `mnist_model_best.bin` (example and best-checkpoint files)
 - `mnist_cnn_model_best.bin`, `mnist_attention_model_best.bin` (generated during training)
@@ -96,6 +97,27 @@ Default training parameters:
 - Early stopping patience: 3
 
 Expected accuracy: ~88-91% depending on seed and hyperparameters.
+
+### CIFAR-10 CNN
+
+Architecture:
+
+- Input: 32x32x3 RGB image (3072 pixels)
+- Conv: 16 filters (3x3) + ReLU + padding=1
+- MaxPool: 2x2
+- FC: 4096 -> 10
+
+Default training parameters:
+
+- Learning rate: 0.01
+- Batch size: 32
+- Epochs: 10
+- Validation split: 10%
+- Early stopping patience: 3 (min delta 0.001)
+
+Expected accuracy: ~50-60% depending on hardware and hyperparameters.
+
+Note: CIFAR-10 is significantly harder than MNIST. The baseline CNN architecture is intentionally simple for educational purposes. State-of-the-art models typically achieve 90%+ accuracy with deeper architectures, data augmentation, and more training.
 
 ### XOR model
 
@@ -175,6 +197,18 @@ Run MNIST attention:
 cargo run --release --bin mnist_attention_pool
 ```
 
+Run CIFAR-10 CNN:
+
+```bash
+cargo run --release --bin cifar10_cnn
+```
+
+Run with a learning-rate schedule:
+
+```bash
+cargo run --release --bin cifar10_cnn -- config/cifar10_cnn_baseline.json
+```
+
 Performance tips:
 
 ```bash
@@ -192,6 +226,7 @@ All runs used the default settings unless noted. Training time is reported as to
 | MNIST MLP | Rust | `cargo run --release --bin mnist_mlp` | 10 | 64 | 3.33 | 94.17 | BLAS (Accelerate) |
 | MNIST CNN | Rust | `cargo run --release --bin mnist_cnn` | 3 | 32 | 11.24 | 91.93 | Conv8/3x3 + MaxPool |
 | MNIST Attention | Rust | `cargo run --release --bin mnist_attention_pool` | 8 | 32 | 960 | 91.08 | D=64, FF=128, sinusoidal pos encoding |
+| CIFAR-10 CNN | Rust | `cargo run --release --bin cifar10_cnn` | 10 | 32 | TBD | TBD (expected 50-60) | Conv16/3x3 + MaxPool, RGB input |
 | XOR MLP | Rust | `cargo run --release --bin mlp_simple` | 1,000,000 | - | 0.74 | 100.00 | Threshold 0.5 |
 
 Note: results vary by hardware and build flags.
@@ -209,6 +244,26 @@ Download from:
 
 - https://www.kaggle.com/datasets/hojjatk/mnist-dataset
 - http://yann.lecun.com/exdb/mnist/
+
+## CIFAR-10 dataset
+
+Expected files under `data/cifar-10-batches-bin/`:
+
+- `data_batch_1.bin` through `data_batch_5.bin` (50,000 training images)
+- `test_batch.bin` (10,000 test images)
+- `batches.meta.txt` (class label names)
+
+Download the CIFAR-10 binary version from:
+
+- https://www.cs.toronto.edu/~kriz/cifar.html (CIFAR-10 binary version)
+- Direct link: https://www.cs.toronto.edu/~kriz/cifar-10-binary.tar.gz
+
+Extract the archive and place the `cifar-10-batches-bin/` directory inside the `data/` directory.
+
+CIFAR-10 contains 60,000 32x32 color images in 10 classes:
+- airplane, automobile, bird, cat, deer, dog, frog, horse, ship, truck
+
+For more details on the CIFAR-10 format and RGB handling, see `docs/cifar10_dataset.md`.
 
 ## Visualization
 
