@@ -46,6 +46,10 @@ path = "mnist_attention_pool.rs"
 name = "cifar10_cnn"
 path = "cifar10_cnn.rs"
 
+[[bin]]
+name = "rnn_char_level"
+path = "rnn_char_level.rs"
+
 [dev-dependencies]
 approx = "0.5"
 tempfile = "3.24.0"

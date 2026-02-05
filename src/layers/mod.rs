@@ -7,6 +7,8 @@ pub mod batchnorm;
 pub mod conv2d;
 pub mod dense;
 pub mod dropout;
+pub mod lstm;
+pub mod rnn;
 mod r#trait;
 
 // Re-export the Layer trait for convenience
@@ -14,4 +16,6 @@ pub use batchnorm::BatchNormLayer;
 pub use conv2d::Conv2DLayer;
 pub use dense::DenseLayer;
 pub use dropout::DropoutLayer;
+pub use lstm::LstmLayer;
 pub use r#trait::Layer;
+pub use rnn::RnnLayer;

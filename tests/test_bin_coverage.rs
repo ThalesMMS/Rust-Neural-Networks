@@ -21,8 +21,9 @@ mod mnist_mlp_bin {
 
         #[test]
         fn test_scheduler_from_args_without_config() {
-            let args = vec!["mnist_mlp".to_string()];
-            let mut scheduler = scheduler_from_args(&args);
+            let learning_rate = 0.01;
+            let epochs = 10;
+            let mut scheduler = scheduler_from_args(learning_rate, epochs, None);
             let lr = scheduler.get_lr();
             scheduler.step();
             assert_eq!(scheduler.get_lr(), lr);
@@ -36,16 +37,15 @@ mod mnist_mlp_bin {
   "gamma": 0.5
 }"#;
             let temp = crate::write_temp_config(config_json);
-            let args = vec![
-                "mnist_mlp".to_string(),
-                temp.path().to_str().unwrap().to_string(),
-            ];
-            let mut scheduler = scheduler_from_args(&args);
-            assert_eq!(scheduler.get_lr(), LEARNING_RATE);
+            let learning_rate = 0.01;
+            let epochs = 10;
+            let config_path = temp.path().to_str().unwrap();
+            let mut scheduler = scheduler_from_args(learning_rate, epochs, Some(config_path));
+            assert_eq!(scheduler.get_lr(), learning_rate);
             scheduler.step();
-            assert_eq!(scheduler.get_lr(), LEARNING_RATE);
+            assert_eq!(scheduler.get_lr(), learning_rate);
             scheduler.step();
-            assert!((scheduler.get_lr() - LEARNING_RATE * 0.5).abs() < 1e-6);
+            assert!((scheduler.get_lr() - learning_rate * 0.5).abs() < 1e-6);
         }
 
         #[test]
@@ -73,7 +73,12 @@ mod mnist_mlp_bin {
             let val_images = vec![0.0f32; NUM_INPUTS];
             let val_labels = vec![0u8; 1];
 
-            let mut scheduler = ConstantLR::new(LEARNING_RATE);
+            let learning_rate = 0.01;
+            let epochs = 1;
+            let batch_size = 1;
+            let early_stopping_patience = 3;
+            let early_stopping_min_delta = 0.001;
+            let mut scheduler = ConstantLR::new(learning_rate);
             train(
                 &mut nn,
                 &images,
@@ -84,6 +89,11 @@ mod mnist_mlp_bin {
                 1,
                 &mut rng,
                 &mut scheduler,
+                learning_rate,
+                epochs,
+                batch_size,
+                early_stopping_patience,
+                early_stopping_min_delta,
             );
 
             assert!(Path::new("logs/training_loss_adam.txt").exists());
@@ -102,8 +112,9 @@ mod mnist_cnn_bin {
 
         #[test]
         fn test_scheduler_from_args_without_config() {
-            let args = vec!["mnist_cnn".to_string()];
-            let mut scheduler = scheduler_from_args(&args);
+            let learning_rate = 0.01;
+            let epochs = 3;
+            let mut scheduler = scheduler_from_args(learning_rate, epochs, None);
             let lr = scheduler.get_lr();
             scheduler.step();
             assert_eq!(scheduler.get_lr(), lr);
@@ -117,15 +128,14 @@ mod mnist_cnn_bin {
   "gamma": 0.5
 }"#;
             let temp = crate::write_temp_config(config_json);
-            let args = vec![
-                "mnist_cnn".to_string(),
-                temp.path().to_str().unwrap().to_string(),
-            ];
-            let mut scheduler = scheduler_from_args(&args);
+            let learning_rate = 0.01;
+            let epochs = 3;
+            let config_path = temp.path().to_str().unwrap();
+            let mut scheduler = scheduler_from_args(learning_rate, epochs, Some(config_path));
             scheduler.step();
-            assert_eq!(scheduler.get_lr(), LEARNING_RATE);
+            assert_eq!(scheduler.get_lr(), learning_rate);
             scheduler.step();
-            assert!((scheduler.get_lr() - LEARNING_RATE * 0.5).abs() < 1e-6);
+            assert!((scheduler.get_lr() - learning_rate * 0.5).abs() < 1e-6);
         }
     }
 }
@@ -140,8 +150,9 @@ mod mlp_simple_bin {
 
         #[test]
         fn test_scheduler_from_args_without_config() {
-            let args = vec!["mlp_simple".to_string()];
-            let mut scheduler = scheduler_from_args(&args);
+            let learning_rate = 0.01;
+            let epochs = 1000000;
+            let mut scheduler = scheduler_from_args(learning_rate, epochs, None);
             let lr = scheduler.get_lr();
             scheduler.step();
             assert_eq!(scheduler.get_lr(), lr);
@@ -155,15 +166,14 @@ mod mlp_simple_bin {
   "gamma": 0.5
 }"#;
             let temp = crate::write_temp_config(config_json);
-            let args = vec![
-                "mlp_simple".to_string(),
-                temp.path().to_str().unwrap().to_string(),
-            ];
-            let mut scheduler = scheduler_from_args(&args);
+            let learning_rate = 0.01;
+            let epochs = 1000000;
+            let config_path = temp.path().to_str().unwrap();
+            let mut scheduler = scheduler_from_args(learning_rate, epochs, Some(config_path));
             scheduler.step();
-            assert_eq!(scheduler.get_lr(), LEARNING_RATE);
+            assert_eq!(scheduler.get_lr(), learning_rate);
             scheduler.step();
-            assert!((scheduler.get_lr() - LEARNING_RATE * 0.5).abs() < 1e-6);
+            assert!((scheduler.get_lr() - learning_rate * 0.5).abs() < 1e-6);
         }
     }
 }

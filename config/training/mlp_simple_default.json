@@ -1,0 +1,12 @@
+{
+  "scheduler_type": "step_decay",
+  "step_size": 100000,
+  "gamma": 0.5,
+  "activation_function": "relu",
+  "learning_rate": 0.01,
+  "epochs": 1000000,
+  "batch_size": 4,
+  "validation_split": 0.0,
+  "early_stopping_patience": 0,
+  "early_stopping_min_delta": 0.0
+}

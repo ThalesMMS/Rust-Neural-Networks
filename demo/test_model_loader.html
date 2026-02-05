@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Model Loader Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .test-result {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        pre {
+            background-color: #f4f4f4;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Model Loader Test</h1>
+    <p>Testing binary model parsing with i32 dimensions and f32 weights/biases.</p>
+    <div id="results"></div>
+
+    <script type="module">
+        import { parseModelBinary, validateModel } from './model_loader.js';
+
+        const results = document.getElementById('results');
+
+        function addResult(message, success) {
+            const div = document.createElement('div');
+            div.className = `test-result ${success ? 'success' : 'error'}`;
+            div.textContent = message;
+            results.appendChild(div);
+        }
+
+        function addCode(title, code) {
+            const h3 = document.createElement('h3');
+            h3.textContent = title;
+            results.appendChild(h3);
+
+            const pre = document.createElement('pre');
+            pre.textContent = code;
+            results.appendChild(pre);
+        }
+
+        // Create a test binary model with the correct format
+        function createTestModelBinary() {
+            const input_size = 784;
+            const hidden_size = 512;
+            const output_size = 10;
+
+            // Calculate total size
+            const headerSize = 3 * 4; // 3 x i32
+            const hiddenWeightsSize = input_size * hidden_size * 4; // f32 array
+            const hiddenBiasesSize = hidden_size * 4; // f32 array
+            const outputWeightsSize = hidden_size * output_size * 4; // f32 array
+            const outputBiasesSize = output_size * 4; // f32 array
+
+            const totalSize = headerSize + hiddenWeightsSize + hiddenBiasesSize +
+                            outputWeightsSize + outputBiasesSize;
+
+            const buffer = new ArrayBuffer(totalSize);
+            const view = new DataView(buffer);
+
+            let offset = 0;
+
+            // Write dimensions (i32, little-endian)
+            view.setInt32(offset, input_size, true);
+            offset += 4;
+            view.setInt32(offset, hidden_size, true);
+            offset += 4;
+            view.setInt32(offset, output_size, true);
+            offset += 4;
+
+            // Write hidden layer weights (random f32 values)
+            for (let i = 0; i < input_size * hidden_size; i++) {
+                view.setFloat32(offset, Math.random() * 0.1 - 0.05, true);
+                offset += 4;
+            }
+
+            // Write hidden layer biases
+            for (let i = 0; i < hidden_size; i++) {
+                view.setFloat32(offset, Math.random() * 0.1 - 0.05, true);
+                offset += 4;
+            }
+
+            // Write output layer weights
+            for (let i = 0; i < hidden_size * output_size; i++) {
+                view.setFloat32(offset, Math.random() * 0.1 - 0.05, true);
+                offset += 4;
+            }
+
+            // Write output layer biases
+            for (let i = 0; i < output_size; i++) {
+                view.setFloat32(offset, Math.random() * 0.1 - 0.05, true);
+                offset += 4;
+            }
+
+            return buffer;
+        }
+
+        // Run tests
+        try {
+            addResult('Creating test binary model...', true);
+            const testBinary = createTestModelBinary();
+            addResult(`Created ${testBinary.byteLength} byte test model`, true);
+
+            addResult('Parsing binary model...', true);
+            const model = parseModelBinary(testBinary);
+            addResult('Model parsed successfully!', true);
+
+            addCode('Parsed Model Structure:', JSON.stringify({
+                input_size: model.input_size,
+                hidden_size: model.hidden_size,
+                output_size: model.output_size,
+                hiddenWeights_length: model.hiddenWeights.length,
+                hiddenBiases_length: model.hiddenBiases.length,
+                outputWeights_length: model.outputWeights.length,
+                outputBiases_length: model.outputBiases.length,
+                metadata: model.metadata
+            }, null, 2));
+
+            // Validate dimensions
+            if (model.input_size === 784) {
+                addResult('✓ Input size correct: 784', true);
+            } else {
+                addResult('✗ Input size incorrect', false);
+            }
+
+            if (model.hidden_size === 512) {
+                addResult('✓ Hidden size correct: 512', true);
+            } else {
+                addResult('✗ Hidden size incorrect', false);
+            }
+
+            if (model.output_size === 10) {
+                addResult('✓ Output size correct: 10', true);
+            } else {
+                addResult('✗ Output size incorrect', false);
+            }
+
+            // Validate array lengths
+            if (model.hiddenWeights.length === 784 * 512) {
+                addResult('✓ Hidden weights array correct: 401,408 elements', true);
+            } else {
+                addResult('✗ Hidden weights array incorrect', false);
+            }
+
+            if (model.hiddenBiases.length === 512) {
+                addResult('✓ Hidden biases array correct: 512 elements', true);
+            } else {
+                addResult('✗ Hidden biases array incorrect', false);
+            }
+
+            if (model.outputWeights.length === 512 * 10) {
+                addResult('✓ Output weights array correct: 5,120 elements', true);
+            } else {
+                addResult('✗ Output weights array incorrect', false);
+            }
+
+            if (model.outputBiases.length === 10) {
+                addResult('✓ Output biases array correct: 10 elements', true);
+            } else {
+                addResult('✗ Output biases array incorrect', false);
+            }
+
+            // Validate model structure
+            addResult('Validating model structure...', true);
+            validateModel(model);
+            addResult('✓ Model validation passed!', true);
+
+            // Check that weights are Float32Array
+            if (model.hiddenWeights instanceof Float32Array) {
+                addResult('✓ Hidden weights are Float32Array', true);
+            } else {
+                addResult('✗ Hidden weights are not Float32Array', false);
+            }
+
+            // Sample some weights to verify they're reasonable values
+            const sampleWeights = Array.from(model.hiddenWeights.slice(0, 5));
+            addCode('Sample Hidden Weights (first 5):', sampleWeights.join(', '));
+
+            const sampleBiases = Array.from(model.hiddenBiases.slice(0, 5));
+            addCode('Sample Hidden Biases (first 5):', sampleBiases.join(', '));
+
+            addResult('✓ All tests passed! Model loader works correctly.', true);
+
+        } catch (error) {
+            addResult(`✗ Test failed: ${error.message}`, false);
+            console.error('Test error:', error);
+        }
+    </script>
+</body>
+</html>

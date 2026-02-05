@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MNIST Digit Recognizer - WebAssembly Demo</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <h1>MNIST Digit Recognizer</h1>
+            <p class="subtitle">Draw a digit (0-9) and watch the neural network predict in real-time</p>
+        </header>
+
+        <!-- Main Content -->
+        <main class="app-content">
+            <!-- Drawing Canvas Section -->
+            <section class="canvas-section">
+                <h2>Draw Here</h2>
+                <canvas id="drawing-canvas" width="280" height="280"></canvas>
+
+                <!-- Control Buttons -->
+                <div class="controls">
+                    <button id="clear-btn" class="btn btn-secondary">Clear</button>
+                    <button id="predict-btn" class="btn btn-primary">Predict</button>
+                </div>
+
+                <p class="instructions">
+                    Draw with your mouse or finger, then click "Predict" or it will auto-predict
+                </p>
+            </section>
+
+            <!-- Predictions Section -->
+            <section class="predictions-section">
+                <h2>Predictions</h2>
+                <div id="predictions-container" class="predictions-container">
+                    <!-- Prediction bars for digits 0-9 -->
+                    <div class="prediction-row" data-digit="0">
+                        <span class="digit-label">0:</span>
+                        <div class="prediction-bar-container">
+                            <div class="prediction-bar" style="width: 0%"></div>
+                        </div>
+                        <span class="probability-label">0.0%</span>
+                    </div>
+                    <div class="prediction-row" data-digit="1">
+                        <span class="digit-label">1:</span>
+                        <div class="prediction-bar-container">
+                            <div class="prediction-bar" style="width: 0%"></div>
+                        </div>
+                        <span class="probability-label">0.0%</span>
+                    </div>
+                    <div class="prediction-row" data-digit="2">
+                        <span class="digit-label">2:</span>
+                        <div class="prediction-bar-container">
+                            <div class="prediction-bar" style="width: 0%"></div>
+                        </div>
+                        <span class="probability-label">0.0%</span>
+                    </div>
+                    <div class="prediction-row" data-digit="3">
+                        <span class="digit-label">3:</span>
+                        <div class="prediction-bar-container">
+                            <div class="prediction-bar" style="width: 0%"></div>
+                        </div>
+                        <span class="probability-label">0.0%</span>
+                    </div>
+                    <div class="prediction-row" data-digit="4">
+                        <span class="digit-label">4:</span>
+                        <div class="prediction-bar-container">
+                            <div class="prediction-bar" style="width: 0%"></div>
+                        </div>
+                        <span class="probability-label">0.0%</span>
+                    </div>
+                    <div class="prediction-row" data-digit="5">
+                        <span class="digit-label">5:</span>
+                        <div class="prediction-bar-container">
+                            <div class="prediction-bar" style="width: 0%"></div>
+                        </div>
+                        <span class="probability-label">0.0%</span>
+                    </div>
+                    <div class="prediction-row" data-digit="6">
+                        <span class="digit-label">6:</span>
+                        <div class="prediction-bar-container">
+                            <div class="prediction-bar" style="width: 0%"></div>
+                        </div>
+                        <span class="probability-label">0.0%</span>
+                    </div>
+                    <div class="prediction-row" data-digit="7">
+                        <span class="digit-label">7:</span>
+                        <div class="prediction-bar-container">
+                            <div class="prediction-bar" style="width: 0%"></div>
+                        </div>
+                        <span class="probability-label">0.0%</span>
+                    </div>
+                    <div class="prediction-row" data-digit="8">
+                        <span class="digit-label">8:</span>
+                        <div class="prediction-bar-container">
+                            <div class="prediction-bar" style="width: 0%"></div>
+                        </div>
+                        <span class="probability-label">0.0%</span>
+                    </div>
+                    <div class="prediction-row" data-digit="9">
+                        <span class="digit-label">9:</span>
+                        <div class="prediction-bar-container">
+                            <div class="prediction-bar" style="width: 0%"></div>
+                        </div>
+                        <span class="probability-label">0.0%</span>
+                    </div>
+                </div>
+
+                <!-- Status Message -->
+                <div id="status-message" class="status-message">
+                    Loading model...
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>
+                Built with <a href="https://webassembly.org/" target="_blank">WebAssembly</a> and Rust.
+                Part of the <a href="https://github.com/yourusername/rust-neural-networks" target="_blank">Rust Neural Networks</a> project.
+            </p>
+        </footer>
+    </div>
+
+    <!-- Scripts -->
+    <script type="module" src="model_loader.js"></script>
+    <script type="module" src="wasm_wrapper.js"></script>
+    <script type="module" src="app.js"></script>
+    <script type="module">
+        import { DigitRecognizerApp } from './app.js';
+
+        // Initialize the application when DOM is loaded
+        document.addEventListener('DOMContentLoaded', async () => {
+            const app = new DigitRecognizerApp(
+                'drawing-canvas',
+                'predictions-container',
+                'clear-btn',
+                'predict-btn',
+                'status-message'
+            );
+
+            try {
+                await app.initialize();
+            } catch (error) {
+                console.error('Failed to initialize app:', error);
+                document.getElementById('status-message').textContent =
+                    'Error: ' + error.message;
+                document.getElementById('status-message').classList.add('error');
+            }
+        });
+    </script>
+</body>
+</html>

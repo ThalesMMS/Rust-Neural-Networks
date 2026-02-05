@@ -135,6 +135,9 @@ const VALIDATION_SPLIT: f32 = 0.1; // 10% of training data for validation
 const EARLY_STOPPING_PATIENCE: usize = 3; // Number of epochs without improvement before stopping
 const EARLY_STOPPING_MIN_DELTA: f32 = 0.001; // Minimum change to be considered an improvement
 
+// Default config path
+const DEFAULT_CONFIG_PATH: &str = "config/training/mnist_attention_default.json";
+
 // ============================================================================
 // Internal Abstractions (Inlined for self-contained binary)
 // ============================================================================
@@ -1632,9 +1635,16 @@ fn main() {
     let mut rng = SimpleRng::new(42);
     let mut model = init_model(&mut rng);
 
-    // Load config from environment variable
-    let config_path = env::var("MNIST_CONFIG").ok();
-    let mut scheduler = build_scheduler(config_path.as_deref());
+    // Parse CLI arguments
+    let args: Vec<String> = env::args().collect();
+    let config_path = if args.len() > 1 && args[1] == "--config" && args.len() > 2 {
+        args[2].as_str()
+    } else {
+        DEFAULT_CONFIG_PATH
+    };
+
+    println!("Loading config from: {}", config_path);
+    let mut scheduler = build_scheduler(Some(config_path));
 
     println!("  Initial learning rate: {}", scheduler.get_lr());
 

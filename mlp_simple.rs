@@ -1,6 +1,9 @@
 use std::cell::RefCell;
+use std::env;
+use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use rust_neural_networks::config::load_config;
 use rust_neural_networks::utils::lr_scheduler::{create_scheduler_from_config, LRScheduler};
 
 // Small MLP to learn XOR (educational example).
@@ -8,9 +11,9 @@ const NUM_INPUTS: usize = 2;
 const NUM_HIDDEN: usize = 4;
 const NUM_OUTPUTS: usize = 1;
 const NUM_SAMPLES: usize = 4;
-// Training hyperparameters.
-const LEARNING_RATE: f32 = 0.01;
-const EPOCHS: usize = 1_000_000;
+
+// Default config path
+const DEFAULT_CONFIG_PATH: &str = "config/training/mlp_simple_default.json";
 
 // ============================================================================
 // Internal Abstractions (Inlined for self-contained binary)
@@ -314,6 +317,7 @@ fn forward_with_sigmoid(layer: &DenseLayer, inputs: &[f32], outputs: &mut [f32])
 /// * `inputs` - Array of `NUM_SAMPLES` input vectors (each of length `NUM_INPUTS`).
 /// * `expected_outputs` - Array of `NUM_SAMPLES` expected output vectors (each of length `NUM_OUTPUTS`).
 /// * `scheduler` - Mutable reference to an `LRScheduler` used to obtain the current learning rate and to be stepped each epoch.
+/// * `epochs` - Number of training epochs to run.
 ///
 /// # Examples
 ///
@@ -327,7 +331,7 @@ fn forward_with_sigmoid(layer: &DenseLayer, inputs: &[f32], outputs: &mut [f32])
 /// let expected = [ [0.0f32], [1.0], [1.0], [0.0] ];
 /// let mut scheduler = ConstantLR::new(0.01);
 ///
-/// train(&mut nn, &inputs, &expected, &mut scheduler);
+/// train(&mut nn, &inputs, &expected, &mut scheduler, 1000000);
 /// # }
 /// ```
 fn train(
@@ -335,6 +339,7 @@ fn train(
     inputs: &[[f32; NUM_INPUTS]],
     expected_outputs: &[[f32; NUM_OUTPUTS]],
     scheduler: &mut dyn LRScheduler,
+    epochs: usize,
 ) {
     // Buffer pre-allocation
     let mut hidden_outputs = vec![0.0f32; NUM_HIDDEN];
@@ -344,7 +349,7 @@ fn train(
     let mut grad_hidden_outputs = vec![0.0f32; NUM_HIDDEN];
     let mut grad_hidden_input = vec![0.0f32; NUM_INPUTS];
 
-    for epoch in 0..EPOCHS {
+    for epoch in 0..epochs {
         let mut total_errors = 0.0f32;
         let current_lr = scheduler.get_lr();
 
@@ -451,13 +456,21 @@ fn test(nn: &NeuralNetwork, inputs: &[[f32; NUM_INPUTS]], expected_outputs: &[[f
     }
 }
 
-fn scheduler_from_args(args: &[String]) -> Box<dyn LRScheduler> {
-    let config_path = if args.len() > 1 {
-        Some(args[1].as_str())
-    } else {
-        None
-    };
-    create_scheduler_from_config(LEARNING_RATE, EPOCHS, config_path)
+fn scheduler_from_args(learning_rate: f32, epochs: usize, config_path: Option<&str>) -> Box<dyn LRScheduler> {
+    create_scheduler_from_config(learning_rate, epochs, config_path)
+}
+
+/// Parse command-line arguments to get config file path.
+/// Returns the path specified with --config flag, or default path if not provided.
+fn parse_config_path(args: &[String]) -> String {
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--config" && i + 1 < args.len() {
+            return args[i + 1].clone();
+        }
+        i += 1;
+    }
+    DEFAULT_CONFIG_PATH.to_string()
 }
 
 /// Train a two-layer neural network on the XOR dataset and print each input with its expected and predicted output.
@@ -466,8 +479,8 @@ fn scheduler_from_args(args: &[String]) -> Box<dyn LRScheduler> {
 /// trains it on the four classical XOR samples, and then prints each input alongside its
 /// expected and predicted output.
 ///
-/// Optionally loads a learning rate schedule configuration from a CLI-provided path.
-/// If no config path is provided, uses a constant learning rate of 0.01.
+/// Loads configuration from a JSON file specified via --config CLI argument.
+/// If no config path is provided, uses the default config from config/training/mlp_simple_default.json.
 ///
 /// # Examples
 ///
@@ -476,6 +489,39 @@ fn scheduler_from_args(args: &[String]) -> Box<dyn LRScheduler> {
 /// crate::main();
 /// ```
 fn main() {
+    // Parse command-line arguments for config file path
+    let args: Vec<String> = env::args().collect();
+    let config_path = parse_config_path(&args);
+
+    // Load config
+    println!("=== XOR MLP Training ===");
+    println!("Loading configuration from: {}", config_path);
+    let config = match load_config(&config_path) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("Error loading config from '{}': {}", config_path, e);
+            eprintln!("Please ensure the config file exists and is valid JSON.");
+            process::exit(1);
+        }
+    };
+
+    // Extract hyperparameters from config with defaults
+    let learning_rate = config.learning_rate.unwrap_or(0.01);
+    let epochs = config.epochs.unwrap_or(1_000_000);
+
+    // Print loaded configuration
+    println!("\nConfiguration:");
+    println!("  Learning rate: {}", learning_rate);
+    println!("  Epochs: {}", epochs);
+    println!("  Scheduler type: {}", config.scheduler_type);
+    if let Some(ref activation) = config.activation_function {
+        println!("  Activation function: {}", activation);
+    }
+    println!();
+
+    // Create learning rate scheduler
+    let mut scheduler = scheduler_from_args(learning_rate, epochs, Some(&config_path));
+
     // Fixed initial seed for partial reproducibility.
     let mut rng = SimpleRng::new(42);
 
@@ -483,13 +529,9 @@ fn main() {
     let inputs: [[f32; NUM_INPUTS]; NUM_SAMPLES] = [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]];
     let expected_outputs: [[f32; NUM_OUTPUTS]; NUM_SAMPLES] = [[0.0], [1.0], [1.0], [0.0]];
 
-    // Parse command-line arguments for optional config file
-    let args: Vec<String> = std::env::args().collect();
-    let mut scheduler = scheduler_from_args(&args);
-
     // Training and testing in the same process.
     let mut nn = initialize_network(&mut rng);
-    train(&mut nn, &inputs, &expected_outputs, scheduler.as_mut());
+    train(&mut nn, &inputs, &expected_outputs, scheduler.as_mut(), epochs);
     test(&nn, &inputs, &expected_outputs);
 }
 

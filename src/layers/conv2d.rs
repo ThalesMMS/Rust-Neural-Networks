@@ -266,6 +266,53 @@ impl Conv2DLayer {
     pub fn parameter_count(&self) -> usize {
         self.weights.len() + self.biases.len()
     }
+
+    /// Computes the L2 norm (magnitude) of the layer's weight and bias gradients.
+    ///
+    /// This is useful for monitoring gradient flow during training and detecting
+    /// vanishing or exploding gradients. The L2 norm is computed as sqrt(sum(g_i^2))
+    /// for each gradient component.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(weight_grad_norm, bias_grad_norm)` where:
+    /// - `weight_grad_norm` is the L2 norm of the weight gradients
+    /// - `bias_grad_norm` is the L2 norm of the bias gradients
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rust_neural_networks::layers::conv2d::Conv2DLayer;
+    /// use rust_neural_networks::layers::Layer;
+    /// use rust_neural_networks::utils::rng::SimpleRng;
+    ///
+    /// let mut rng = SimpleRng::new(42);
+    /// let layer = Conv2DLayer::new(1, 2, 3, 1, 1, 4, 4, &mut rng);
+    ///
+    /// // Perform forward and backward pass to accumulate gradients
+    /// let input = vec![1.0; layer.input_size()];
+    /// let mut output = vec![0.0; layer.output_size()];
+    /// layer.forward(&input, &mut output, 1);
+    /// let grad_output = vec![0.1; layer.output_size()];
+    /// let mut grad_input = vec![0.0; layer.input_size()];
+    /// layer.backward(&input, &grad_output, &mut grad_input, 1);
+    ///
+    /// // Get gradient magnitudes
+    /// let (weight_norm, bias_norm) = layer.get_gradient_magnitude();
+    /// assert!(weight_norm >= 0.0);
+    /// assert!(bias_norm >= 0.0);
+    /// ```
+    pub fn get_gradient_magnitude(&self) -> (f32, f32) {
+        // Compute L2 norm of weight gradients: sqrt(sum(g_i^2))
+        let grad_weights = self.grad_weights.borrow();
+        let weight_norm: f32 = grad_weights.iter().map(|g| g * g).sum::<f32>().sqrt();
+
+        // Compute L2 norm of bias gradients: sqrt(sum(g_i^2))
+        let grad_biases = self.grad_biases.borrow();
+        let bias_norm: f32 = grad_biases.iter().map(|g| g * g).sum::<f32>().sqrt();
+
+        (weight_norm, bias_norm)
+    }
 }
 
 // Layer trait implementation

@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>End-to-End Test - MNIST WASM Demo</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        .test-section {
+            margin: 30px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+        .test-result {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+        .test-result.pass {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .test-result.fail {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .test-result.pending {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #2980b9;
+        }
+        button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+        }
+        .canvas-container {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+            flex-wrap: wrap;
+        }
+        canvas {
+            border: 2px solid #3498db;
+            cursor: crosshair;
+            border-radius: 4px;
+        }
+        .predictions {
+            flex: 1;
+            min-width: 300px;
+        }
+        .prediction-bar {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+        .digit-label {
+            width: 30px;
+            font-weight: bold;
+        }
+        .bar {
+            height: 20px;
+            background: #3498db;
+            margin: 0 10px;
+            transition: width 0.3s ease;
+            border-radius: 3px;
+        }
+        .bar.top {
+            background: #27ae60;
+        }
+        .percentage {
+            min-width: 60px;
+            text-align: right;
+        }
+        .instructions {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #2196F3;
+            margin: 20px 0;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            font-weight: 500;
+        }
+        .status.loading {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .status.ready {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        pre {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            border: 1px solid #dee2e6;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🧪 End-to-End Test: MNIST WebAssembly Demo</h1>
+
+        <div class="instructions">
+            <strong>Test Instructions:</strong>
+            <ol>
+                <li>Click "Run All Tests" to execute automated tests</li>
+                <li>Or manually draw digits on the canvas and verify predictions</li>
+                <li>Test multiple digits, clear button, and prediction accuracy</li>
+            </ol>
+        </div>
+
+        <div id="status" class="status loading">Initializing...</div>
+
+        <!-- Test Controls -->
+        <div>
+            <button id="run-tests-btn" onclick="runAllTests()">Run All Tests</button>
+            <button id="draw-0-btn" onclick="drawDigit(0)">Draw "0"</button>
+            <button id="draw-5-btn" onclick="drawDigit(5)">Draw "5"</button>
+            <button id="draw-7-btn" onclick="drawDigit(7)">Draw "7"</button>
+            <button id="clear-btn" onclick="clearCanvas()">Clear Canvas</button>
+        </div>
+
+        <!-- Canvas and Predictions -->
+        <div class="canvas-container">
+            <div>
+                <h3>Drawing Canvas</h3>
+                <canvas id="canvas" width="280" height="280"></canvas>
+                <p style="color: #7f8c8d; margin-top: 10px;">
+                    Draw with mouse or click buttons above to draw test digits
+                </p>
+            </div>
+            <div class="predictions">
+                <h3>Predictions</h3>
+                <div id="predictions"></div>
+            </div>
+        </div>
+
+        <!-- Test Results -->
+        <div class="test-section">
+            <h2>Test Results</h2>
+            <div id="test-results"></div>
+        </div>
+
+        <!-- Test Log -->
+        <div class="test-section">
+            <h3>Test Log</h3>
+            <pre id="test-log"></pre>
+        </div>
+    </div>
+
+    <script type="module">
+        import { MnistWasmWrapper } from './wasm_wrapper.js';
+
+        let classifier = null;
+        let canvas, ctx;
+        let isDrawing = false;
+        const testResults = [];
+        const testLog = [];
+
+        // Initialize
+        window.addEventListener('DOMContentLoaded', async () => {
+            canvas = document.getElementById('canvas');
+            ctx = canvas.getContext('2d');
+
+            // Setup canvas
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 15;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            // Setup drawing
+            setupDrawing();
+
+            // Initialize WASM
+            try {
+                updateStatus('Loading WASM module and model...', 'loading');
+                log('Initializing MNIST WASM classifier...');
+
+                classifier = new MnistWasmWrapper();
+                await classifier.initialize('mnist_model.bin');
+
+                log('✓ WASM module initialized successfully');
+                log(`✓ Model loaded (input: ${classifier.getInputSize()}, classes: ${classifier.getNumClasses()})`);
+                updateStatus('Ready! Draw a digit or run tests', 'ready');
+
+                // Enable buttons
+                document.querySelectorAll('button').forEach(btn => btn.disabled = false);
+            } catch (error) {
+                log('✗ Initialization failed: ' + error.message);
+                updateStatus('Error: ' + error.message, 'error');
+                console.error('Initialization error:', error);
+            }
+        });
+
+        function setupDrawing() {
+            let lastX = 0, lastY = 0;
+
+            canvas.addEventListener('mousedown', (e) => {
+                isDrawing = true;
+                const rect = canvas.getBoundingClientRect();
+                lastX = e.clientX - rect.left;
+                lastY = e.clientY - rect.top;
+            });
+
+            canvas.addEventListener('mousemove', (e) => {
+                if (!isDrawing) return;
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+
+                ctx.beginPath();
+                ctx.moveTo(lastX, lastY);
+                ctx.lineTo(x, y);
+                ctx.stroke();
+
+                lastX = x;
+                lastY = y;
+            });
+
+            canvas.addEventListener('mouseup', () => {
+                isDrawing = false;
+                if (classifier && classifier.isReady()) {
+                    predict();
+                }
+            });
+
+            canvas.addEventListener('mouseleave', () => {
+                isDrawing = false;
+            });
+        }
+
+        function getImageData() {
+            // Get canvas data at 280x280
+            const imageData = ctx.getImageData(0, 0, 280, 280);
+
+            // Create temporary canvas for downsampling to 28x28
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = 28;
+            tempCanvas.height = 28;
+            const tempCtx = tempCanvas.getContext('2d');
+
+            // Draw scaled down
+            tempCtx.drawImage(canvas, 0, 0, 28, 28);
+            const smallImageData = tempCtx.getImageData(0, 0, 28, 28);
+
+            // Convert to grayscale and normalize
+            const pixels = new Float32Array(784);
+            for (let i = 0; i < 784; i++) {
+                const r = smallImageData.data[i * 4];
+                const g = smallImageData.data[i * 4 + 1];
+                const b = smallImageData.data[i * 4 + 2];
+
+                // Convert to grayscale (invert white->black)
+                const gray = 1.0 - (0.299 * r + 0.587 * g + 0.114 * b) / 255.0;
+                pixels[i] = gray;
+            }
+
+            return pixels;
+        }
+
+        function predict() {
+            if (!classifier || !classifier.isReady()) {
+                log('✗ Classifier not ready');
+                return;
+            }
+
+            try {
+                const imageData = getImageData();
+                const probabilities = classifier.predict(imageData);
+                const predictedDigit = classifier.predictDigit(imageData);
+
+                displayPredictions(probabilities, predictedDigit);
+                log(`Prediction: ${predictedDigit} (confidence: ${(probabilities[predictedDigit] * 100).toFixed(1)}%)`);
+
+                return { probabilities, predictedDigit };
+            } catch (error) {
+                log('✗ Prediction error: ' + error.message);
+                console.error('Prediction error:', error);
+            }
+        }
+
+        function displayPredictions(probabilities, topDigit) {
+            const container = document.getElementById('predictions');
+            container.innerHTML = '';
+
+            for (let i = 0; i < 10; i++) {
+                const prob = probabilities[i];
+                const percentage = (prob * 100).toFixed(1);
+
+                const div = document.createElement('div');
+                div.className = 'prediction-bar';
+                div.innerHTML = `
+                    <span class="digit-label">${i}:</span>
+                    <div class="bar ${i === topDigit ? 'top' : ''}" style="width: ${percentage}%"></div>
+                    <span class="percentage">${percentage}%</span>
+                `;
+                container.appendChild(div);
+            }
+        }
+
+        window.clearCanvas = function() {
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            document.getElementById('predictions').innerHTML = '';
+            log('Canvas cleared');
+        };
+
+        window.drawDigit = function(digit) {
+            clearCanvas();
+
+            // Draw simple patterns for testing
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 15;
+
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const size = 100;
+
+            ctx.beginPath();
+
+            switch(digit) {
+                case 0:
+                    ctx.ellipse(centerX, centerY, size * 0.6, size * 0.8, 0, 0, Math.PI * 2);
+                    break;
+                case 5:
+                    ctx.moveTo(centerX + size * 0.4, centerY - size * 0.6);
+                    ctx.lineTo(centerX - size * 0.4, centerY - size * 0.6);
+                    ctx.lineTo(centerX - size * 0.4, centerY);
+                    ctx.quadraticCurveTo(centerX + size * 0.5, centerY, centerX + size * 0.4, centerY + size * 0.6);
+                    ctx.quadraticCurveTo(centerX + size * 0.2, centerY + size * 0.8, centerX - size * 0.4, centerY + size * 0.6);
+                    break;
+                case 7:
+                    ctx.moveTo(centerX - size * 0.5, centerY - size * 0.6);
+                    ctx.lineTo(centerX + size * 0.5, centerY - size * 0.6);
+                    ctx.lineTo(centerX - size * 0.2, centerY + size * 0.6);
+                    break;
+            }
+
+            ctx.stroke();
+            log(`Drew test digit: ${digit}`);
+
+            // Predict after drawing
+            setTimeout(() => predict(), 100);
+        };
+
+        window.runAllTests = async function() {
+            log('=== Starting End-to-End Tests ===');
+            testResults.length = 0;
+
+            const testsToRun = [
+                test_initialization,
+                test_canvas_clear,
+                test_draw_and_predict_0,
+                test_draw_and_predict_5,
+                test_draw_and_predict_7,
+                test_prediction_bars_update,
+                test_probabilities_sum,
+                test_multiple_predictions
+            ];
+
+            for (const test of testsToRun) {
+                try {
+                    await test();
+                } catch (error) {
+                    addTestResult(test.name, false, error.message);
+                    log(`✗ ${test.name}: ${error.message}`);
+                }
+                await sleep(500); // Pause between tests
+            }
+
+            displayTestResults();
+            log('=== Tests Complete ===');
+        };
+
+        async function test_initialization() {
+            log('Test: WASM Initialization');
+            if (!classifier || !classifier.isReady()) {
+                throw new Error('Classifier not initialized');
+            }
+            if (classifier.getInputSize() !== 784) {
+                throw new Error(`Expected input size 784, got ${classifier.getInputSize()}`);
+            }
+            if (classifier.getNumClasses() !== 10) {
+                throw new Error(`Expected 10 classes, got ${classifier.getNumClasses()}`);
+            }
+            addTestResult('WASM Initialization', true);
+            log('✓ WASM initialized correctly');
+        }
+
+        async function test_canvas_clear() {
+            log('Test: Canvas Clear');
+            drawDigit(5);
+            await sleep(200);
+            clearCanvas();
+            const imageData = getImageData();
+            const sum = imageData.reduce((a, b) => a + b, 0);
+            if (sum > 10) {
+                throw new Error('Canvas not properly cleared');
+            }
+            addTestResult('Canvas Clear', true);
+            log('✓ Canvas clears correctly');
+        }
+
+        async function test_draw_and_predict_0() {
+            log('Test: Draw and Predict "0"');
+            drawDigit(0);
+            await sleep(300);
+            const result = predict();
+            if (!result) {
+                throw new Error('Prediction failed');
+            }
+            addTestResult('Draw and Predict "0"', true, `Predicted: ${result.predictedDigit}`);
+            log(`✓ Predicted: ${result.predictedDigit}`);
+        }
+
+        async function test_draw_and_predict_5() {
+            log('Test: Draw and Predict "5"');
+            drawDigit(5);
+            await sleep(300);
+            const result = predict();
+            if (!result) {
+                throw new Error('Prediction failed');
+            }
+            addTestResult('Draw and Predict "5"', true, `Predicted: ${result.predictedDigit}`);
+            log(`✓ Predicted: ${result.predictedDigit}`);
+        }
+
+        async function test_draw_and_predict_7() {
+            log('Test: Draw and Predict "7"');
+            drawDigit(7);
+            await sleep(300);
+            const result = predict();
+            if (!result) {
+                throw new Error('Prediction failed');
+            }
+            addTestResult('Draw and Predict "7"', true, `Predicted: ${result.predictedDigit}`);
+            log(`✓ Predicted: ${result.predictedDigit}`);
+        }
+
+        async function test_prediction_bars_update() {
+            log('Test: Prediction Bars Update');
+            drawDigit(0);
+            await sleep(300);
+            predict();
+            const bars = document.querySelectorAll('.bar');
+            if (bars.length !== 10) {
+                throw new Error(`Expected 10 prediction bars, found ${bars.length}`);
+            }
+            const hasTopClass = Array.from(bars).some(bar => bar.classList.contains('top'));
+            if (!hasTopClass) {
+                throw new Error('No top prediction highlighted');
+            }
+            addTestResult('Prediction Bars Update', true);
+            log('✓ Prediction bars update correctly');
+        }
+
+        async function test_probabilities_sum() {
+            log('Test: Probabilities Sum to ~1.0');
+            drawDigit(5);
+            await sleep(300);
+            const result = predict();
+            const sum = Array.from(result.probabilities).reduce((a, b) => a + b, 0);
+            if (Math.abs(sum - 1.0) > 0.01) {
+                throw new Error(`Probabilities sum to ${sum.toFixed(4)}, expected ~1.0`);
+            }
+            addTestResult('Probabilities Sum to ~1.0', true, `Sum: ${sum.toFixed(4)}`);
+            log(`✓ Probabilities sum to ${sum.toFixed(4)}`);
+        }
+
+        async function test_multiple_predictions() {
+            log('Test: Multiple Sequential Predictions');
+            const digits = [0, 5, 7, 0];
+            for (const digit of digits) {
+                drawDigit(digit);
+                await sleep(300);
+                const result = predict();
+                if (!result) {
+                    throw new Error(`Failed to predict digit ${digit}`);
+                }
+                await sleep(200);
+            }
+            addTestResult('Multiple Sequential Predictions', true);
+            log('✓ Multiple predictions work correctly');
+        }
+
+        function addTestResult(name, passed, detail = '') {
+            testResults.push({ name, passed, detail });
+        }
+
+        function displayTestResults() {
+            const container = document.getElementById('test-results');
+            container.innerHTML = '';
+
+            const passed = testResults.filter(r => r.passed).length;
+            const total = testResults.length;
+
+            const summary = document.createElement('div');
+            summary.className = 'test-result ' + (passed === total ? 'pass' : 'fail');
+            summary.innerHTML = `<strong>Summary: ${passed}/${total} tests passed</strong>`;
+            container.appendChild(summary);
+
+            testResults.forEach(result => {
+                const div = document.createElement('div');
+                div.className = 'test-result ' + (result.passed ? 'pass' : 'fail');
+                div.innerHTML = `
+                    ${result.passed ? '✓' : '✗'} ${result.name}
+                    ${result.detail ? `<br><small>${result.detail}</small>` : ''}
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function updateStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = 'status ' + type;
+        }
+
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            testLog.push(`[${timestamp}] ${message}`);
+            const logElement = document.getElementById('test-log');
+            logElement.textContent = testLog.join('\n');
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drawing Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        #test-canvas {
+            border: 2px solid #333;
+            cursor: crosshair;
+            display: block;
+            margin: 20px 0;
+        }
+        .test-results {
+            background: white;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+        .pass { color: green; }
+        .fail { color: red; }
+    </style>
+</head>
+<body>
+    <h1>Canvas Drawing Test</h1>
+    <p>Try drawing on the canvas below with your mouse:</p>
+
+    <canvas id="test-canvas" width="280" height="280"></canvas>
+
+    <button id="clear-btn">Clear Canvas</button>
+    <button id="get-data-btn">Get 28x28 Data</button>
+
+    <div class="test-results">
+        <h3>Test Results:</h3>
+        <div id="results"></div>
+    </div>
+
+    <script type="module">
+        const canvas = document.getElementById('test-canvas');
+        const ctx = canvas.getContext('2d');
+        const resultsDiv = document.getElementById('results');
+        const clearBtn = document.getElementById('clear-btn');
+        const getDataBtn = document.getElementById('get-data-btn');
+
+        // Drawing state
+        let isDrawing = false;
+        let lastX = null;
+        let lastY = null;
+        const brushSize = 20;
+
+        // Initialize canvas
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, 280, 280);
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = brushSize;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        // Hidden canvas for 28x28
+        const hiddenCanvas = document.createElement('canvas');
+        hiddenCanvas.width = 28;
+        hiddenCanvas.height = 28;
+        const hiddenCtx = hiddenCanvas.getContext('2d');
+
+        // Mouse events
+        canvas.addEventListener('mousedown', (e) => {
+            isDrawing = true;
+            const rect = canvas.getBoundingClientRect();
+            lastX = e.clientX - rect.left;
+            lastY = e.clientY - rect.top;
+            addResult('Mouse down detected', 'pass');
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isDrawing) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            // Draw line
+            ctx.beginPath();
+            ctx.moveTo(lastX, lastY);
+            ctx.lineTo(x, y);
+            ctx.stroke();
+
+            lastX = x;
+            lastY = y;
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            if (isDrawing) {
+                isDrawing = false;
+                addResult('Mouse up detected, drawing stopped', 'pass');
+            }
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            if (isDrawing) {
+                isDrawing = false;
+            }
+        });
+
+        // Touch events
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            isDrawing = true;
+            lastX = touch.clientX - rect.left;
+            lastY = touch.clientY - rect.top;
+            addResult('Touch start detected', 'pass');
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (!isDrawing) return;
+
+            const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+
+            // Draw line
+            ctx.beginPath();
+            ctx.moveTo(lastX, lastY);
+            ctx.lineTo(x, y);
+            ctx.stroke();
+
+            lastX = x;
+            lastY = y;
+        });
+
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            if (isDrawing) {
+                isDrawing = false;
+                addResult('Touch end detected, drawing stopped', 'pass');
+            }
+        });
+
+        // Clear button
+        clearBtn.addEventListener('click', () => {
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, 280, 280);
+            hiddenCtx.fillStyle = 'black';
+            hiddenCtx.fillRect(0, 0, 28, 28);
+            addResult('Canvas cleared', 'pass');
+        });
+
+        // Get 28x28 data
+        getDataBtn.addEventListener('click', () => {
+            // Draw scaled-down version
+            hiddenCtx.fillStyle = 'black';
+            hiddenCtx.fillRect(0, 0, 28, 28);
+            hiddenCtx.drawImage(canvas, 0, 0, 280, 280, 0, 0, 28, 28);
+
+            // Get pixel data
+            const imageData = hiddenCtx.getImageData(0, 0, 28, 28);
+            const pixels = imageData.data;
+
+            // Convert to grayscale and normalize
+            const normalized = new Float32Array(28 * 28);
+            for (let i = 0; i < normalized.length; i++) {
+                normalized[i] = pixels[i * 4] / 255.0;
+            }
+
+            // Count non-zero pixels
+            const nonZero = Array.from(normalized).filter(v => v > 0).length;
+
+            addResult(`28x28 image extracted: ${nonZero} pixels drawn (${(nonZero/784*100).toFixed(1)}%)`, 'pass');
+        });
+
+        function addResult(message, status) {
+            const div = document.createElement('div');
+            div.className = status;
+            div.textContent = `✓ ${message}`;
+            resultsDiv.appendChild(div);
+        }
+
+        // Initial test
+        addResult('Canvas initialized successfully', 'pass');
+        addResult('Mouse and touch event listeners attached', 'pass');
+        addResult('Ready to test drawing', 'pass');
+    </script>
+</body>
+</html>

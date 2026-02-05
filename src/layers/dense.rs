@@ -155,6 +155,53 @@ impl DenseLayer {
     pub fn biases(&self) -> &[f32] {
         &self.biases
     }
+
+    /// Computes the L2 norm (magnitude) of the layer's weight and bias gradients.
+    ///
+    /// This is useful for monitoring gradient flow during training and detecting
+    /// vanishing or exploding gradients. The L2 norm is computed as sqrt(sum(g_i^2))
+    /// for each gradient component.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(weight_grad_norm, bias_grad_norm)` where:
+    /// - `weight_grad_norm` is the L2 norm of the weight gradients
+    /// - `bias_grad_norm` is the L2 norm of the bias gradients
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rust_neural_networks::layers::dense::DenseLayer;
+    /// use rust_neural_networks::layers::Layer;
+    /// use rust_neural_networks::utils::rng::SimpleRng;
+    ///
+    /// let mut rng = SimpleRng::new(42);
+    /// let layer = DenseLayer::new(2, 3, &mut rng);
+    ///
+    /// // Perform forward and backward pass to accumulate gradients
+    /// let input = vec![1.0, 2.0];
+    /// let mut output = vec![0.0; 3];
+    /// layer.forward(&input, &mut output, 1);
+    /// let grad_output = vec![0.1, 0.2, 0.3];
+    /// let mut grad_input = vec![0.0; 2];
+    /// layer.backward(&input, &grad_output, &mut grad_input, 1);
+    ///
+    /// // Get gradient magnitudes
+    /// let (weight_norm, bias_norm) = layer.get_gradient_magnitude();
+    /// assert!(weight_norm >= 0.0);
+    /// assert!(bias_norm >= 0.0);
+    /// ```
+    pub fn get_gradient_magnitude(&self) -> (f32, f32) {
+        // Compute L2 norm of weight gradients: sqrt(sum(g_i^2))
+        let grad_weights = self.grad_weights.borrow();
+        let weight_norm: f32 = grad_weights.iter().map(|g| g * g).sum::<f32>().sqrt();
+
+        // Compute L2 norm of bias gradients: sqrt(sum(g_i^2))
+        let grad_biases = self.grad_biases.borrow();
+        let bias_norm: f32 = grad_biases.iter().map(|g| g * g).sum::<f32>().sqrt();
+
+        (weight_norm, bias_norm)
+    }
 }
 
 // Helper functions for BLAS operations
@@ -802,5 +849,95 @@ mod tests {
 
         assert_eq!(layer.weights().len(), 12); // 4 × 3
         assert_eq!(layer.biases().len(), 3);
+    }
+
+    #[test]
+    fn test_gradient_magnitude_initially_zero() {
+        let mut rng = SimpleRng::new(42);
+        let layer = DenseLayer::new(3, 2, &mut rng);
+
+        // Initially, gradients should be zero
+        let (weight_norm, bias_norm) = layer.get_gradient_magnitude();
+        assert_eq!(weight_norm, 0.0);
+        assert_eq!(bias_norm, 0.0);
+    }
+
+    #[test]
+    fn test_gradient_magnitude_after_backward() {
+        let mut rng = SimpleRng::new(42);
+        let layer = DenseLayer::new(3, 2, &mut rng);
+
+        // Perform forward pass
+        let input = vec![1.0, 0.5, -0.5];
+        let mut output = vec![0.0; 2];
+        layer.forward(&input, &mut output, 1);
+
+        // Perform backward pass to accumulate gradients
+        let grad_output = vec![1.0, -1.0];
+        let mut grad_input = vec![0.0; 3];
+        layer.backward(&input, &grad_output, &mut grad_input, 1);
+
+        // Get gradient magnitudes
+        let (weight_norm, bias_norm) = layer.get_gradient_magnitude();
+
+        // Gradients should be non-zero and non-negative
+        assert!(weight_norm >= 0.0);
+        assert!(bias_norm >= 0.0);
+        assert!(weight_norm > 0.0 || bias_norm > 0.0);
+    }
+
+    #[test]
+    fn test_gradient_magnitude_after_update() {
+        let mut rng = SimpleRng::new(42);
+        let mut layer = DenseLayer::new(3, 2, &mut rng);
+
+        // Perform forward and backward pass
+        let input = vec![1.0, 1.0, 1.0];
+        let mut output = vec![0.0; 2];
+        layer.forward(&input, &mut output, 1);
+
+        let grad_output = vec![1.0, 1.0];
+        let mut grad_input = vec![0.0; 3];
+        layer.backward(&input, &grad_output, &mut grad_input, 1);
+
+        // Verify gradients are non-zero
+        let (weight_norm_before, bias_norm_before) = layer.get_gradient_magnitude();
+        assert!(weight_norm_before > 0.0);
+        assert!(bias_norm_before > 0.0);
+
+        // Update parameters (this should clear gradients)
+        layer.update_parameters(0.1);
+
+        // After update, gradients should be cleared to zero
+        let (weight_norm_after, bias_norm_after) = layer.get_gradient_magnitude();
+        assert_eq!(weight_norm_after, 0.0);
+        assert_eq!(bias_norm_after, 0.0);
+    }
+
+    #[test]
+    fn test_gradient_magnitude_accumulation() {
+        let mut rng = SimpleRng::new(42);
+        let layer = DenseLayer::new(2, 2, &mut rng);
+
+        // First backward pass
+        let input = vec![1.0, 1.0];
+        let mut output = vec![0.0; 2];
+        layer.forward(&input, &mut output, 1);
+
+        let grad_output = vec![0.1, 0.1];
+        let mut grad_input = vec![0.0; 2];
+        layer.backward(&input, &grad_output, &mut grad_input, 1);
+
+        let (weight_norm_first, bias_norm_first) = layer.get_gradient_magnitude();
+
+        // Second backward pass (accumulates gradients)
+        layer.forward(&input, &mut output, 1);
+        layer.backward(&input, &grad_output, &mut grad_input, 1);
+
+        let (weight_norm_second, bias_norm_second) = layer.get_gradient_magnitude();
+
+        // Gradients should have accumulated (increased)
+        assert!(weight_norm_second > weight_norm_first);
+        assert!(bias_norm_second > bias_norm_first);
     }
 }

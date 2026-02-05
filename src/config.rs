@@ -33,7 +33,13 @@ use std::fs;
 ///   "step_size": 3,
 ///   "gamma": 0.5,
 ///   "activation_function": "leaky_relu",
-///   "leaky_relu_alpha": 0.01
+///   "leaky_relu_alpha": 0.01,
+///   "learning_rate": 0.01,
+///   "epochs": 10,
+///   "batch_size": 64,
+///   "validation_split": 0.1,
+///   "early_stopping_patience": 3,
+///   "early_stopping_min_delta": 0.001
 /// }
 /// ```
 #[derive(Debug, Clone, Deserialize)]
@@ -65,6 +71,24 @@ pub struct TrainingConfig {
 
     /// Alpha parameter for ELU activation (default 1.0)
     pub elu_alpha: Option<f32>,
+
+    /// Learning rate for training (must be positive if specified)
+    pub learning_rate: Option<f32>,
+
+    /// Number of training epochs (must be positive if specified)
+    pub epochs: Option<usize>,
+
+    /// Batch size for training (must be positive if specified)
+    pub batch_size: Option<usize>,
+
+    /// Fraction of training data to use for validation (must be in [0.0, 1.0] if specified)
+    pub validation_split: Option<f32>,
+
+    /// Number of epochs to wait for improvement before early stopping (optional)
+    pub early_stopping_patience: Option<usize>,
+
+    /// Minimum change in validation loss to qualify as improvement (optional)
+    pub early_stopping_min_delta: Option<f32>,
 }
 
 /// Loads a training configuration from a JSON file.
@@ -148,6 +172,52 @@ fn validate_config(config: &TrainingConfig) -> Result<(), Box<dyn Error>> {
             return Err(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "elu_alpha must be positive",
+            )));
+        }
+    }
+
+    // Validate training hyperparameters
+    if let Some(learning_rate) = config.learning_rate {
+        if learning_rate <= 0.0 {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "learning_rate must be positive",
+            )));
+        }
+    }
+
+    if let Some(epochs) = config.epochs {
+        if epochs == 0 {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "epochs must be positive",
+            )));
+        }
+    }
+
+    if let Some(batch_size) = config.batch_size {
+        if batch_size == 0 {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "batch_size must be positive",
+            )));
+        }
+    }
+
+    if let Some(validation_split) = config.validation_split {
+        if validation_split < 0.0 || validation_split > 1.0 {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "validation_split must be in the range [0.0, 1.0]",
+            )));
+        }
+    }
+
+    if let Some(min_delta) = config.early_stopping_min_delta {
+        if min_delta < 0.0 {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "early_stopping_min_delta must be non-negative",
             )));
         }
     }

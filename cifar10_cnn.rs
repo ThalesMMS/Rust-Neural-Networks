@@ -16,6 +16,7 @@ use std::io::{BufWriter, Write};
 use std::process;
 use std::time::Instant;
 
+use rust_neural_networks::config::load_config;
 use rust_neural_networks::data::cifar10::{read_cifar10_batch, read_cifar10_batches};
 pub use rust_neural_networks::layers::{Conv2DLayer, DenseLayer, Layer};
 pub use rust_neural_networks::utils::activations::{relu_inplace, softmax_rows};
@@ -39,13 +40,16 @@ const POOL_H: usize = IMG_H / POOL; // 16
 const POOL_W: usize = IMG_W / POOL; // 16
 const FC_IN: usize = CONV_OUT * POOL_H * POOL_W; // 16*16*16 = 4096
 
-// Training hyperparameters.
+// Training hyperparameters (defaults, can be overridden by config file).
 const LEARNING_RATE: f32 = 0.01;
 const EPOCHS: usize = 10; // CIFAR-10 needs more epochs than MNIST
 const BATCH_SIZE: usize = 32;
 const VALIDATION_SPLIT: f32 = 0.1; // 10% of training data for validation
 const EARLY_STOPPING_PATIENCE: usize = 3; // Number of epochs without improvement before stopping
 const EARLY_STOPPING_MIN_DELTA: f32 = 0.001; // Minimum change to be considered an improvement
+
+// Default config path
+const DEFAULT_CONFIG_PATH: &str = "config/training/cifar10_cnn_default.json";
 
 // Main Logic
 // ============================================================================
@@ -611,34 +615,21 @@ fn save_model(model: &Cnn, filename: &str) {
     println!("Model saved to {}", filename);
 }
 
-/// Builds a learning-rate scheduler using an optional config file path supplied via command-line arguments.
-///
-/// If `args` contains a second element, it is treated as the path to a scheduler configuration file; otherwise the default scheduler is created using the module's `LEARNING_RATE` and `EPOCHS` constants.
-///
-/// # Parameters
-///
-/// - `args`: command-line arguments slice where `args[1]`, if present, is the optional scheduler config file path.
-///
-/// # Returns
-///
-/// A boxed implementation of `LRScheduler` constructed from the provided config path or from the default hyperparameters.
-///
-/// # Examples
-///
-/// ```
-/// // Simulate invocation with a config path
-/// let args = vec!["program".to_string(), "lr_config.toml".to_string()];
-/// let scheduler = scheduler_from_args(&args);
-/// // `scheduler` implements `LRScheduler` and can be queried for learning rates per epoch.
-/// assert!(scheduler.get_lr(0) > 0.0);
-/// ```
-fn scheduler_from_args(args: &[String]) -> Box<dyn LRScheduler> {
-    let config_path = if args.len() > 1 {
-        Some(args[1].as_str())
-    } else {
-        None
-    };
-    create_scheduler_from_config(LEARNING_RATE, EPOCHS, config_path)
+fn scheduler_from_args(learning_rate: f32, epochs: usize, config_path: Option<&str>) -> Box<dyn LRScheduler> {
+    create_scheduler_from_config(learning_rate, epochs, config_path)
+}
+
+/// Parse command-line arguments to get config file path.
+/// Returns the path specified with --config flag, or default path if not provided.
+fn parse_config_path(args: &[String]) -> String {
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--config" && i + 1 < args.len() {
+            return args[i + 1].clone();
+        }
+        i += 1;
+    }
+    DEFAULT_CONFIG_PATH.to_string()
 }
 
 /// Entry point that trains a small convolutional neural network on the CIFAR-10 dataset and evaluates it on the test set.
@@ -652,6 +643,44 @@ fn scheduler_from_args(args: &[String]) -> Box<dyn LRScheduler> {
 /// main();
 /// ```
 fn main() {
+    // Parse command-line arguments for config file path
+    let args: Vec<String> = env::args().collect();
+    let config_path = parse_config_path(&args);
+
+    // Load config
+    println!("=== CIFAR-10 CNN Training ===");
+    println!("Loading configuration from: {}", config_path);
+    let config = match load_config(&config_path) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("Error loading config from '{}': {}", config_path, e);
+            eprintln!("Please ensure the config file exists and is valid JSON.");
+            process::exit(1);
+        }
+    };
+
+    // Extract hyperparameters from config with defaults
+    let learning_rate = config.learning_rate.unwrap_or(LEARNING_RATE);
+    let epochs = config.epochs.unwrap_or(EPOCHS);
+    let batch_size = config.batch_size.unwrap_or(BATCH_SIZE);
+    let validation_split = config.validation_split.unwrap_or(VALIDATION_SPLIT);
+    let early_stopping_patience = config.early_stopping_patience.unwrap_or(EARLY_STOPPING_PATIENCE);
+    let early_stopping_min_delta = config.early_stopping_min_delta.unwrap_or(EARLY_STOPPING_MIN_DELTA);
+
+    // Print loaded configuration
+    println!("\nConfiguration:");
+    println!("  Learning rate: {}", learning_rate);
+    println!("  Epochs: {}", epochs);
+    println!("  Batch size: {}", batch_size);
+    println!("  Validation split: {:.1}%", validation_split * 100.0);
+    println!("  Early stopping patience: {}", early_stopping_patience);
+    println!("  Early stopping min delta: {}", early_stopping_min_delta);
+    println!("  Scheduler type: {}", config.scheduler_type);
+    if let Some(ref activation) = config.activation_function {
+        println!("  Activation function: {}", activation);
+    }
+    println!();
+
     println!("Loading CIFAR-10...");
 
     // Load all 5 training batches
@@ -676,7 +705,7 @@ fn main() {
 
     // Randomly split training data into train and validation sets.
     let total_train_samples = all_train_images.len() / NUM_INPUTS;
-    let validation_samples = (total_train_samples as f32 * VALIDATION_SPLIT) as usize;
+    let validation_samples = (total_train_samples as f32 * validation_split) as usize;
     let actual_train_samples = total_train_samples - validation_samples;
 
     let mut rng = SimpleRng::new(1);
@@ -715,9 +744,8 @@ fn main() {
 
     let mut model = init_cnn(&mut rng);
 
-    // Parse command-line arguments for optional config file
-    let args: Vec<String> = env::args().collect();
-    let mut scheduler = scheduler_from_args(&args);
+    // Create learning rate scheduler
+    let mut scheduler = scheduler_from_args(learning_rate, epochs, Some(&config_path));
 
     // Training log file.
     fs::create_dir_all("./logs").ok();
@@ -728,25 +756,25 @@ fn main() {
     let mut log = BufWriter::new(log_file);
 
     // Training buffers (reused each batch to avoid allocations).
-    let mut batch_inputs = vec![0.0f32; BATCH_SIZE * NUM_INPUTS];
-    let mut batch_labels = vec![0u8; BATCH_SIZE];
+    let mut batch_inputs = vec![0.0f32; batch_size * NUM_INPUTS];
+    let mut batch_labels = vec![0u8; batch_size];
 
-    let mut conv_out = vec![0.0f32; BATCH_SIZE * CONV_OUT * IMG_H * IMG_W];
-    let mut pool_out = vec![0.0f32; BATCH_SIZE * FC_IN];
-    let mut pool_idx = vec![0u8; BATCH_SIZE * CONV_OUT * POOL_H * POOL_W];
-    let mut logits = vec![0.0f32; BATCH_SIZE * NUM_CLASSES];
-    let mut delta = vec![0.0f32; BATCH_SIZE * NUM_CLASSES];
+    let mut conv_out = vec![0.0f32; batch_size * CONV_OUT * IMG_H * IMG_W];
+    let mut pool_out = vec![0.0f32; batch_size * FC_IN];
+    let mut pool_idx = vec![0u8; batch_size * CONV_OUT * POOL_H * POOL_W];
+    let mut logits = vec![0.0f32; batch_size * NUM_CLASSES];
+    let mut delta = vec![0.0f32; batch_size * NUM_CLASSES];
 
-    let mut d_pool = vec![0.0f32; BATCH_SIZE * FC_IN];
-    let mut d_conv = vec![0.0f32; BATCH_SIZE * CONV_OUT * IMG_H * IMG_W];
-    let mut _grad_input = vec![0.0f32; BATCH_SIZE * NUM_INPUTS]; // unused (first layer)
+    let mut d_pool = vec![0.0f32; batch_size * FC_IN];
+    let mut d_conv = vec![0.0f32; batch_size * CONV_OUT * IMG_H * IMG_W];
+    let mut _grad_input = vec![0.0f32; batch_size * NUM_INPUTS]; // unused (first layer)
 
     // Validation buffers (reused each epoch to avoid repeated allocations).
-    let mut val_batch_inputs = vec![0.0f32; BATCH_SIZE * NUM_INPUTS];
-    let mut val_conv_out = vec![0.0f32; BATCH_SIZE * CONV_OUT * IMG_H * IMG_W];
-    let mut val_pool_out = vec![0.0f32; BATCH_SIZE * FC_IN];
-    let mut val_pool_idx = vec![0u8; BATCH_SIZE * CONV_OUT * POOL_H * POOL_W];
-    let mut val_logits = vec![0.0f32; BATCH_SIZE * NUM_CLASSES];
+    let mut val_batch_inputs = vec![0.0f32; batch_size * NUM_INPUTS];
+    let mut val_conv_out = vec![0.0f32; batch_size * CONV_OUT * IMG_H * IMG_W];
+    let mut val_pool_out = vec![0.0f32; batch_size * FC_IN];
+    let mut val_pool_idx = vec![0u8; batch_size * CONV_OUT * POOL_H * POOL_W];
+    let mut val_logits = vec![0.0f32; batch_size * NUM_CLASSES];
 
     let mut indices: Vec<usize> = (0..train_n).collect();
 
@@ -756,18 +784,18 @@ fn main() {
 
     println!(
         "Training CIFAR-10 CNN: epochs={} batch={} lr={}",
-        EPOCHS, BATCH_SIZE, LEARNING_RATE
+        epochs, batch_size, learning_rate
     );
 
-    for epoch in 0..EPOCHS {
+    for epoch in 0..epochs {
         let start_time = Instant::now();
         rng.shuffle_usize(&mut indices);
         let current_lr = scheduler.get_lr();
 
         let mut total_loss = 0.0f32;
 
-        for batch_start in (0..train_n).step_by(BATCH_SIZE) {
-            let batch = (train_n - batch_start).min(BATCH_SIZE);
+        for batch_start in (0..train_n).step_by(batch_size) {
+            let batch = (train_n - batch_start).min(batch_size);
             let scale = 1.0f32;
 
             // Gather a random mini-batch into contiguous buffers.
@@ -807,8 +835,8 @@ fn main() {
         // Evaluate on validation set
         let mut val_total_loss = 0.0f32;
         let mut val_correct = 0usize;
-        for batch_start in (0..validation_samples).step_by(BATCH_SIZE) {
-            let batch_count = (validation_samples - batch_start).min(BATCH_SIZE);
+        for batch_start in (0..validation_samples).step_by(batch_size) {
+            let batch_count = (validation_samples - batch_start).min(batch_size);
             let input_len = batch_count * NUM_INPUTS;
             let input_start = batch_start * NUM_INPUTS;
             val_batch_inputs[..input_len]
@@ -884,7 +912,7 @@ fn main() {
         .ok();
 
         // Early stopping check
-        if val_average_loss < best_val_loss - EARLY_STOPPING_MIN_DELTA {
+        if val_average_loss < best_val_loss - early_stopping_min_delta {
             best_val_loss = val_average_loss;
             epochs_without_improvement = 0;
             // Save best model
@@ -893,10 +921,10 @@ fn main() {
             epochs_without_improvement += 1;
         }
 
-        if epochs_without_improvement >= EARLY_STOPPING_PATIENCE {
+        if epochs_without_improvement >= early_stopping_patience {
             println!(
                 "\nEarly stopping triggered! No improvement for {} epochs. Best validation loss: {:.6}",
-                EARLY_STOPPING_PATIENCE, best_val_loss
+                early_stopping_patience, best_val_loss
             );
             break;
         }

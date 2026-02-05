@@ -19,6 +19,7 @@ use std::io::{BufWriter, Write};
 use std::process;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+use rust_neural_networks::config::load_config;
 use rust_neural_networks::utils::lr_scheduler::{create_scheduler_from_config, LRScheduler};
 
 // MNIST constants (images are flat 28x28 in row-major order).
@@ -39,7 +40,10 @@ const POOL_H: usize = IMG_H / POOL; // 14
 const POOL_W: usize = IMG_W / POOL; // 14
 const FC_IN: usize = CONV_OUT * POOL_H * POOL_W; // 8*14*14 = 1568
 
-// Training hyperparameters.
+// Default config path
+const DEFAULT_CONFIG_PATH: &str = "config/training/mnist_cnn_default.json";
+
+// Training hyperparameters (defaults, overridden by config).
 const LEARNING_RATE: f32 = 0.01;
 const EPOCHS: usize = 3;
 const BATCH_SIZE: usize = 32;
@@ -195,6 +199,21 @@ impl DenseLayer {
 
     pub fn biases(&self) -> &[f32] {
         &self.biases
+    }
+
+    /// Returns the L2 norm (magnitude) of weight and bias gradients.
+    ///
+    /// Useful for monitoring gradient flow during training and detecting vanishing/exploding gradients.
+    pub fn get_gradient_magnitude(&self) -> (f32, f32) {
+        // Compute L2 norm of weight gradients: sqrt(sum(g_i^2))
+        let grad_weights = self.grad_weights.borrow();
+        let weight_norm: f32 = grad_weights.iter().map(|g| g * g).sum::<f32>().sqrt();
+
+        // Compute L2 norm of bias gradients: sqrt(sum(g_i^2))
+        let grad_biases = self.grad_biases.borrow();
+        let bias_norm: f32 = grad_biases.iter().map(|g| g * g).sum::<f32>().sqrt();
+
+        (weight_norm, bias_norm)
     }
 }
 
@@ -355,6 +374,21 @@ impl Conv2DLayer {
 
     pub fn biases(&self) -> &[f32] {
         &self.biases
+    }
+
+    /// Returns the L2 norm (magnitude) of weight and bias gradients.
+    ///
+    /// Useful for monitoring gradient flow during training and detecting vanishing/exploding gradients.
+    pub fn get_gradient_magnitude(&self) -> (f32, f32) {
+        // Compute L2 norm of weight gradients: sqrt(sum(g_i^2))
+        let grad_weights = self.grad_weights.borrow();
+        let weight_norm: f32 = grad_weights.iter().map(|g| g * g).sum::<f32>().sqrt();
+
+        // Compute L2 norm of bias gradients: sqrt(sum(g_i^2))
+        let grad_biases = self.grad_biases.borrow();
+        let bias_norm: f32 = grad_biases.iter().map(|g| g * g).sum::<f32>().sqrt();
+
+        (weight_norm, bias_norm)
     }
 }
 
@@ -1100,13 +1134,19 @@ fn save_model(model: &Cnn, filename: &str) {
     println!("Model saved to {}", filename);
 }
 
-fn scheduler_from_args(args: &[String]) -> Box<dyn LRScheduler> {
-    let config_path = if args.len() > 1 {
-        Some(args[1].as_str())
-    } else {
-        None
-    };
-    create_scheduler_from_config(LEARNING_RATE, EPOCHS, config_path)
+fn parse_config_path(args: &[String]) -> String {
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--config" && i + 1 < args.len() {
+            return args[i + 1].clone();
+        }
+        i += 1;
+    }
+    DEFAULT_CONFIG_PATH.to_string()
+}
+
+fn scheduler_from_args(learning_rate: f32, epochs: usize, config_path: Option<&str>) -> Box<dyn LRScheduler> {
+    create_scheduler_from_config(learning_rate, epochs, config_path)
 }
 
 /// Entry point for training and evaluating a minimal CNN on the MNIST dataset.
@@ -1130,6 +1170,47 @@ fn scheduler_from_args(args: &[String]) -> Box<dyn LRScheduler> {
 /// main();
 /// ```
 fn main() {
+    // Parse command-line arguments for config file path
+    let args: Vec<String> = env::args().collect();
+    let config_path = parse_config_path(&args);
+
+    // Load config
+    println!("=== MNIST CNN Training ===");
+    println!("Loading configuration from: {}", config_path);
+    let config = match load_config(&config_path) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("Error loading config from '{}': {}", config_path, e);
+            eprintln!("Please ensure the config file exists and is valid JSON.");
+            process::exit(1);
+        }
+    };
+
+    // Extract hyperparameters from config with defaults
+    let learning_rate = config.learning_rate.unwrap_or(LEARNING_RATE);
+    let epochs = config.epochs.unwrap_or(EPOCHS);
+    let batch_size = config.batch_size.unwrap_or(BATCH_SIZE);
+    let validation_split = config.validation_split.unwrap_or(VALIDATION_SPLIT);
+    let early_stopping_patience = config.early_stopping_patience.unwrap_or(EARLY_STOPPING_PATIENCE);
+    let early_stopping_min_delta = config.early_stopping_min_delta.unwrap_or(EARLY_STOPPING_MIN_DELTA);
+
+    // Print loaded configuration
+    println!("\nConfiguration:");
+    println!("  Learning rate: {}", learning_rate);
+    println!("  Epochs: {}", epochs);
+    println!("  Batch size: {}", batch_size);
+    println!("  Validation split: {:.1}%", validation_split * 100.0);
+    println!("  Early stopping patience: {}", early_stopping_patience);
+    println!("  Early stopping min delta: {}", early_stopping_min_delta);
+    println!("  Scheduler type: {}", config.scheduler_type);
+    if let Some(ref activation) = config.activation_function {
+        println!("  Activation function: {}", activation);
+    }
+    println!();
+
+    // Create learning rate scheduler
+    let mut scheduler = scheduler_from_args(learning_rate, epochs, Some(&config_path));
+
     println!("Loading MNIST...");
     let mut train_images = read_mnist_images("./data/train-images.idx3-ubyte", TRAIN_SAMPLES);
     let mut train_labels = read_mnist_labels("./data/train-labels.idx1-ubyte", TRAIN_SAMPLES);
@@ -1138,7 +1219,7 @@ fn main() {
 
     // Split training data into train and validation sets
     let total_train_samples = train_images.len() / NUM_INPUTS;
-    let validation_samples = (total_train_samples as f32 * VALIDATION_SPLIT) as usize;
+    let validation_samples = (total_train_samples as f32 * validation_split) as usize;
     let actual_train_samples = total_train_samples - validation_samples;
 
     let split_point_images = actual_train_samples * NUM_INPUTS;
@@ -1159,10 +1240,6 @@ fn main() {
 
     let mut model = init_cnn(&mut rng);
 
-    // Parse command-line arguments for optional config file
-    let args: Vec<String> = env::args().collect();
-    let mut scheduler = scheduler_from_args(&args);
-
     // Training log file.
     fs::create_dir_all("./logs").ok();
     let log_file = File::create("./logs/training_loss_cnn.txt").unwrap_or_else(|_| {
@@ -1171,19 +1248,37 @@ fn main() {
     });
     let mut log = BufWriter::new(log_file);
 
+    // Create gradient logging file
+    let gradient_log_filename = "./logs/gradients_cnn.csv";
+    let gradient_file = File::create(gradient_log_filename).unwrap_or_else(|_| {
+        eprintln!("Could not open file for writing gradient logs.");
+        process::exit(1);
+    });
+    let mut gradient_file = BufWriter::new(gradient_file);
+
+    // Write gradient CSV header
+    writeln!(
+        gradient_file,
+        "epoch,layer_name,grad_norm_weights,grad_norm_biases"
+    )
+    .unwrap_or_else(|_| {
+        eprintln!("Failed writing gradient CSV header.");
+        process::exit(1);
+    });
+
     // Training buffers (reused each batch to avoid allocations).
-    let mut batch_inputs = vec![0.0f32; BATCH_SIZE * NUM_INPUTS];
-    let mut batch_labels = vec![0u8; BATCH_SIZE];
+    let mut batch_inputs = vec![0.0f32; batch_size * NUM_INPUTS];
+    let mut batch_labels = vec![0u8; batch_size];
 
-    let mut conv_out = vec![0.0f32; BATCH_SIZE * CONV_OUT * IMG_H * IMG_W];
-    let mut pool_out = vec![0.0f32; BATCH_SIZE * FC_IN];
-    let mut pool_idx = vec![0u8; BATCH_SIZE * CONV_OUT * POOL_H * POOL_W];
-    let mut logits = vec![0.0f32; BATCH_SIZE * NUM_CLASSES];
-    let mut delta = vec![0.0f32; BATCH_SIZE * NUM_CLASSES];
+    let mut conv_out = vec![0.0f32; batch_size * CONV_OUT * IMG_H * IMG_W];
+    let mut pool_out = vec![0.0f32; batch_size * FC_IN];
+    let mut pool_idx = vec![0u8; batch_size * CONV_OUT * POOL_H * POOL_W];
+    let mut logits = vec![0.0f32; batch_size * NUM_CLASSES];
+    let mut delta = vec![0.0f32; batch_size * NUM_CLASSES];
 
-    let mut d_pool = vec![0.0f32; BATCH_SIZE * FC_IN];
-    let mut d_conv = vec![0.0f32; BATCH_SIZE * CONV_OUT * IMG_H * IMG_W];
-    let mut _grad_input = vec![0.0f32; BATCH_SIZE * NUM_INPUTS]; // unused (first layer)
+    let mut d_pool = vec![0.0f32; batch_size * FC_IN];
+    let mut d_conv = vec![0.0f32; batch_size * CONV_OUT * IMG_H * IMG_W];
+    let mut _grad_input = vec![0.0f32; batch_size * NUM_INPUTS]; // unused (first layer)
 
     let mut indices: Vec<usize> = (0..train_n).collect();
 
@@ -1193,18 +1288,25 @@ fn main() {
 
     println!(
         "Training CNN: epochs={} batch={} lr={}",
-        EPOCHS, BATCH_SIZE, LEARNING_RATE
+        epochs, batch_size, learning_rate
     );
 
-    for epoch in 0..EPOCHS {
+    for epoch in 0..epochs {
         let start_time = Instant::now();
         rng.shuffle_usize(&mut indices);
         let current_lr = scheduler.get_lr();
 
         let mut total_loss = 0.0f32;
 
-        for batch_start in (0..train_n).step_by(BATCH_SIZE) {
-            let batch = (train_n - batch_start).min(BATCH_SIZE);
+        // Accumulate gradient norms for this epoch
+        let mut conv_weight_grad_sum = 0.0f32;
+        let mut conv_bias_grad_sum = 0.0f32;
+        let mut fc_weight_grad_sum = 0.0f32;
+        let mut fc_bias_grad_sum = 0.0f32;
+        let mut batch_count_total = 0usize;
+
+        for batch_start in (0..train_n).step_by(batch_size) {
+            let batch = (train_n - batch_start).min(batch_size);
             let scale = 1.0f32;
 
             // Gather a random mini-batch into contiguous buffers.
@@ -1233,6 +1335,15 @@ fn main() {
             maxpool_backward_relu(batch, &conv_out, &d_pool, &pool_idx, &mut d_conv);
             conv_backward(&mut model, batch, &batch_inputs, &d_conv, &mut _grad_input);
 
+            // Log gradient magnitudes before parameter update (accumulate for epoch)
+            let (conv_w_norm, conv_b_norm) = model.conv_layer.get_gradient_magnitude();
+            let (fc_w_norm, fc_b_norm) = model.fc_layer.get_gradient_magnitude();
+            conv_weight_grad_sum += conv_w_norm;
+            conv_bias_grad_sum += conv_b_norm;
+            fc_weight_grad_sum += fc_w_norm;
+            fc_bias_grad_sum += fc_b_norm;
+            batch_count_total += 1;
+
             // SGD update using Layer trait (no momentum, no weight decay).
             model.fc_layer.update_parameters(current_lr);
             model.conv_layer.update_parameters(current_lr);
@@ -1244,14 +1355,14 @@ fn main() {
         // Evaluate on validation set
         let mut val_total_loss = 0.0f32;
         let mut val_correct = 0usize;
-        let mut val_batch_inputs = vec![0.0f32; BATCH_SIZE * NUM_INPUTS];
-        let mut val_conv_out = vec![0.0f32; BATCH_SIZE * CONV_OUT * IMG_H * IMG_W];
-        let mut val_pool_out = vec![0.0f32; BATCH_SIZE * FC_IN];
-        let mut val_pool_idx = vec![0u8; BATCH_SIZE * CONV_OUT * POOL_H * POOL_W];
-        let mut val_logits = vec![0.0f32; BATCH_SIZE * NUM_CLASSES];
+        let mut val_batch_inputs = vec![0.0f32; batch_size * NUM_INPUTS];
+        let mut val_conv_out = vec![0.0f32; batch_size * CONV_OUT * IMG_H * IMG_W];
+        let mut val_pool_out = vec![0.0f32; batch_size * FC_IN];
+        let mut val_pool_idx = vec![0u8; batch_size * CONV_OUT * POOL_H * POOL_W];
+        let mut val_logits = vec![0.0f32; batch_size * NUM_CLASSES];
 
-        for batch_start in (0..validation_samples).step_by(BATCH_SIZE) {
-            let batch_count = (validation_samples - batch_start).min(BATCH_SIZE);
+        for batch_start in (0..validation_samples).step_by(batch_size) {
+            let batch_count = (validation_samples - batch_start).min(batch_size);
             let input_len = batch_count * NUM_INPUTS;
             let input_start = batch_start * NUM_INPUTS;
             val_batch_inputs[..input_len]
@@ -1306,6 +1417,37 @@ fn main() {
         let val_average_loss = val_total_loss / validation_samples as f32;
         let val_accuracy = val_correct as f32 / validation_samples as f32 * 100.0;
 
+        // Write gradient magnitudes (averaged across batches) to gradient log
+        let num_batches = batch_count_total as f32;
+        let conv_w_avg = conv_weight_grad_sum / num_batches;
+        let conv_b_avg = conv_bias_grad_sum / num_batches;
+        let fc_w_avg = fc_weight_grad_sum / num_batches;
+        let fc_b_avg = fc_bias_grad_sum / num_batches;
+
+        writeln!(
+            gradient_file,
+            "{},conv_layer,{},{}",
+            epoch + 1,
+            conv_w_avg,
+            conv_b_avg
+        )
+        .unwrap_or_else(|_| {
+            eprintln!("Failed writing gradient data.");
+            process::exit(1);
+        });
+
+        writeln!(
+            gradient_file,
+            "{},fc_layer,{},{}",
+            epoch + 1,
+            fc_w_avg,
+            fc_b_avg
+        )
+        .unwrap_or_else(|_| {
+            eprintln!("Failed writing gradient data.");
+            process::exit(1);
+        });
+
         println!(
             "Epoch {}, Loss: {:.6}, Val Loss: {:.6}, Val Acc: {:.2}%, Time: {:.6}",
             epoch + 1,
@@ -1327,7 +1469,7 @@ fn main() {
         .ok();
 
         // Early stopping check
-        if val_average_loss < best_val_loss - EARLY_STOPPING_MIN_DELTA {
+        if val_average_loss < best_val_loss - early_stopping_min_delta {
             best_val_loss = val_average_loss;
             epochs_without_improvement = 0;
             // Save best model
@@ -1336,10 +1478,10 @@ fn main() {
             epochs_without_improvement += 1;
         }
 
-        if epochs_without_improvement >= EARLY_STOPPING_PATIENCE {
+        if epochs_without_improvement >= early_stopping_patience {
             println!(
                 "\nEarly stopping triggered! No improvement for {} epochs. Best validation loss: {:.6}",
-                EARLY_STOPPING_PATIENCE, best_val_loss
+                early_stopping_patience, best_val_loss
             );
             break;
         }

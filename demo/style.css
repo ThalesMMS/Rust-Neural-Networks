@@ -1,0 +1,445 @@
+/* ============================================
+   MNIST Digit Recognizer - WebAssembly Demo
+   CSS Styling for Canvas and Predictions
+   ============================================ */
+
+/* ========== CSS Reset & Base Styles ========== */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    /* Color Palette */
+    --primary-color: #4A90E2;
+    --primary-hover: #357ABD;
+    --secondary-color: #6c757d;
+    --secondary-hover: #5a6268;
+    --success-color: #5CB85C;
+    --error-color: #D9534F;
+    --background-color: #f5f7fa;
+    --card-background: #ffffff;
+    --text-color: #333333;
+    --text-muted: #6c757d;
+    --border-color: #e0e0e0;
+    --canvas-border: #cccccc;
+    --prediction-bar-bg: #e9ecef;
+    --prediction-bar-active: #4A90E2;
+    --prediction-bar-top: #5CB85C;
+
+    /* Spacing */
+    --spacing-xs: 0.5rem;
+    --spacing-sm: 1rem;
+    --spacing-md: 1.5rem;
+    --spacing-lg: 2rem;
+    --spacing-xl: 3rem;
+
+    /* Transitions */
+    --transition-fast: 0.2s ease;
+    --transition-normal: 0.3s ease;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+        'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+        sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    line-height: 1.6;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ========== Container & Layout ========== */
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: var(--spacing-md);
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ========== Header ========== */
+header {
+    text-align: center;
+    margin-bottom: var(--spacing-lg);
+    padding: var(--spacing-lg) 0;
+}
+
+header h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--primary-color);
+    margin-bottom: var(--spacing-sm);
+}
+
+.subtitle {
+    font-size: 1.125rem;
+    color: var(--text-muted);
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+/* ========== Main Content Layout ========== */
+.app-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-xl);
+    margin-bottom: var(--spacing-lg);
+}
+
+/* ========== Canvas Section ========== */
+.canvas-section {
+    background: var(--card-background);
+    border-radius: 12px;
+    padding: var(--spacing-lg);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.canvas-section h2 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: var(--spacing-md);
+    color: var(--text-color);
+}
+
+#drawing-canvas {
+    border: 3px solid var(--canvas-border);
+    border-radius: 8px;
+    background-color: #ffffff;
+    cursor: crosshair;
+    display: block;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: box-shadow var(--transition-normal);
+}
+
+#drawing-canvas:hover {
+    box-shadow: 0 4px 12px rgba(74, 144, 226, 0.2);
+}
+
+#drawing-canvas:active {
+    cursor: crosshair;
+}
+
+/* ========== Control Buttons ========== */
+.controls {
+    display: flex;
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-md);
+    width: 100%;
+    max-width: 280px;
+}
+
+.btn {
+    flex: 1;
+    padding: 0.75rem 1.5rem;
+    font-size: 1rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.btn:active {
+    transform: translateY(0);
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.btn-primary {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background-color: var(--primary-hover);
+}
+
+.btn-secondary {
+    background-color: var(--secondary-color);
+    color: white;
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background-color: var(--secondary-hover);
+}
+
+.instructions {
+    margin-top: var(--spacing-md);
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    text-align: center;
+    max-width: 280px;
+}
+
+/* ========== Predictions Section ========== */
+.predictions-section {
+    background: var(--card-background);
+    border-radius: 12px;
+    padding: var(--spacing-lg);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    display: flex;
+    flex-direction: column;
+}
+
+.predictions-section h2 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: var(--spacing-md);
+    color: var(--text-color);
+}
+
+.predictions-container {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-md);
+}
+
+/* ========== Prediction Rows & Bars ========== */
+.prediction-row {
+    display: grid;
+    grid-template-columns: 2rem 1fr 4rem;
+    gap: var(--spacing-sm);
+    align-items: center;
+    padding: var(--spacing-xs) 0;
+    transition: background-color var(--transition-fast);
+    border-radius: 6px;
+    padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+.prediction-row.top-prediction {
+    background-color: rgba(92, 184, 92, 0.1);
+    border-left: 3px solid var(--prediction-bar-top);
+}
+
+.digit-label {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--text-color);
+    text-align: right;
+}
+
+.prediction-bar-container {
+    height: 24px;
+    background-color: var(--prediction-bar-bg);
+    border-radius: 12px;
+    overflow: hidden;
+    position: relative;
+}
+
+.prediction-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--prediction-bar-active), var(--primary-hover));
+    border-radius: 12px;
+    transition: width var(--transition-normal), background var(--transition-normal);
+    min-width: 2px;
+}
+
+.prediction-row.top-prediction .prediction-bar {
+    background: linear-gradient(90deg, var(--prediction-bar-top), #4CAF50);
+    box-shadow: 0 0 8px rgba(92, 184, 92, 0.5);
+}
+
+.probability-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-color);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ========== Status Message ========== */
+.status-message {
+    padding: var(--spacing-sm);
+    border-radius: 6px;
+    text-align: center;
+    font-size: 0.9rem;
+    background-color: var(--background-color);
+    color: var(--text-muted);
+    transition: all var(--transition-normal);
+}
+
+.status-message.ready {
+    background-color: rgba(92, 184, 92, 0.1);
+    color: var(--success-color);
+    font-weight: 600;
+}
+
+.status-message.error {
+    background-color: rgba(217, 83, 79, 0.1);
+    color: var(--error-color);
+    font-weight: 600;
+}
+
+.status-message.loading {
+    background-color: rgba(74, 144, 226, 0.1);
+    color: var(--primary-color);
+}
+
+/* ========== Footer ========== */
+footer {
+    text-align: center;
+    padding: var(--spacing-lg) 0;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin-top: auto;
+}
+
+footer a {
+    color: var(--primary-color);
+    text-decoration: none;
+    transition: color var(--transition-fast);
+}
+
+footer a:hover {
+    color: var(--primary-hover);
+    text-decoration: underline;
+}
+
+/* ========== Responsive Design ========== */
+@media screen and (max-width: 968px) {
+    .app-content {
+        grid-template-columns: 1fr;
+        gap: var(--spacing-lg);
+    }
+
+    header h1 {
+        font-size: 2rem;
+    }
+
+    .subtitle {
+        font-size: 1rem;
+    }
+}
+
+@media screen and (max-width: 640px) {
+    .container {
+        padding: var(--spacing-sm);
+    }
+
+    header {
+        padding: var(--spacing-md) 0;
+        margin-bottom: var(--spacing-md);
+    }
+
+    header h1 {
+        font-size: 1.75rem;
+    }
+
+    .subtitle {
+        font-size: 0.9rem;
+    }
+
+    .canvas-section,
+    .predictions-section {
+        padding: var(--spacing-md);
+    }
+
+    #drawing-canvas {
+        max-width: 100%;
+        height: auto;
+    }
+
+    .controls {
+        max-width: 100%;
+    }
+
+    .btn {
+        padding: 0.625rem 1rem;
+        font-size: 0.9rem;
+    }
+}
+
+@media screen and (max-width: 400px) {
+    header h1 {
+        font-size: 1.5rem;
+    }
+
+    .controls {
+        flex-direction: column;
+    }
+
+    .prediction-row {
+        grid-template-columns: 1.5rem 1fr 3.5rem;
+        gap: var(--spacing-xs);
+    }
+
+    .digit-label,
+    .probability-label {
+        font-size: 0.9rem;
+    }
+
+    .prediction-bar-container {
+        height: 20px;
+    }
+}
+
+/* ========== Print Styles ========== */
+@media print {
+    body {
+        background-color: white;
+    }
+
+    .controls,
+    footer {
+        display: none;
+    }
+
+    .canvas-section,
+    .predictions-section {
+        box-shadow: none;
+        border: 1px solid var(--border-color);
+    }
+}
+
+/* ========== Accessibility ========== */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* Focus styles for keyboard navigation */
+.btn:focus {
+    outline: 3px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+.btn:focus:not(:focus-visible) {
+    outline: none;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    :root {
+        --border-color: #000000;
+        --canvas-border: #000000;
+    }
+
+    .prediction-bar {
+        border: 1px solid currentColor;
+    }
+}

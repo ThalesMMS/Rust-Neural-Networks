@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WASM Wrapper Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-result {
+            margin: 15px 0;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>WASM Wrapper Test</h1>
+        <p>This page tests the MNIST WASM wrapper initialization and prediction functions.</p>
+
+        <div id="test-results"></div>
+
+        <button id="run-tests" onclick="runTests()">Run Tests</button>
+    </div>
+
+    <script type="module">
+        import { MnistWasmWrapper, createMnistClassifier } from './wasm_wrapper.js';
+
+        window.MnistWasmWrapper = MnistWasmWrapper;
+        window.createMnistClassifier = createMnistClassifier;
+    </script>
+
+    <script>
+        function addResult(message, type = 'info') {
+            const resultsDiv = document.getElementById('test-results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = `test-result ${type}`;
+            resultDiv.textContent = message;
+            resultsDiv.appendChild(resultDiv);
+        }
+
+        function clearResults() {
+            document.getElementById('test-results').innerHTML = '';
+        }
+
+        async function runTests() {
+            clearResults();
+            const button = document.getElementById('run-tests');
+            button.disabled = true;
+
+            try {
+                addResult('Test 1: Creating MnistWasmWrapper instance...', 'info');
+                const wrapper = new window.MnistWasmWrapper();
+                addResult('✓ MnistWasmWrapper instance created successfully', 'success');
+
+                addResult('Test 2: Checking initial state (should not be ready)...', 'info');
+                if (!wrapper.isReady()) {
+                    addResult('✓ Wrapper correctly reports not ready before initialization', 'success');
+                } else {
+                    addResult('✗ Wrapper incorrectly reports ready before initialization', 'error');
+                }
+
+                addResult('Test 3: Getting default input size...', 'info');
+                const inputSize = wrapper.getInputSize();
+                if (inputSize === 784) {
+                    addResult(`✓ Input size is correct: ${inputSize}`, 'success');
+                } else {
+                    addResult(`✗ Input size is incorrect: ${inputSize} (expected 784)`, 'error');
+                }
+
+                addResult('Test 4: Getting default number of classes...', 'info');
+                const numClasses = wrapper.getNumClasses();
+                if (numClasses === 10) {
+                    addResult(`✓ Number of classes is correct: ${numClasses}`, 'success');
+                } else {
+                    addResult(`✗ Number of classes is incorrect: ${numClasses} (expected 10)`, 'error');
+                }
+
+                addResult('Test 5: Creating synthetic model for testing...', 'info');
+                const syntheticModel = createSyntheticModel();
+                addResult(`✓ Created synthetic model (${syntheticModel.byteLength} bytes)`, 'success');
+
+                addResult('Test 6: Converting model to blob URL...', 'info');
+                const blob = new Blob([syntheticModel], { type: 'application/octet-stream' });
+                const modelUrl = URL.createObjectURL(blob);
+                addResult('✓ Blob URL created successfully', 'success');
+
+                addResult('Test 7: Initializing WASM module and loading model...', 'info');
+                await wrapper.initialize(modelUrl);
+                addResult('✓ WASM module initialized and model loaded successfully', 'success');
+
+                addResult('Test 8: Checking ready state after initialization...', 'info');
+                if (wrapper.isReady()) {
+                    addResult('✓ Wrapper correctly reports ready after initialization', 'success');
+                } else {
+                    addResult('✗ Wrapper incorrectly reports not ready after initialization', 'error');
+                }
+
+                addResult('Test 9: Creating test image data (all zeros)...', 'info');
+                const imageData = new Float32Array(784);
+                addResult('✓ Test image data created (784 pixels)', 'success');
+
+                addResult('Test 10: Calling predict() method...', 'info');
+                const probabilities = wrapper.predict(imageData);
+                if (probabilities instanceof Float32Array && probabilities.length === 10) {
+                    addResult(`✓ predict() returned Float32Array with ${probabilities.length} values`, 'success');
+
+                    const sum = Array.from(probabilities).reduce((a, b) => a + b, 0);
+                    addResult(`   Probabilities sum: ${sum.toFixed(6)} (should be ~1.0)`, 'info');
+
+                    if (Math.abs(sum - 1.0) < 0.01) {
+                        addResult('✓ Probabilities sum to ~1.0 (valid softmax)', 'success');
+                    } else {
+                        addResult('✗ Probabilities do not sum to 1.0', 'error');
+                    }
+                } else {
+                    addResult('✗ predict() did not return valid probabilities', 'error');
+                }
+
+                addResult('Test 11: Calling predictDigit() method...', 'info');
+                const digit = wrapper.predictDigit(imageData);
+                if (typeof digit === 'number' && digit >= 0 && digit <= 9) {
+                    addResult(`✓ predictDigit() returned valid digit: ${digit}`, 'success');
+                } else {
+                    addResult(`✗ predictDigit() returned invalid value: ${digit}`, 'error');
+                }
+
+                addResult('Test 12: Testing error handling with invalid input...', 'info');
+                try {
+                    const invalidData = new Float32Array(100); // Wrong size
+                    wrapper.predict(invalidData);
+                    addResult('✗ predict() should have thrown error for invalid input size', 'error');
+                } catch (error) {
+                    addResult(`✓ predict() correctly threw error: ${error.message}`, 'success');
+                }
+
+                addResult('Test 13: Testing convenience function createMnistClassifier()...', 'info');
+                const wrapper2 = await window.createMnistClassifier(modelUrl);
+                if (wrapper2.isReady()) {
+                    addResult('✓ createMnistClassifier() returned ready wrapper', 'success');
+                    const testPrediction = wrapper2.predict(imageData);
+                    addResult(`✓ Wrapper from convenience function can make predictions`, 'success');
+                    wrapper2.dispose();
+                } else {
+                    addResult('✗ createMnistClassifier() returned wrapper that is not ready', 'error');
+                }
+
+                addResult('Test 14: Cleaning up resources...', 'info');
+                wrapper.dispose();
+                URL.revokeObjectURL(modelUrl);
+                addResult('✓ Resources cleaned up successfully', 'success');
+
+                addResult('=== ALL TESTS PASSED ===', 'success');
+
+            } catch (error) {
+                addResult(`✗ Test failed with error: ${error.message}`, 'error');
+                addResult(`Stack trace: ${error.stack}`, 'error');
+            } finally {
+                button.disabled = false;
+            }
+        }
+
+        // Create a minimal valid model binary for testing
+        function createSyntheticModel() {
+            const input_size = 784;
+            const hidden_size = 512;
+            const output_size = 10;
+
+            const buffer = new ArrayBuffer(
+                12 + // 3 x i32 for dimensions
+                (input_size * hidden_size + hidden_size + hidden_size * output_size + output_size) * 4 // f32 arrays
+            );
+
+            const view = new DataView(buffer);
+            let offset = 0;
+
+            // Write dimensions (i32, little-endian)
+            view.setInt32(offset, input_size, true);
+            offset += 4;
+            view.setInt32(offset, hidden_size, true);
+            offset += 4;
+            view.setInt32(offset, output_size, true);
+            offset += 4;
+
+            // Write weights and biases (all zeros for simplicity)
+            const totalFloats = input_size * hidden_size + hidden_size + hidden_size * output_size + output_size;
+            for (let i = 0; i < totalFloats; i++) {
+                view.setFloat32(offset, 0.0, true);
+                offset += 4;
+            }
+
+            return buffer;
+        }
+    </script>
+</body>
+</html>
