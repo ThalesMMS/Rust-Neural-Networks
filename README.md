@@ -17,7 +17,8 @@ Python utilities are included for visualization and digit recognition. The Swift
 Rust source:
 
 - `mnist_mlp.rs`, `mnist_cnn.rs`, `mnist_attention_pool.rs`, `cifar10_cnn.rs`, `mlp_simple.rs` (standalone binaries)
-- `src/` (shared layers, optimizers, utils, config)
+- `hyperparameter_sweep.rs` (hyperparameter sweep orchestrator binary)
+- `src/` (shared layers, optimizers, utils, config, sweep)
 - `tests/` (integration tests)
 - `Cargo.toml` / `Cargo.lock`
 
@@ -25,12 +26,14 @@ Configs:
 
 - `config/training/` (training hyperparameters for all models)
 - `config/architectures/` (network architecture definitions)
+- `config/sweeps/` (hyperparameter sweep configurations)
 - `config/` (learning-rate scheduler configs, activation configs)
 
 Scripts:
 
 - `digit_recognizer.py` (draw digits and run inference with a saved model)
 - `plot_comparison.py` (plot training/validation curves from `logs/`)
+- `compare_sweep_results.py` (compare hyperparameter sweep results with plots)
 - `visualize_attention.py` (attention visualization utility)
 - `visualize_gradients.py` (gradient flow visualization and analysis)
 - `requirements.txt` (Python dependencies)
@@ -103,7 +106,7 @@ Expected accuracy: ~88-91% depending on seed and hyperparameters.
 
 ### CIFAR-10 CNN
 
-Architecture:
+**Baseline Architecture (Currently Implemented):**
 
 - Input: 32x32x3 RGB image (3072 pixels)
 - Conv: 16 filters (3x3) + ReLU + padding=1
@@ -120,7 +123,24 @@ Default training parameters:
 
 Expected accuracy: ~50-60% depending on hardware and hyperparameters.
 
-Note: CIFAR-10 is significantly harder than MNIST. The baseline CNN architecture is intentionally simple for educational purposes. State-of-the-art models typically achieve 90%+ accuracy with deeper architectures, data augmentation, and more training.
+**Deep CNN Architecture (Designed, Not Yet Trained):**
+
+A deeper 17-layer architecture has been designed to improve CIFAR-10 performance:
+
+- 6 convolutional layers in 3 progressive blocks (32→64→128 filters)
+- Batch normalization after each conv layer
+- Stride-based downsampling (no MaxPool)
+- Dropout regularization (0.3, 0.5)
+- Classifier: 8192 → 256 → 10
+- Total parameters: ~1.2M (vs ~65K baseline)
+
+Architecture config: `config/architectures/cifar10_deep_cnn.json`
+Training config: `config/training/cifar10_deep_cnn_default.json`
+Design rationale: `docs/cifar10_architecture_design.md`
+
+**Status:** Architecture fully designed and tested, but training blocked by implementation constraint (binary expects 2 layers, architecture has 17). Target performance: 70%+ test accuracy.
+
+**Note:** CIFAR-10 is significantly harder than MNIST. The baseline CNN architecture is intentionally simple for educational purposes. State-of-the-art models typically achieve 90%+ accuracy with deeper architectures, data augmentation, and more training. The deep architecture design demonstrates how architectural choices (depth, normalization, regularization) can significantly improve performance.
 
 ### XOR model
 
@@ -170,6 +190,7 @@ The project supports externalizing all training hyperparameters to JSON configur
 - Control learning rate, batch size, epochs, validation split, and early stopping
 - Configure learning rate schedulers (step decay, exponential, cosine annealing)
 - Choose activation functions (ReLU, LeakyReLU, ELU, GELU, Swish, Tanh)
+- Select optimizers (SGD, Adam, AdamW, RMSprop) with specific hyperparameters
 - Default configs provided for all models in `config/training/`
 - Automatic validation with helpful error messages
 
@@ -182,12 +203,68 @@ The project supports externalizing all training hyperparameters to JSON configur
   "validation_split": 0.1,
   "early_stopping_patience": 3,
   "early_stopping_min_delta": 0.001,
+  "optimizer_type": "sgd",
+  "momentum": 0.9,
   "scheduler_type": "step_decay",
   "step_size": 3,
   "gamma": 0.5,
   "activation_function": "relu"
 }
 ```
+
+**Optimizer selection:**
+
+The project supports four optimizers with different characteristics:
+
+- **SGD (Stochastic Gradient Descent)** - Simple gradient descent with optional momentum
+  ```json
+  {
+    "optimizer_type": "sgd",
+    "momentum": 0.9
+  }
+  ```
+  - Best for: Simple problems, full control over learning dynamics
+  - Characteristics: No adaptive learning rates, requires careful LR tuning
+  - Typical learning rate: 0.01-0.1
+
+- **Adam (Adaptive Moment Estimation)** - Combines momentum and adaptive learning rates
+  ```json
+  {
+    "optimizer_type": "adam",
+    "beta1": 0.9,
+    "beta2": 0.999,
+    "epsilon": 1e-8
+  }
+  ```
+  - Best for: General purpose, sparse gradients, noisy data
+  - Characteristics: Fast convergence, adapts LR per parameter
+  - Typical learning rate: 0.001-0.01
+
+- **AdamW (Adam with Weight Decay)** - Adam with decoupled weight decay regularization
+  ```json
+  {
+    "optimizer_type": "adamw",
+    "beta1": 0.9,
+    "beta2": 0.999,
+    "epsilon": 1e-8,
+    "weight_decay": 0.01
+  }
+  ```
+  - Best for: Large models, when regularization is important, modern deep learning
+  - Characteristics: Better generalization than Adam, decoupled weight decay
+  - Typical learning rate: 0.001-0.01
+
+- **RMSprop (Root Mean Square Propagation)** - Adaptive learning rate with moving average
+  ```json
+  {
+    "optimizer_type": "rmsprop",
+    "rmsprop_decay": 0.9,
+    "rmsprop_epsilon": 1e-8
+  }
+  ```
+  - Best for: RNNs, non-stationary objectives
+  - Characteristics: Handles sparse gradients well, simpler than Adam
+  - Typical learning rate: 0.001-0.01
 
 **Default configs:**
 - `config/training/mnist_mlp_default.json` - MNIST MLP training parameters
@@ -227,7 +304,167 @@ cp config/training/mnist_mlp_default.json config/training/mnist_mlp_fast.json
 cargo run --release --bin mnist_mlp -- --config config/training/mnist_mlp_fast.json
 ```
 
-For comprehensive documentation including all hyperparameters, validation rules, scheduler types, and experimentation guide, see [`docs/hyperparameters.md`](docs/hyperparameters.md).
+**Experiment with different optimizers:**
+
+```bash
+# Try AdamW optimizer (recommended for deep networks)
+cargo run --release --bin mnist_mlp -- --config config/mnist_mlp_adamw.json
+
+# Try Adam optimizer (fast convergence)
+cargo run --release --bin mnist_mlp -- --config config/mnist_mlp_adam.json
+
+# Try RMSprop optimizer (good for RNNs)
+cargo run --release --bin mnist_mlp -- --config config/mnist_mlp_rmsprop.json
+
+# Use SGD with momentum (traditional approach)
+cargo run --release --bin mnist_mlp -- --config config/mnist_mlp_sgd_momentum.json
+```
+
+For comprehensive documentation including all hyperparameters, validation rules, scheduler types, optimizer details, and experimentation guide, see [`docs/hyperparameters.md`](docs/hyperparameters.md).
+
+## Hyperparameter sweeps
+
+The project includes a hyperparameter sweep utility that automates running multiple training configurations and comparing results, enabling systematic hyperparameter optimization without code changes.
+
+**Features:**
+- Define parameter ranges (learning rate, batch size, scheduler type, etc.) in a single JSON config
+- Automatically generates all combinations (Cartesian product) of parameter values
+- Runs training for each configuration sequentially
+- Aggregates results to structured JSON with metrics for each run
+- Python visualization utility generates comparison plots and recommendations
+
+**Example sweep config:**
+
+```json
+{
+  "base_config": "config/training/mnist_mlp_default.json",
+  "target_binary": "mnist_mlp",
+  "description": "Learning rate and batch size sweep for MNIST MLP",
+
+  "learning_rate": [0.001, 0.01, 0.1],
+  "batch_size": [32, 64, 128],
+  "scheduler_type": ["step_decay", "exponential"]
+}
+```
+
+This example generates **18 configurations** (3 learning rates × 3 batch sizes × 2 scheduler types).
+
+**Example sweep configs:**
+- `config/sweeps/mnist_mlp_sweep.json` - Comprehensive MNIST MLP sweep
+
+**Usage:**
+
+Run a hyperparameter sweep:
+
+```bash
+# Run full sweep
+cargo run --release --bin hyperparameter_sweep -- \
+  --target mnist_mlp \
+  --sweep config/sweeps/mnist_mlp_sweep.json
+
+# Run quick sweep with reduced epochs for testing
+cargo run --release --bin hyperparameter_sweep -- \
+  --target mnist_mlp \
+  --sweep config/sweeps/mnist_mlp_sweep.json \
+  --quick
+```
+
+**Expected output:**
+
+```
+=== Hyperparameter Sweep Configuration ===
+Target binary: mnist_mlp
+Sweep config: config/sweeps/mnist_mlp_sweep.json
+
+Parameter ranges:
+  learning_rate: [0.001, 0.01, 0.1]
+  batch_size: [32, 64, 128]
+  scheduler_type: ["step_decay", "exponential"]
+
+Total configurations: 18
+
+=== Running Training Configurations ===
+[1/18] Running config 1...
+  LR: 0.001, Batch: 32, Scheduler: step_decay
+  Config: /tmp/sweep_config_1.json
+  ✓ Completed in 45.2s
+
+[2/18] Running config 2...
+  ...
+
+=== Sweep Results ===
+┌──────┬────────────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ Rank │ Config ID  │ Learn.Rate│ BatchSize│ Scheduler│ Val Loss │ Val Acc  │
+├──────┼────────────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│  1   │     7      │   0.01    │    64    │step_decay│  0.0823  │  97.45%  │
+│  2   │    13      │   0.01    │   128    │exponential│ 0.0891  │  97.12%  │
+│  3   │     4      │   0.001   │    64    │exponential│ 0.0934  │  96.88%  │
+...
+└──────┴────────────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+
+Best configuration (by validation loss): Config 7
+  Learning rate: 0.01
+  Batch size: 64
+  Scheduler: step_decay
+  Validation loss: 0.0823
+  Validation accuracy: 97.45%
+
+Results saved to: ./logs/sweep_results_20260211_143052.json
+```
+
+**Visualize results:**
+
+Use the Python comparison utility to generate plots and recommendations:
+
+```bash
+# Generate comparison plots
+python compare_sweep_results.py logs/sweep_results_20260211_143052.json
+
+# Output:
+# - Console: Summary table, ranked configurations, recommendations
+# - File: logs/sweep_comparison_20260211_143052.png (6 comparison plots)
+```
+
+**Comparison plots include:**
+1. Learning rate vs validation loss (log scale)
+2. Learning rate vs validation accuracy (log scale)
+3. Batch size vs validation loss
+4. Batch size vs validation accuracy
+5. Loss vs accuracy by scheduler type (color-coded)
+6. Training time vs accuracy (colored by validation loss)
+
+**Recommendations provided:**
+- 🏆 **Best Accuracy**: Configuration with highest validation accuracy
+- ⚡ **Fastest Training**: Configuration with shortest training time
+- ⚖️ **Best Balance**: Optimal tradeoff between accuracy and training time
+
+**Sweep results format:**
+
+The results JSON contains detailed metrics for each configuration:
+
+```json
+[
+  {
+    "config_id": 1,
+    "learning_rate": 0.01,
+    "batch_size": 64,
+    "epochs": 10,
+    "scheduler_type": "step_decay",
+    "final_train_loss": 0.0234,
+    "final_val_loss": 0.0823,
+    "final_val_accuracy": 97.45,
+    "training_time_seconds": 45.2
+  },
+  ...
+]
+```
+
+**Tips:**
+- Start with a coarse sweep (2-3 values per parameter) to identify promising regions
+- Use `--quick` flag during development to test sweep configs with reduced epochs
+- Each training run is independent - failed runs don't stop the entire sweep
+- Results are automatically ranked by validation loss
+- Check `logs/` directory for individual training logs from each configuration
 
 ## Build and run (Rust)
 

@@ -1,0 +1,11 @@
+{
+  "_comment": "Quick test sweep - 1 epoch only for rapid verification",
+  "_description": "Minimal test sweep - 2 configs with 1 epoch each",
+
+  "base_config": "config/training/mnist_mlp_default.json",
+  "target_binary": "mnist_mlp",
+  "description": "Quick verification sweep",
+
+  "learning_rate": [0.01, 0.001],
+  "epochs": [1]
+}

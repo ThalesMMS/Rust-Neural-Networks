@@ -1,0 +1,12 @@
+{
+  "_comment": "Test Sweep Configuration with 2 configs only",
+  "_description": "Quick test sweep for verification - 2 configurations total",
+  "_usage": "cargo run --release --bin hyperparameter_sweep -- --target mnist_mlp --sweep config/sweeps/test_sweep_2configs.json",
+
+  "base_config": "config/training/mnist_mlp_default.json",
+  "target_binary": "mnist_mlp",
+  "description": "Small test sweep with 2 configurations",
+
+  "learning_rate": [0.001, 0.01],
+  "epochs": [2]
+}

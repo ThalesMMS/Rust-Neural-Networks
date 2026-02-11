@@ -366,7 +366,8 @@ fn test_lstm_gradient_descent_reduces_loss() {
     let learning_rate = 0.05f32;
     let num_steps = 15;
 
-    let loss_reduced = verify_gradient_descent_reduces_loss(&mut layer, &input, &target, learning_rate, num_steps);
+    let loss_reduced =
+        verify_gradient_descent_reduces_loss(&mut layer, &input, &target, learning_rate, num_steps);
 
     assert!(
         loss_reduced,
@@ -400,7 +401,8 @@ fn test_lstm_gradients_with_initial_states() {
     let learning_rate = 0.03f32;
     let num_steps = 10;
 
-    let loss_reduced = verify_gradient_descent_reduces_loss(&mut layer, &input, &target, learning_rate, num_steps);
+    let loss_reduced =
+        verify_gradient_descent_reduces_loss(&mut layer, &input, &target, learning_rate, num_steps);
 
     assert!(
         loss_reduced,
@@ -422,16 +424,12 @@ fn test_lstm_training_convergence() {
     let mut layer = LstmLayer::new(input_size, hidden_size, output_size, &mut rng);
 
     // Training data: simple classification-like task
-    let inputs = vec![
+    let inputs = [
         vec![1.0f32, 0.0, 0.0, 0.0],
         vec![0.0f32, 1.0, 0.0, 0.0],
         vec![0.0f32, 0.0, 1.0, 0.0],
     ];
-    let targets = vec![
-        vec![1.0f32, 0.0],
-        vec![0.0f32, 1.0],
-        vec![0.5f32, 0.5],
-    ];
+    let targets = [vec![1.0f32, 0.0], vec![0.0f32, 1.0], vec![0.5f32, 0.5]];
 
     let learning_rate = 0.1f32;
     let epochs = 25;
@@ -573,7 +571,7 @@ fn test_lstm_batch_processing() {
     layer.reset_state();
 
     // Create batch input
-    let input_batch = vec![
+    let input_batch = [
         vec![0.1f32, 0.2, 0.3, 0.4],
         vec![0.5f32, 0.6, 0.7, 0.8],
         vec![0.9f32, 1.0, 1.1, 1.2],
@@ -596,7 +594,12 @@ fn test_lstm_batch_processing() {
     // Backward pass on batch
     let grad_output_batch = vec![1.0f32; batch_size * output_size];
     let mut grad_input_batch = vec![0.0f32; batch_size * input_size];
-    layer.backward(&input_flat, &grad_output_batch, &mut grad_input_batch, batch_size);
+    layer.backward(
+        &input_flat,
+        &grad_output_batch,
+        &mut grad_input_batch,
+        batch_size,
+    );
 
     // Check gradient shape
     assert_eq!(grad_input_batch.len(), batch_size * input_size);

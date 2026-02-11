@@ -14,6 +14,8 @@
 //!
 //! - SGD: Vanilla stochastic gradient descent
 //! - Adam: Adaptive moment estimation with momentum and adaptive learning rates
+//! - AdamW: Adam with decoupled weight decay (recommended for transformers)
+//! - RMSprop: Adaptive learning rates based on moving average of squared gradients
 //!
 //! # Example
 //!
@@ -28,9 +30,13 @@
 //! ```
 
 pub mod adam;
+pub mod adamw;
+pub mod rmsprop;
 pub mod sgd;
 
 pub use adam::Adam;
+pub use adamw::AdamW;
+pub use rmsprop::RMSprop;
 pub use sgd::SGD;
 
 /// Core trait for neural network optimizers.

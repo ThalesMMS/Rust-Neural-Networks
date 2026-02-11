@@ -194,13 +194,11 @@ fn main() {
     println!("Starting training for {} epochs...\n", EPOCHS);
 
     // Create CSV log file
-    let mut log_file = BufWriter::new(
-        File::create("logs/rnn_char_level.csv")
-            .unwrap_or_else(|_| {
-                std::fs::create_dir_all("logs").ok();
-                File::create("logs/rnn_char_level.csv").expect("Failed to create log file")
-            })
-    );
+    let mut log_file =
+        BufWriter::new(File::create("logs/rnn_char_level.csv").unwrap_or_else(|_| {
+            std::fs::create_dir_all("logs").ok();
+            File::create("logs/rnn_char_level.csv").expect("Failed to create log file")
+        }));
     writeln!(log_file, "epoch,loss,time_ms").expect("Failed to write CSV header");
 
     // Training loop

@@ -1,0 +1,11 @@
+{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "optimizer_type": "adamw",
+  "adam_beta1": 0.9,
+  "adam_beta2": 0.999,
+  "adam_epsilon": 1e-8,
+  "adamw_weight_decay": 0.01,
+  "learning_rate": 0.001
+}

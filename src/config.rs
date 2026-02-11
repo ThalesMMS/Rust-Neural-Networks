@@ -3,7 +3,7 @@
 //! This module provides configuration structures for setting up training parameters,
 //! particularly learning rate scheduling configurations.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fs;
 
@@ -25,6 +25,13 @@ use std::fs;
 /// - **Swish**: No parameters
 /// - **Tanh**: No parameters
 ///
+/// Optimizer can be specified with optional hyperparameters:
+///
+/// - **SGD**: No additional parameters (basic stochastic gradient descent)
+/// - **Adam**: Optional `adam_beta1` (default 0.9), `adam_beta2` (default 0.999), `adam_epsilon` (default 1e-8)
+/// - **AdamW**: Same as Adam, plus optional `adamw_weight_decay` (default 0.01)
+/// - **RMSprop**: Optional `rmsprop_decay` (default 0.9), `rmsprop_epsilon` (default 1e-8)
+///
 /// # Example
 ///
 /// ```json
@@ -34,6 +41,11 @@ use std::fs;
 ///   "gamma": 0.5,
 ///   "activation_function": "leaky_relu",
 ///   "leaky_relu_alpha": 0.01,
+///   "optimizer_type": "adamw",
+///   "adam_beta1": 0.9,
+///   "adam_beta2": 0.999,
+///   "adam_epsilon": 1e-8,
+///   "adamw_weight_decay": 0.01,
 ///   "learning_rate": 0.01,
 ///   "epochs": 10,
 ///   "batch_size": 64,
@@ -42,7 +54,7 @@ use std::fs;
 ///   "early_stopping_min_delta": 0.001
 /// }
 /// ```
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[allow(non_snake_case)]
 pub struct TrainingConfig {
     /// Type of learning rate scheduler: "step_decay", "exponential", or "cosine_annealing"
@@ -72,6 +84,27 @@ pub struct TrainingConfig {
     /// Alpha parameter for ELU activation (default 1.0)
     pub elu_alpha: Option<f32>,
 
+    /// Optimizer type: "sgd", "adam", "adamw", or "rmsprop"
+    pub optimizer_type: Option<String>,
+
+    /// Beta1 parameter for Adam/AdamW optimizer (default 0.9)
+    pub adam_beta1: Option<f32>,
+
+    /// Beta2 parameter for Adam/AdamW optimizer (default 0.999)
+    pub adam_beta2: Option<f32>,
+
+    /// Epsilon parameter for Adam/AdamW optimizer (default 1e-8)
+    pub adam_epsilon: Option<f32>,
+
+    /// Weight decay parameter for AdamW optimizer (default 0.01)
+    pub adamw_weight_decay: Option<f32>,
+
+    /// Decay rate parameter for RMSprop optimizer (default 0.9)
+    pub rmsprop_decay: Option<f32>,
+
+    /// Epsilon parameter for RMSprop optimizer (default 1e-8)
+    pub rmsprop_epsilon: Option<f32>,
+
     /// Learning rate for training (must be positive if specified)
     pub learning_rate: Option<f32>,
 
@@ -89,6 +122,24 @@ pub struct TrainingConfig {
 
     /// Minimum change in validation loss to qualify as improvement (optional)
     pub early_stopping_min_delta: Option<f32>,
+
+    /// Enable data augmentation during training (optional, default false)
+    pub enable_augmentation: Option<bool>,
+
+    /// Probability of applying horizontal flip augmentation (must be in [0.0, 1.0] if specified)
+    pub horizontal_flip_prob: Option<f32>,
+
+    /// Padding size for random crop augmentation (pixels to pad on each side)
+    pub random_crop_padding: Option<usize>,
+
+    /// Brightness jitter factor for color augmentation (must be non-negative if specified)
+    pub brightness_jitter: Option<f32>,
+
+    /// Contrast jitter factor for color augmentation (must be non-negative if specified)
+    pub contrast_jitter: Option<f32>,
+
+    /// Saturation jitter factor for color augmentation (must be non-negative if specified)
+    pub saturation_jitter: Option<f32>,
 }
 
 /// Loads a training configuration from a JSON file.
@@ -176,6 +227,76 @@ fn validate_config(config: &TrainingConfig) -> Result<(), Box<dyn Error>> {
         }
     }
 
+    // Validate optimizer type
+    if let Some(ref optimizer) = config.optimizer_type {
+        let valid_optimizers = ["sgd", "adam", "adamw", "rmsprop"];
+        if !valid_optimizers.contains(&optimizer.as_str()) {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "Invalid optimizer type '{}'. Must be one of: {}",
+                    optimizer,
+                    valid_optimizers.join(", ")
+                ),
+            )));
+        }
+    }
+
+    // Validate optimizer hyperparameters
+    if let Some(beta1) = config.adam_beta1 {
+        if !(0.0..1.0).contains(&beta1) {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "adam_beta1 must be in the range [0.0, 1.0)",
+            )));
+        }
+    }
+
+    if let Some(beta2) = config.adam_beta2 {
+        if !(0.0..1.0).contains(&beta2) {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "adam_beta2 must be in the range [0.0, 1.0)",
+            )));
+        }
+    }
+
+    if let Some(epsilon) = config.adam_epsilon {
+        if epsilon <= 0.0 {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "adam_epsilon must be positive",
+            )));
+        }
+    }
+
+    if let Some(weight_decay) = config.adamw_weight_decay {
+        if weight_decay < 0.0 {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "adamw_weight_decay must be non-negative",
+            )));
+        }
+    }
+
+    if let Some(decay) = config.rmsprop_decay {
+        if !(0.0..1.0).contains(&decay) {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "rmsprop_decay must be in the range [0.0, 1.0)",
+            )));
+        }
+    }
+
+    if let Some(epsilon) = config.rmsprop_epsilon {
+        if epsilon <= 0.0 {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "rmsprop_epsilon must be positive",
+            )));
+        }
+    }
+
     // Validate training hyperparameters
     if let Some(learning_rate) = config.learning_rate {
         if learning_rate <= 0.0 {
@@ -205,7 +326,7 @@ fn validate_config(config: &TrainingConfig) -> Result<(), Box<dyn Error>> {
     }
 
     if let Some(validation_split) = config.validation_split {
-        if validation_split < 0.0 || validation_split > 1.0 {
+        if !(0.0..=1.0).contains(&validation_split) {
             return Err(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "validation_split must be in the range [0.0, 1.0]",
@@ -218,6 +339,43 @@ fn validate_config(config: &TrainingConfig) -> Result<(), Box<dyn Error>> {
             return Err(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "early_stopping_min_delta must be non-negative",
+            )));
+        }
+    }
+
+    // Validate augmentation parameters
+    if let Some(horizontal_flip_prob) = config.horizontal_flip_prob {
+        if !(0.0..=1.0).contains(&horizontal_flip_prob) {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "horizontal_flip_prob must be in the range [0.0, 1.0]",
+            )));
+        }
+    }
+
+    if let Some(brightness_jitter) = config.brightness_jitter {
+        if brightness_jitter < 0.0 {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "brightness_jitter must be non-negative",
+            )));
+        }
+    }
+
+    if let Some(contrast_jitter) = config.contrast_jitter {
+        if contrast_jitter < 0.0 {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "contrast_jitter must be non-negative",
+            )));
+        }
+    }
+
+    if let Some(saturation_jitter) = config.saturation_jitter {
+        if saturation_jitter < 0.0 {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "saturation_jitter must be non-negative",
             )));
         }
     }

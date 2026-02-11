@@ -1,0 +1,15 @@
+{
+  "_comment": "Hyperparameter Sweep Configuration for MNIST MLP",
+  "_description": "This file defines parameter ranges to explore during a hyperparameter sweep.",
+  "_usage": "cargo run --release --bin hyperparameter_sweep -- --target mnist_mlp --sweep config/sweeps/mnist_mlp_sweep.json",
+  "_note": "The sweep will generate all combinations (Cartesian product) of the specified parameter values.",
+  "_combinations": "This example generates 3 × 3 × 2 = 18 different configurations to train.",
+
+  "base_config": "config/training/mnist_mlp_default.json",
+  "target_binary": "mnist_mlp",
+  "description": "Learning rate, batch size, and scheduler sweep for MNIST MLP",
+
+  "learning_rate": [0.001, 0.01, 0.1],
+  "batch_size": [32, 64, 128],
+  "scheduler_type": ["step_decay", "exponential"]
+}

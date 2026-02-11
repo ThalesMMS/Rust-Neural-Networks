@@ -5,6 +5,7 @@
 //! and parameter updates.
 
 use crate::optimizers::Optimizer;
+use std::any::Any;
 
 /// Core trait for neural network layers.
 ///
@@ -139,4 +140,67 @@ pub trait Layer {
     /// For example, a dense layer has input_size × output_size weights
     /// plus output_size biases.
     fn parameter_count(&self) -> usize;
+
+    /// Convert the layer to a concrete type via downcasting.
+    ///
+    /// This method allows downcasting from `Box<dyn Layer>` to specific layer types
+    /// like `Conv2DLayer` or `DenseLayer`. This is useful when architecture-based
+    /// model construction needs to extract specific layer types.
+    ///
+    /// # Returns
+    ///
+    /// A boxed `Any` trait object that can be downcast to the concrete layer type.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let layer_box: Box<dyn Layer> = Box::new(DenseLayer::new(784, 512, &mut rng));
+    /// let dense_layer = *layer_box
+    ///     .into_any()
+    ///     .downcast::<DenseLayer>()
+    ///     .expect("Failed to downcast to DenseLayer");
+    /// ```
+    fn into_any(self: Box<Self>) -> Box<dyn Any>;
+
+    /// Get a reference to the layer as an `Any` trait object for downcasting.
+    ///
+    /// This method allows downcasting from `&dyn Layer` to specific layer types
+    /// without consuming or mutating the layer. This is useful for model serialization
+    /// or reading layer-specific parameters.
+    ///
+    /// # Returns
+    ///
+    /// A reference to an `Any` trait object that can be downcast to the
+    /// concrete layer type.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let layer_box: Box<dyn Layer> = Box::new(DenseLayer::new(784, 512, &mut rng));
+    /// if let Some(dense_layer) = layer_box.as_ref().as_any().downcast_ref::<DenseLayer>() {
+    ///     println!("Weights size: {}", dense_layer.weights().len());
+    /// }
+    /// ```
+    fn as_any(&self) -> &dyn Any;
+
+    /// Get a mutable reference to the layer as an `Any` trait object for downcasting.
+    ///
+    /// This method allows downcasting from `&mut dyn Layer` to specific layer types
+    /// like `BatchNormLayer` or `DropoutLayer` without consuming the layer. This is
+    /// useful for setting training mode or accessing layer-specific methods.
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to an `Any` trait object that can be downcast to the
+    /// concrete layer type.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let mut layer_box: Box<dyn Layer> = Box::new(BatchNormLayer::new(128, 1e-5, 0.9));
+    /// if let Some(bn_layer) = layer_box.as_mut().as_any_mut().downcast_mut::<BatchNormLayer>() {
+    ///     bn_layer.set_training(false);  // Switch to inference mode
+    /// }
+    /// ```
+    fn as_any_mut(&mut self) -> &mut dyn Any;
 }

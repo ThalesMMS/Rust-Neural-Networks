@@ -3,3 +3,4 @@
 /logs
 /logs
 /wasm/target
+data/cifar-10-binary.tar.gz

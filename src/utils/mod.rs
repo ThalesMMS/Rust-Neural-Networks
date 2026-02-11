@@ -13,8 +13,8 @@ pub use gradient_clipping::{clip_gradient_norm, clip_gradient_value};
 
 // Re-export the learning rate scheduler trait and implementations
 pub use lr_scheduler::{
-    CosineAnnealing, ConstantLR, ExponentialDecay, LRScheduler, StepDecay,
-    create_scheduler_from_config,
+    create_scheduler_from_config, ConstantLR, CosineAnnealing, ExponentialDecay, LRScheduler,
+    StepDecay,
 };
 
 // Re-export the RNG for convenience

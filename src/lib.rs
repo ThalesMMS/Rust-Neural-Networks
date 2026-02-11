@@ -11,10 +11,12 @@
 //! - `config`: Training configuration structures
 //! - `architecture`: Architecture configuration and model building
 //! - `data`: Data loading utilities for various datasets
+//! - `sweep`: Hyperparameter sweep configuration structures
 
 pub mod architecture;
 pub mod config;
 pub mod data;
 pub mod layers;
 pub mod optimizers;
+pub mod sweep;
 pub mod utils;

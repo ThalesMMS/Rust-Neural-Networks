@@ -1,0 +1,126 @@
+{
+  "layers": [
+    {
+      "layer_type": "conv2d",
+      "in_channels": 3,
+      "out_channels": 32,
+      "kernel_size": 3,
+      "padding": 1,
+      "stride": 1,
+      "input_height": 32,
+      "input_width": 32
+    },
+    {
+      "layer_type": "batchnorm",
+      "size": 32768,
+      "epsilon": 1e-5,
+      "momentum": 0.9
+    },
+    {
+      "layer_type": "conv2d",
+      "in_channels": 32,
+      "out_channels": 32,
+      "kernel_size": 3,
+      "padding": 1,
+      "stride": 1,
+      "input_height": 32,
+      "input_width": 32
+    },
+    {
+      "layer_type": "batchnorm",
+      "size": 32768,
+      "epsilon": 1e-5,
+      "momentum": 0.9
+    },
+    {
+      "layer_type": "conv2d",
+      "in_channels": 32,
+      "out_channels": 64,
+      "kernel_size": 3,
+      "padding": 1,
+      "stride": 2,
+      "input_height": 32,
+      "input_width": 32
+    },
+    {
+      "layer_type": "batchnorm",
+      "size": 16384,
+      "epsilon": 1e-5,
+      "momentum": 0.9
+    },
+    {
+      "layer_type": "conv2d",
+      "in_channels": 64,
+      "out_channels": 64,
+      "kernel_size": 3,
+      "padding": 1,
+      "stride": 1,
+      "input_height": 16,
+      "input_width": 16
+    },
+    {
+      "layer_type": "batchnorm",
+      "size": 16384,
+      "epsilon": 1e-5,
+      "momentum": 0.9
+    },
+    {
+      "layer_type": "conv2d",
+      "in_channels": 64,
+      "out_channels": 128,
+      "kernel_size": 3,
+      "padding": 1,
+      "stride": 2,
+      "input_height": 16,
+      "input_width": 16
+    },
+    {
+      "layer_type": "batchnorm",
+      "size": 8192,
+      "epsilon": 1e-5,
+      "momentum": 0.9
+    },
+    {
+      "layer_type": "conv2d",
+      "in_channels": 128,
+      "out_channels": 128,
+      "kernel_size": 3,
+      "padding": 1,
+      "stride": 1,
+      "input_height": 8,
+      "input_width": 8
+    },
+    {
+      "layer_type": "batchnorm",
+      "size": 8192,
+      "epsilon": 1e-5,
+      "momentum": 0.9
+    },
+    {
+      "layer_type": "dropout",
+      "size": 8192,
+      "drop_rate": 0.3
+    },
+    {
+      "layer_type": "dense",
+      "input_size": 8192,
+      "output_size": 256
+    },
+    {
+      "layer_type": "batchnorm",
+      "size": 256,
+      "epsilon": 1e-5,
+      "momentum": 0.9
+    },
+    {
+      "layer_type": "dropout",
+      "size": 256,
+      "drop_rate": 0.5
+    },
+    {
+      "layer_type": "dense",
+      "input_size": 256,
+      "output_size": 10
+    }
+  ]
+}

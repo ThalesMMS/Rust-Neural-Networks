@@ -133,32 +133,32 @@ pub struct LstmLayer {
     output_size: usize,
 
     // Forget gate weights
-    w_xf: Vec<f32>,  // input_size × hidden_size
-    w_hf: Vec<f32>,  // hidden_size × hidden_size
-    b_f: Vec<f32>,   // hidden_size
+    w_xf: Vec<f32>, // input_size × hidden_size
+    w_hf: Vec<f32>, // hidden_size × hidden_size
+    b_f: Vec<f32>,  // hidden_size
 
     // Input gate weights
-    w_xi: Vec<f32>,  // input_size × hidden_size
-    w_hi: Vec<f32>,  // hidden_size × hidden_size
-    b_i: Vec<f32>,   // hidden_size
+    w_xi: Vec<f32>, // input_size × hidden_size
+    w_hi: Vec<f32>, // hidden_size × hidden_size
+    b_i: Vec<f32>,  // hidden_size
 
     // Cell candidate weights
-    w_xc: Vec<f32>,  // input_size × hidden_size
-    w_hc: Vec<f32>,  // hidden_size × hidden_size
-    b_c: Vec<f32>,   // hidden_size
+    w_xc: Vec<f32>, // input_size × hidden_size
+    w_hc: Vec<f32>, // hidden_size × hidden_size
+    b_c: Vec<f32>,  // hidden_size
 
     // Output gate weights
-    w_xo: Vec<f32>,  // input_size × hidden_size
-    w_ho: Vec<f32>,  // hidden_size × hidden_size
-    b_o: Vec<f32>,   // hidden_size
+    w_xo: Vec<f32>, // input_size × hidden_size
+    w_ho: Vec<f32>, // hidden_size × hidden_size
+    b_o: Vec<f32>,  // hidden_size
 
     // Output projection weights
-    w_hy: Vec<f32>,  // hidden_size × output_size
-    b_y: Vec<f32>,   // output_size
+    w_hy: Vec<f32>, // hidden_size × output_size
+    b_y: Vec<f32>,  // output_size
 
     // State vectors
-    hidden_state: RefCell<Vec<f32>>,  // hidden_size
-    cell_state: RefCell<Vec<f32>>,    // hidden_size
+    hidden_state: RefCell<Vec<f32>>, // hidden_size
+    cell_state: RefCell<Vec<f32>>,   // hidden_size
 
     // Gradient accumulators (mutable interior via RefCell for trait compatibility)
     grad_w_xf: RefCell<Vec<f32>>,
@@ -177,14 +177,14 @@ pub struct LstmLayer {
     grad_b_y: RefCell<Vec<f32>>,
 
     // Cache for backward pass
-    cached_h_prev: RefCell<Vec<f32>>,      // h_{t-1} before forward pass
-    cached_c_prev: RefCell<Vec<f32>>,      // c_{t-1} before forward pass
+    cached_h_prev: RefCell<Vec<f32>>, // h_{t-1} before forward pass
+    cached_c_prev: RefCell<Vec<f32>>, // c_{t-1} before forward pass
     cached_forget_gate: RefCell<Vec<f32>>, // f_t after sigmoid
-    cached_input_gate: RefCell<Vec<f32>>,  // i_t after sigmoid
+    cached_input_gate: RefCell<Vec<f32>>, // i_t after sigmoid
     cached_cell_candidate: RefCell<Vec<f32>>, // c̃_t after tanh
     cached_output_gate: RefCell<Vec<f32>>, // o_t after sigmoid
-    cached_cell_state: RefCell<Vec<f32>>,  // c_t after update
-    cached_cell_tanh: RefCell<Vec<f32>>,   // tanh(c_t)
+    cached_cell_state: RefCell<Vec<f32>>, // c_t after update
+    cached_cell_tanh: RefCell<Vec<f32>>, // tanh(c_t)
 }
 
 impl LstmLayer {
@@ -217,14 +217,15 @@ impl LstmLayer {
         rng: &mut SimpleRng,
     ) -> Self {
         // Xavier initialization helper function
-        let init_weights = |size: usize, fan_in: usize, fan_out: usize, rng: &mut SimpleRng| -> Vec<f32> {
-            let mut weights = vec![0.0f32; size];
-            let limit = (6.0f32 / (fan_in + fan_out) as f32).sqrt();
-            for value in &mut weights {
-                *value = rng.gen_range_f32(-limit, limit);
-            }
-            weights
-        };
+        let init_weights =
+            |size: usize, fan_in: usize, fan_out: usize, rng: &mut SimpleRng| -> Vec<f32> {
+                let mut weights = vec![0.0f32; size];
+                let limit = (6.0f32 / (fan_in + fan_out) as f32).sqrt();
+                for value in &mut weights {
+                    *value = rng.gen_range_f32(-limit, limit);
+                }
+                weights
+            };
 
         // Initialize forget gate weights
         let w_xf = init_weights(input_size * hidden_size, input_size, hidden_size, rng);
@@ -694,7 +695,8 @@ impl Layer for LstmLayer {
         for b in 0..batch_size {
             for h in 0..self.hidden_size {
                 let idx = b * self.hidden_size + h;
-                new_cell_state[idx] = forget_gate[idx] * cell[h] + input_gate[idx] * cell_candidate[idx];
+                new_cell_state[idx] =
+                    forget_gate[idx] * cell[h] + input_gate[idx] * cell_candidate[idx];
             }
         }
 
@@ -1613,6 +1615,18 @@ impl Layer for LstmLayer {
 
         forget_params + input_params + cell_params + output_gate_params + output_proj_params
     }
+
+    fn into_any(self: Box<Self>) -> Box<dyn std::any::Any> {
+        self
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
 }
 
 #[cfg(test)]
@@ -1681,7 +1695,7 @@ mod tests {
     fn test_lstm_invalid_hidden_state_length() {
         let mut rng = SimpleRng::new(42);
         let layer = LstmLayer::new(32, 64, 5, &mut rng);
-        layer.set_hidden_state(&vec![0.0f32; 32]); // Wrong size
+        layer.set_hidden_state(&[0.0f32; 32]); // Wrong size
     }
 
     #[test]
@@ -1689,7 +1703,7 @@ mod tests {
     fn test_lstm_invalid_cell_state_length() {
         let mut rng = SimpleRng::new(42);
         let layer = LstmLayer::new(32, 64, 5, &mut rng);
-        layer.set_cell_state(&vec![0.0f32; 32]); // Wrong size
+        layer.set_cell_state(&[0.0f32; 32]); // Wrong size
     }
 
     #[test]

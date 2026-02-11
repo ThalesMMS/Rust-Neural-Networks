@@ -1032,7 +1032,11 @@ fn read_mnist_labels(filename: &str, num_labels: usize) -> Vec<u8> {
     data[offset..offset + actual_count].to_vec()
 }
 
-fn scheduler_from_args(learning_rate: f32, epochs: usize, config_path: Option<&str>) -> Box<dyn LRScheduler> {
+fn scheduler_from_args(
+    learning_rate: f32,
+    epochs: usize,
+    config_path: Option<&str>,
+) -> Box<dyn LRScheduler> {
     create_scheduler_from_config(learning_rate, epochs, config_path)
 }
 

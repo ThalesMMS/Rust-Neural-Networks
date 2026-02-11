@@ -1,0 +1,14 @@
+{
+  "_comment": "Learning Rate Focused Sweep for MNIST MLP",
+  "_description": "This sweep explores different learning rates with two scheduler types.",
+  "_usage": "cargo run --release --bin hyperparameter_sweep -- --target mnist_mlp --sweep config/sweeps/mnist_mlp_lr_sweep.json --quick",
+  "_note": "The sweep will generate all combinations (Cartesian product) of the specified parameter values.",
+  "_combinations": "This example generates 5 × 2 = 10 different configurations to train.",
+
+  "base_config": "config/training/mnist_mlp_default.json",
+  "target_binary": "mnist_mlp",
+  "description": "Learning rate exploration with step decay and cosine annealing schedulers",
+
+  "learning_rate": [0.0001, 0.001, 0.01, 0.1, 0.5],
+  "scheduler_type": ["step_decay", "cosine_annealing"]
+}

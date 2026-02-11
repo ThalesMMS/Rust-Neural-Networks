@@ -875,10 +875,7 @@ mod training_hyperparameter_tests {
         let temp_file = write_temp_config(config_json);
         let result = load_config(temp_file.path().to_str().unwrap());
 
-        assert!(
-            result.is_err(),
-            "Should fail on negative validation_split"
-        );
+        assert!(result.is_err(), "Should fail on negative validation_split");
     }
 
     #[test]

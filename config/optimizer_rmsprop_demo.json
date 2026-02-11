@@ -1,0 +1,9 @@
+{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "optimizer_type": "rmsprop",
+  "rmsprop_decay": 0.9,
+  "rmsprop_epsilon": 1e-8,
+  "learning_rate": 0.001
+}

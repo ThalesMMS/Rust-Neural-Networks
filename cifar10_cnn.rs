@@ -16,9 +16,12 @@ use std::io::{BufWriter, Write};
 use std::process;
 use std::time::Instant;
 
+use rust_neural_networks::architecture::{build_model, load_architecture};
 use rust_neural_networks::config::load_config;
 use rust_neural_networks::data::cifar10::{read_cifar10_batch, read_cifar10_batches};
-pub use rust_neural_networks::layers::{Conv2DLayer, DenseLayer, Layer};
+pub use rust_neural_networks::layers::{
+    batchnorm::BatchNormLayer, dropout::DropoutLayer, Conv2DLayer, DenseLayer, Layer,
+};
 pub use rust_neural_networks::utils::activations::{relu_inplace, softmax_rows};
 use rust_neural_networks::utils::lr_scheduler::{create_scheduler_from_config, LRScheduler};
 pub use rust_neural_networks::utils::rng::SimpleRng;
@@ -30,15 +33,8 @@ const IMG_CHANNELS: usize = 3; // RGB
 const NUM_INPUTS: usize = IMG_H * IMG_W * IMG_CHANNELS; // 3072
 const NUM_CLASSES: usize = 10;
 
-// CNN topology: 3x32x32 -> conv -> ReLU -> 2x2 maxpool -> FC(10).
-const CONV_OUT: usize = 16; // More filters for RGB
-const KERNEL: usize = 3;
-const PAD: isize = 1;
-const POOL: usize = 2;
-
-const POOL_H: usize = IMG_H / POOL; // 16
-const POOL_W: usize = IMG_W / POOL; // 16
-const FC_IN: usize = CONV_OUT * POOL_H * POOL_W; // 16*16*16 = 4096
+// CNN topology is now loaded from architecture config files.
+// The network can support arbitrary layer configurations (Conv2D, BatchNorm, Dropout, Dense).
 
 // Training hyperparameters (defaults, can be overridden by config file).
 const LEARNING_RATE: f32 = 0.01;
@@ -48,18 +44,24 @@ const VALIDATION_SPLIT: f32 = 0.1; // 10% of training data for validation
 const EARLY_STOPPING_PATIENCE: usize = 3; // Number of epochs without improvement before stopping
 const EARLY_STOPPING_MIN_DELTA: f32 = 0.001; // Minimum change to be considered an improvement
 
-// Default config path
+// Default config paths
 const DEFAULT_CONFIG_PATH: &str = "config/training/cifar10_cnn_default.json";
+const DEFAULT_ARCHITECTURE_PATH: &str = "config/architectures/cifar10_cnn_baseline.json";
 
 // Main Logic
 // ============================================================================
 
-// Copy a subset of images/labels into contiguous batch buffers.
+// Copy a subset of images/labels into contiguous batch buffers with optional augmentation.
 /// Copies a contiguous mini-batch of samples (inputs and labels) from the full dataset
 /// into the provided output buffers according to the ordering in `indices`.
 ///
 /// Copies `count` samples starting from `indices[start]` into `out_inputs` (flattened, row-major,
 /// length = `count * NUM_INPUTS`) and `out_labels` (length = `count`).
+///
+/// If augmentation parameters are provided, applies data augmentation to each image after copying.
+/// Augmentations are applied in the following order:
+/// 1. Random crop (if `crop_padding` is Some)
+/// 2. Random horizontal flip (if `flip_prob` is Some)
 ///
 /// # Arguments
 ///
@@ -70,15 +72,27 @@ const DEFAULT_CONFIG_PATH: &str = "config/training/cifar10_cnn_default.json";
 /// - `count`: number of samples to copy.
 /// - `out_inputs`: destination buffer for `count` images (flattened).
 /// - `out_labels`: destination buffer for `count` labels.
+/// - `flip_prob`: optional probability (0.0-1.0) for random horizontal flip.
+/// - `crop_padding`: optional padding amount for random crop (crops back to IMG_W x IMG_H).
+/// - `brightness_jitter`: optional brightness jitter delta (applied uniformly to RGB).
+/// - `contrast_jitter`: optional contrast jitter delta.
+/// - `saturation_jitter`: optional saturation jitter delta.
+/// - `rng`: optional random number generator for augmentation operations.
 ///
 /// # Examples
 ///
 /// ```
-/// // gather a batch of size 2
+/// // gather a batch of size 2 without augmentation
 /// let mut out_inputs = vec![0f32; 2 * NUM_INPUTS];
 /// let mut out_labels = vec![0u8; 2];
-/// gather_batch(&images, &labels, &indices, 10, 2, &mut out_inputs, &mut out_labels);
+/// gather_batch(&images, &labels, &indices, 10, 2, &mut out_inputs, &mut out_labels,
+///              None, None, None, None, None, None);
 /// assert_eq!(out_labels[0], labels[indices[10]]);
+///
+/// // gather a batch with augmentation
+/// let mut rng = SimpleRng::new(42);
+/// gather_batch(&images, &labels, &indices, 10, 2, &mut out_inputs, &mut out_labels,
+///              Some(0.5), Some(4), Some(0.2), Some(0.2), Some(0.2), Some(&mut rng));
 /// ```
 fn gather_batch(
     images: &[f32],
@@ -88,177 +102,328 @@ fn gather_batch(
     count: usize,
     out_inputs: &mut [f32],
     out_labels: &mut [u8],
+    flip_prob: Option<f32>,
+    crop_padding: Option<usize>,
+    brightness_jitter: Option<f32>,
+    contrast_jitter: Option<f32>,
+    saturation_jitter: Option<f32>,
+    mut rng: Option<&mut SimpleRng>,
 ) {
+    use rust_neural_networks::data::augmentation::{
+        random_brightness, random_contrast, random_crop, random_horizontal_flip, random_saturation,
+    };
+
     for i in 0..count {
         let src_index = indices[start + i];
         let src_start = src_index * NUM_INPUTS;
         let dst_start = i * NUM_INPUTS;
+
+        // Copy base image to output buffer
         out_inputs[dst_start..dst_start + NUM_INPUTS]
             .copy_from_slice(&images[src_start..src_start + NUM_INPUTS]);
         out_labels[i] = labels[src_index];
-    }
-}
 
-// CNN with shared layer abstractions.
-struct Cnn {
-    conv_layer: Conv2DLayer,
-    fc_layer: DenseLayer,
-}
+        // Apply augmentations if parameters are provided and RNG is available
+        if let Some(ref mut rng_ref) = rng {
+            let image_slice = &mut out_inputs[dst_start..dst_start + NUM_INPUTS];
 
-/// Creates a small CIFAR-10 CNN: one Conv2D layer followed by a fully connected layer.
-///
-/// The provided RNG is used to initialize all layer weights and biases deterministically.
-///
-/// # Returns
-///
-/// A `Cnn` configured with a Conv2D layer (3 input channels -> CONV_OUT filters, 3×3 kernel, padding=1)
-/// and a Dense layer (FC_IN -> NUM_CLASSES) ready for training or evaluation.
-///
-/// # Examples
-///
-/// ```
-/// let mut rng = SimpleRng::new(123);
-/// let model = init_cnn(&mut rng);
-/// // `model` is ready to use for forward/backward passes on CIFAR-10-shaped inputs.
-/// ```
-fn init_cnn(rng: &mut SimpleRng) -> Cnn {
-    // Conv: 3 input channels (RGB) -> CONV_OUT output channels, 3x3 kernel, pad=1, stride=1
-    let conv_layer = Conv2DLayer::new(IMG_CHANNELS, CONV_OUT, KERNEL, PAD, 1, IMG_H, IMG_W, rng);
+            // Apply random crop if padding is specified
+            if let Some(padding) = crop_padding {
+                // random_crop returns a new Vec, so we need to copy it back
+                let cropped = random_crop(
+                    image_slice,
+                    IMG_W,
+                    IMG_H,
+                    IMG_CHANNELS,
+                    padding,
+                    IMG_W, // crop back to original width
+                    IMG_H, // crop back to original height
+                    rng_ref,
+                );
+                image_slice.copy_from_slice(&cropped);
+            }
 
-    // FC layer: FC_IN -> NUM_CLASSES
-    let fc_layer = DenseLayer::new(FC_IN, NUM_CLASSES, rng);
+            // Apply random horizontal flip if probability is specified
+            if let Some(prob) = flip_prob {
+                random_horizontal_flip(image_slice, IMG_W, IMG_H, IMG_CHANNELS, prob, rng_ref);
+            }
 
-    Cnn {
-        conv_layer,
-        fc_layer,
-    }
-}
-
-// Forward conv + ReLU.
-// input: [batch * 3072], conv_out: [batch * CONV_OUT * 32 * 32]
-/// Runs the convolutional layer on a batch and applies ReLU activation to the convolution outputs.
-///
-/// # Parameters
-///
-/// - `model`: CNN containing the convolutional layer to run.
-/// - `batch_size`: number of samples in the current batch.
-/// - `input`: flattened input buffer for the batch (layout: batch-major, channels-last (NHWC)/pixel-interleaved per sample),
-///   matching `Conv2DLayer` expectations.
-/// - `conv_out`: preallocated batch-major output buffer that `Conv2DLayer` overwrites with convolution results.
-///
-/// # Examples
-///
-/// ```
-/// let mut rng = SimpleRng::new(42);
-/// let mut model = init_cnn(&mut rng);
-/// let batch_size = 8;
-/// let mut input = vec![0.0f32; batch_size * NUM_INPUTS];
-/// let mut conv_out = vec![0.0f32; batch_size * model.conv_layer.output_height() * model.conv_layer.output_width() * model.conv_layer.out_channels()];
-/// conv_forward_relu(&mut model, batch_size, &input, &mut conv_out);
-/// ```
-fn conv_forward_relu(model: &mut Cnn, batch_size: usize, input: &[f32], conv_out: &mut [f32]) {
-    // Use Conv2DLayer for forward pass
-    model.conv_layer.forward(input, conv_out, batch_size);
-
-    // Apply ReLU activation
-    relu_inplace(conv_out);
-}
-
-// MaxPool 2x2 stride 2.
-// conv_act: [batch * C * 32 * 32] (post-ReLU)
-// pool_out: [batch * C * 16 * 16]
-// pool_idx: [batch * C * 16 * 16], stores argmax 0..3 (dy*2+dx)
-/// Performs 2x2 max pooling with stride 2 across spatial dimensions for a batch of convolution activations.
-///
-/// For each item in the batch and for each output channel, this function scans each non-overlapping 2x2
-/// window of the channel's 32x32 activation map, writes the maximum value into `pool_out`, and records
-/// the position of that maximum within the 2x2 window (as `0..3`, computed row-major: `dy*POOL + dx`)
-/// into `pool_idx`. `pool_out` and `pool_idx` must be sized to hold `batch * CONV_OUT * POOL_H * POOL_W`
-/// elements.
-///
-/// # Examples
-///
-/// ```
-/// let batch = 1usize;
-/// // full-size buffers using module constants
-/// let mut conv_act = vec![0.0f32; batch * IMG_H * IMG_W * CONV_OUT];
-/// let mut pool_out = vec![0.0f32; batch * POOL_H * POOL_W * CONV_OUT];
-/// let mut pool_idx = vec![0u8; batch * POOL_H * POOL_W * CONV_OUT];
-///
-/// // Set a single 2x2 window's top-left element to be the max for channel 0, block (0,0)
-/// let conv_spatial = IMG_H * IMG_W;
-/// conv_act[0 * (CONV_OUT * conv_spatial) + (0 * IMG_W + 0) * CONV_OUT + 0] = 1.0;
-///
-/// maxpool_forward(batch, &conv_act, &mut pool_out, &mut pool_idx);
-///
-/// // The pooled value for channel 0 at pool position (0,0) should be 1.0 and argmax 0 (top-left).
-/// assert_eq!(pool_out[0], 1.0);
-/// assert_eq!(pool_idx[0], 0u8);
-/// ```
-fn maxpool_forward(batch: usize, conv_act: &[f32], pool_out: &mut [f32], pool_idx: &mut [u8]) {
-    let conv_spatial = IMG_H * IMG_W;
-    let pool_spatial = POOL_H * POOL_W;
-
-    for b in 0..batch {
-        let conv_base_b = b * (CONV_OUT * conv_spatial);
-        let pool_base_b = b * (CONV_OUT * pool_spatial);
-
-        for py in 0..POOL_H {
-            for px in 0..POOL_W {
-                let iy0 = py * POOL;
-                let ix0 = px * POOL;
-                let pool_base = pool_base_b + (py * POOL_W + px) * CONV_OUT;
-
-                for c in 0..CONV_OUT {
-                    // Track argmax to route gradients during backprop.
-                    let mut best = -f32::INFINITY;
-                    let mut best_idx = 0u8;
-
-                    for dy in 0..POOL {
-                        for dx in 0..POOL {
-                            let iy = iy0 + dy;
-                            let ix = ix0 + dx;
-                            let v = conv_act[conv_base_b + (iy * IMG_W + ix) * CONV_OUT + c];
-                            let idx = (dy * POOL + dx) as u8; // 0..3
-                            if v > best {
-                                best = v;
-                                best_idx = idx;
-                            }
-                        }
-                    }
-
-                    let out_i = pool_base + c;
-                    pool_out[out_i] = best;
-                    pool_idx[out_i] = best_idx;
-                }
+            // Apply color jitter if specified
+            if let Some(brightness_delta) = brightness_jitter {
+                random_brightness(
+                    image_slice,
+                    IMG_W,
+                    IMG_H,
+                    IMG_CHANNELS,
+                    brightness_delta,
+                    rng_ref,
+                );
+            }
+            if let Some(contrast_delta) = contrast_jitter {
+                random_contrast(
+                    image_slice,
+                    IMG_W,
+                    IMG_H,
+                    IMG_CHANNELS,
+                    contrast_delta,
+                    rng_ref,
+                );
+            }
+            if let Some(saturation_delta) = saturation_jitter {
+                random_saturation(
+                    image_slice,
+                    IMG_W,
+                    IMG_H,
+                    IMG_CHANNELS,
+                    saturation_delta,
+                    rng_ref,
+                );
             }
         }
     }
 }
 
-// FC forward: logits = X*W + b.
-// X: [batch * FC_IN], logits: [batch * 10]
-/// Runs the model's fully connected layer to produce class logits for a batch.
+// CNN with shared layer abstractions.
+struct Cnn {
+    layers: Vec<Box<dyn Layer>>,
+}
+
+/// Creates a CIFAR-10 CNN from architecture configuration.
 ///
-/// - `batch` is the number of examples in the input batch.
-/// - `x` is the input buffer containing `batch` rows of size `FC_IN` (flattened row-major).
-/// - `logits` is the output buffer for `batch` rows of size `NUM_CLASSES` (flattened row-major).
+/// Loads the architecture from the specified path (or default), builds the model layers,
+/// and returns all layers in a vector.
+///
+/// # Arguments
+///
+/// * `rng` - Random number generator for weight initialization
+/// * `arch_path` - Optional path to architecture config file (uses default if None)
+///
+/// # Returns
+///
+/// A `Cnn` configured according to the architecture specification.
+///
+/// # Panics
+///
+/// Panics if the architecture file cannot be loaded or is invalid.
 ///
 /// # Examples
 ///
 /// ```
 /// let mut rng = SimpleRng::new(123);
-/// let mut model = init_cnn(&mut rng);
-/// let batch = 2;
-/// let mut inputs = vec![0.0f32; batch * FC_IN];
-/// // fill inputs...
-/// let mut logits = vec![0.0f32; batch * NUM_CLASSES];
-/// fc_forward(&mut model, batch, &inputs, &mut logits);
-/// assert_eq!(logits.len(), batch * NUM_CLASSES);
+/// let model = init_cnn(&mut rng, None); // Uses default architecture
+/// // `model` is ready to use for forward/backward passes on CIFAR-10-shaped inputs.
 /// ```
-fn fc_forward(model: &mut Cnn, batch: usize, x: &[f32], logits: &mut [f32]) {
-    // Use DenseLayer for forward pass
-    model.fc_layer.forward(x, logits, batch);
+fn init_cnn(rng: &mut SimpleRng, arch_path: Option<&str>) -> Cnn {
+    let architecture_path = arch_path.unwrap_or(DEFAULT_ARCHITECTURE_PATH);
+
+    println!("Loading architecture from: {}", architecture_path);
+
+    let arch_config = load_architecture(architecture_path).unwrap_or_else(|e| {
+        eprintln!(
+            "Error loading architecture from '{}': {}",
+            architecture_path, e
+        );
+        eprintln!("Please ensure the architecture file exists and is valid JSON.");
+        process::exit(1);
+    });
+
+    // Build model from architecture config
+    let layers = build_model(&arch_config, rng).unwrap_or_else(|e| {
+        eprintln!("Error building model from architecture: {}", e);
+        process::exit(1);
+    });
+
+    // Print architecture info
+    println!("\nArchitecture loaded successfully:");
+    println!("  Total layers: {}", layers.len());
+    for (i, layer) in layers.iter().enumerate() {
+        println!(
+            "  Layer {}: input_size={}, output_size={}, params={}",
+            i + 1,
+            layer.input_size(),
+            layer.output_size(),
+            layer.parameter_count()
+        );
+    }
+    println!();
+
+    Cnn { layers }
+}
+
+/// Set training mode for all layers that support it (BatchNorm, Dropout).
+///
+/// This function iterates through all layers in the model and uses downcasting
+/// to identify BatchNorm and Dropout layers, setting their training mode accordingly.
+///
+/// # Arguments
+///
+/// * `model` - Mutable reference to the CNN model
+/// * `training` - True for training mode, false for inference mode
+///
+/// # Examples
+///
+/// ```ignore
+/// // Switch to inference mode for evaluation
+/// set_training_mode(&mut model, false);
+/// let test_acc = test_accuracy(&mut model, &test_images, &test_labels);
+///
+/// // Switch back to training mode
+/// set_training_mode(&mut model, true);
+/// ```
+fn set_training_mode(model: &mut Cnn, training: bool) {
+    for layer in model.layers.iter_mut() {
+        let layer_ref: &mut dyn Layer = &mut **layer;
+        let any_layer = layer_ref.as_any_mut();
+
+        // Try to downcast to BatchNormLayer
+        if let Some(bn_layer) = any_layer.downcast_mut::<BatchNormLayer>() {
+            bn_layer.set_training(training);
+        }
+        // Try to downcast to DropoutLayer
+        else if let Some(dropout_layer) = any_layer.downcast_mut::<DropoutLayer>() {
+            dropout_layer.set_training(training);
+        }
+        // Other layer types (Conv2D, Dense) don't have training-dependent behavior
+    }
+}
+
+/// Helper struct to store layer activations and metadata for forward/backward passes.
+struct LayerActivations {
+    data: Vec<Vec<f32>>, // Stores output of each layer
+    is_conv: Vec<bool>,  // Tracks which layers are Conv2D (need ReLU)
+}
+
+impl LayerActivations {
+    fn new(num_layers: usize) -> Self {
+        Self {
+            data: vec![Vec::new(); num_layers],
+            is_conv: vec![false; num_layers],
+        }
+    }
+}
+
+/// Generic forward pass through all layers in the model.
+///
+/// Applies forward propagation through each layer in sequence, applying ReLU activation
+/// after Conv2D layers.
+///
+/// # Arguments
+///
+/// * `model` - CNN containing all layers
+/// * `batch_size` - Number of samples in the batch
+/// * `input` - Input data (batch_size * input_features)
+/// * `activations` - Storage for layer outputs (will be populated)
+/// * `_temp_buffer` - Temporary buffer for intermediate computations (unused)
+///
+/// # Returns
+///
+/// Index of buffer containing final output (activations.data)
+fn forward_pass(
+    model: &mut Cnn,
+    batch_size: usize,
+    input: &[f32],
+    activations: &mut LayerActivations,
+    _temp_buffer: &mut Vec<f32>,
+) -> usize {
+    if model.layers.is_empty() {
+        return 0;
+    }
+
+    // First layer: use input directly
+    {
+        let layer = &model.layers[0];
+        let output_size = layer.output_size() * batch_size;
+        activations.data[0].resize(output_size, 0.0);
+        layer.forward(input, &mut activations.data[0], batch_size);
+
+        // Detect if this is a Conv2D layer and apply ReLU
+        activations.is_conv[0] = (output_size / batch_size) > 5000;
+        if activations.is_conv[0] {
+            relu_inplace(&mut activations.data[0]);
+        }
+    }
+
+    // Subsequent layers: use previous layer's output
+    for i in 1..model.layers.len() {
+        let output_size = model.layers[i].output_size() * batch_size;
+        activations.data[i].resize(output_size, 0.0);
+
+        // Split activations to avoid borrow checker issues
+        let (prev_data, curr_data) = activations.data.split_at_mut(i);
+        let prev_output = &prev_data[i - 1];
+        let curr_output = &mut curr_data[0];
+
+        model.layers[i].forward(prev_output, curr_output, batch_size);
+
+        // Detect if this is a Conv2D layer and apply ReLU
+        activations.is_conv[i] = (output_size / batch_size) > 5000;
+        if activations.is_conv[i] {
+            relu_inplace(curr_output);
+        }
+    }
+
+    model.layers.len() - 1
+}
+
+/// Generic backward pass through all layers in the model.
+///
+/// Applies backward propagation through each layer in reverse sequence, applying ReLU gradient
+/// where needed.
+///
+/// # Arguments
+///
+/// * `model` - CNN containing all layers
+/// * `batch_size` - Number of samples in the batch
+/// * `input` - Original input to the model
+/// * `activations` - Layer outputs from forward pass
+/// * `initial_grad` - Gradient from loss function
+/// * `grad_buffer1` - First working buffer for gradients
+/// * `grad_buffer2` - Second working buffer for gradients
+fn backward_pass(
+    model: &mut Cnn,
+    batch_size: usize,
+    input: &[f32],
+    activations: &LayerActivations,
+    initial_grad: &[f32],
+    grad_buffer1: &mut Vec<f32>,
+    grad_buffer2: &mut Vec<f32>,
+) {
+    if model.layers.is_empty() {
+        return;
+    }
+
+    let num_layers = model.layers.len();
+
+    // Copy initial gradient to buffer1
+    grad_buffer1.clear();
+    grad_buffer1.extend_from_slice(initial_grad);
+
+    // Process layers in reverse, ping-ponging between buffers
+    for i in (0..num_layers).rev() {
+        let layer = &model.layers[i];
+        let input_size = layer.input_size() * batch_size;
+        grad_buffer2.resize(input_size, 0.0);
+
+        let layer_input = if i == 0 {
+            input
+        } else {
+            &activations.data[i - 1]
+        };
+
+        layer.backward(layer_input, grad_buffer1, grad_buffer2, batch_size);
+
+        // Apply ReLU gradient for Conv2D layers
+        if activations.is_conv[i] {
+            for j in 0..grad_buffer2.len().min(activations.data[i].len()) {
+                if activations.data[i][j] <= 0.0 {
+                    grad_buffer2[j] = 0.0;
+                }
+            }
+        }
+
+        // Swap buffers: copy buffer2 to buffer1 for next iteration
+        std::mem::swap(grad_buffer1, grad_buffer2);
+    }
 }
 
 // Softmax + cross-entropy: returns summed loss and writes delta = (probs - onehot) * scale.
@@ -326,167 +491,6 @@ fn softmax_xent_backward(
     loss
 }
 
-// FC backward: compute gradW, gradB and dX.
-/// Backpropagates through the model's final fully connected layer, computing gradients
-/// with respect to the layer's inputs and accumulating parameter gradients inside the layer.
-///
-/// # Parameters
-///
-/// - `model`: CNN containing the fully connected layer to backpropagate through.
-/// - `batch`: number of examples in the current minibatch.
-/// - `x`: input activations to the fully connected layer with length `batch * FC_IN`.
-/// - `delta`: gradient of the loss w.r.t. the FC layer logits with length `batch * NUM_CLASSES`.
-/// - `d_x`: output buffer written with gradients w.r.t. `x`, length `batch * FC_IN`.
-///
-/// # Examples
-///
-/// ```
-/// let mut rng = SimpleRng::new(42);
-/// let mut model = init_cnn(&mut rng);
-/// let batch = 1usize;
-/// let x = vec![0f32; batch * FC_IN];
-/// let delta = vec![0f32; batch * NUM_CLASSES];
-/// let mut d_x = vec![0f32; batch * FC_IN];
-/// fc_backward(&mut model, batch, &x, &delta, &mut d_x);
-/// assert_eq!(d_x.len(), batch * FC_IN);
-/// ```
-fn fc_backward(
-    model: &mut Cnn,
-    batch: usize,
-    x: &[f32],
-    delta: &[f32],   // [batch*10]
-    d_x: &mut [f32], // [batch*FC_IN]
-) {
-    // Use DenseLayer for backward pass (gradients are accumulated internally)
-    model.fc_layer.backward(x, delta, d_x, batch);
-}
-
-// MaxPool backward: scatter grads to argmax positions, then apply ReLU mask.
-/// Backpropagates through 2×2 max-pooling and the following ReLU, writing gradients into `conv_grad`.
-///
-/// Distributes each pooled gradient back to the corresponding position in the pre-pooled
-/// convolution activation map using `pool_idx`, then applies the ReLU mask by zeroing any
-/// gradient where the post-ReLU activation (`conv_act`) is <= 0.
-///
-/// # Parameters
-/// - `batch`: number of examples in the batch.
-/// - `conv_act`: convolution activations after ReLU (shape: batch × IMG_H × IMG_W × CONV_OUT).
-/// - `pool_grad`: gradients with respect to pooled outputs (shape: batch × POOL_H × POOL_W × CONV_OUT).
-/// - `pool_idx`: argmax indices recorded during pooling (values 0..3) indicating which element
-///   inside each 2×2 window was selected in the forward pass.
-/// - `conv_grad`: output buffer for gradients with respect to convolution inputs (shape:
-///   batch × IMG_H × IMG_W × CONV_OUT). This buffer is zeroed and then filled in-place.
-///
-/// # Examples
-///
-/// ```
-/// let batch = 1;
-/// let mut conv_act = vec![1.0f32; CONV_OUT * IMG_H * IMG_W];
-/// let pool_spatial = POOL_H * POOL_W;
-/// let mut pool_grad = vec![0.0f32; CONV_OUT * pool_spatial];
-/// let mut pool_idx = vec![0u8; CONV_OUT * pool_spatial];
-///
-/// // set a gradient for the first pooled location and route it to the top-left of the 2x2 window
-/// pool_grad[0] = 2.0;
-/// pool_idx[0] = 0; // top-left within the 2x2 window
-///
-/// let mut conv_grad = vec![0.0f32; IMG_H * IMG_W * CONV_OUT];
-/// maxpool_backward_relu(batch, &conv_act, &pool_grad, &pool_idx, &mut conv_grad);
-///
-/// // the pooled gradient should be scattered to the corresponding position in conv_grad
-/// assert_eq!(conv_grad[0], 2.0);
-/// ```
-fn maxpool_backward_relu(
-    batch: usize,
-    conv_act: &[f32],  // post-ReLU
-    pool_grad: &[f32], // [batch*POOL_H*POOL_W*CONV_OUT]
-    pool_idx: &[u8],
-    conv_grad: &mut [f32], // [batch*IMG_H*IMG_W*CONV_OUT]
-) {
-    let conv_spatial = IMG_H * IMG_W;
-    let pool_spatial = POOL_H * POOL_W;
-
-    // Zero conv_grad so we can scatter-add into it.
-    let used = batch * CONV_OUT * conv_spatial;
-    for value in conv_grad.iter_mut().take(used) {
-        *value = 0.0;
-    }
-
-    for b in 0..batch {
-        let conv_base_b = b * (CONV_OUT * conv_spatial);
-        let pool_base_b = b * (CONV_OUT * pool_spatial);
-
-        for py in 0..POOL_H {
-            for px in 0..POOL_W {
-                let pool_base = pool_base_b + (py * POOL_W + px) * CONV_OUT;
-
-                for c in 0..CONV_OUT {
-                    let p_i = pool_base + c;
-                    let g = pool_grad[p_i];
-                    let a = pool_idx[p_i] as usize; // 0..3
-                    let dy = a / POOL;
-                    let dx = a % POOL;
-
-                    let iy = py * POOL + dy;
-                    let ix = px * POOL + dx;
-
-                    let c_i = conv_base_b + (iy * IMG_W + ix) * CONV_OUT + c;
-                    conv_grad[c_i] += g;
-                }
-            }
-        }
-    }
-
-    // ReLU backward: zero gradients where activation was <= 0.
-    for i in 0..used {
-        if conv_act[i] <= 0.0 {
-            conv_grad[i] = 0.0;
-        }
-    }
-}
-
-// Conv backward: gradW and gradB (no dInput since this is the first layer).
-/// Accumulates gradients for the model's convolutional layer from a batch's inputs and convolutional
-/// output gradients.
-///
-/// The function runs the convolutional layer's backward pass, updating the layer's internal gradient
-/// buffers (grad_weights and grad_biases) using `input` and `conv_grad`. The provided `_grad_input`
-/// buffer is accepted for API compatibility but is unused for the first layer.
-///
-/// # Parameters
-/// - `model`: The CNN containing the convolutional layer to update.
-/// - `batch`: Number of examples in the batch.
-/// - `input`: Flattened input buffer with shape `[batch * NUM_INPUTS]` (e.g., batch * 3072 for CIFAR-10).
-/// - `conv_grad`: Flattened convolutional output gradients with shape `[batch * CONV_OUT * H * W]`
-///   (e.g., batch * 16 * 32 * 32).
-/// - `_grad_input`: Mutable buffer for gradients w.r.t. the input; unused for the first convolutional layer.
-///
-/// # Examples
-/// ```
-/// let mut rng = SimpleRng::new(42);
-/// let mut model = init_cnn(&mut rng);
-/// let batch = 2usize;
-/// let mut input = vec![0f32; batch * NUM_INPUTS];
-/// let mut conv_grad = vec![0f32; batch * CONV_OUT * IMG_H * IMG_W];
-/// let mut grad_input = vec![0f32; batch * NUM_INPUTS]; // unused here
-///
-/// // Populate input and conv_grad as needed...
-/// conv_backward(&mut model, batch, &input, &conv_grad, &mut grad_input);
-/// ```
-fn conv_backward(
-    model: &mut Cnn,
-    batch: usize,
-    input: &[f32],           // [batch*3072]
-    conv_grad: &[f32],       // [batch*C*32*32]
-    _grad_input: &mut [f32], // unused (first layer)
-) {
-    // Use Conv2DLayer for backward pass (gradients are accumulated internally)
-    // Note: grad_input is unused since this is the first layer
-    model
-        .conv_layer
-        .backward(input, conv_grad, _grad_input, batch);
-}
-
 /// Computes the classification accuracy (percentage) of the CNN on a dataset.
 ///
 /// Runs the model forward in batches, performs convolution+ReLU, 2x2 max-pooling,
@@ -508,11 +512,15 @@ fn test_accuracy(model: &mut Cnn, images: &[f32], labels: &[u8]) -> f32 {
     let num_samples = labels.len();
     let mut correct = 0usize;
 
+    // Set BatchNorm and Dropout layers to inference mode
+    set_training_mode(model, false);
+
     let mut batch_inputs = vec![0.0f32; BATCH_SIZE * NUM_INPUTS];
-    let mut conv_out = vec![0.0f32; BATCH_SIZE * CONV_OUT * IMG_H * IMG_W];
-    let mut pool_out = vec![0.0f32; BATCH_SIZE * FC_IN];
-    let mut pool_idx = vec![0u8; BATCH_SIZE * CONV_OUT * POOL_H * POOL_W];
-    let mut logits = vec![0.0f32; BATCH_SIZE * NUM_CLASSES];
+
+    // Allocate activations storage for all layers
+    let num_layers = model.layers.len();
+    let mut activations = LayerActivations::new(num_layers);
+    let mut temp_buffer = Vec::new();
 
     // Run forward passes in batches and compute argmax accuracy.
     for start in (0..num_samples).step_by(BATCH_SIZE) {
@@ -520,10 +528,19 @@ fn test_accuracy(model: &mut Cnn, images: &[f32], labels: &[u8]) -> f32 {
         let len = batch * NUM_INPUTS;
         batch_inputs[..len].copy_from_slice(&images[start * NUM_INPUTS..start * NUM_INPUTS + len]);
 
-        conv_forward_relu(model, batch, &batch_inputs, &mut conv_out);
-        maxpool_forward(batch, &conv_out, &mut pool_out, &mut pool_idx);
-        fc_forward(model, batch, &pool_out, &mut logits);
+        // Forward pass through all layers
+        let output_idx = forward_pass(
+            model,
+            batch,
+            &batch_inputs,
+            &mut activations,
+            &mut temp_buffer,
+        );
 
+        // Get logits from the last layer output
+        let logits = &activations.data[output_idx];
+
+        // Compute accuracy
         for b in 0..batch {
             let base = b * NUM_CLASSES;
             let mut best = logits[base];
@@ -545,91 +562,167 @@ fn test_accuracy(model: &mut Cnn, images: &[f32], labels: &[u8]) -> f32 {
 }
 
 // Save the CNN model in binary (little-endian i32 + f32).
-/// Writes the model's parameters to a binary file in a simple little-endian format.
+/// Writes the model's parameters to a binary file.
 ///
-/// The file layout is:
-/// 1) Conv layer metadata as i32: out_channels, in_channels, kernel_size, input_height, input_width
-/// 2) Conv layer weights (f32) in the order returned by `Conv2DLayer::weights()`
-/// 3) Conv layer biases (f32) in the order returned by `Conv2DLayer::biases()`
-/// 4) FC layer metadata as i32: input_size, output_size
-/// 5) FC layer weights (f32) in the order returned by `DenseLayer::weights()`
-/// 6) FC layer biases (f32) in the order returned by `DenseLayer::biases()`
-///
-/// On any file or write error the process exits with a nonzero status.
+/// Note: This is a placeholder implementation for multi-layer architectures.
+/// Full serialization would require iterating through all layers and saving their parameters.
 ///
 /// # Examples
 ///
 /// ```
 /// # use crate::{SimpleRng, init_cnn, save_model};
 /// let mut rng = SimpleRng::new(42);
-/// let mut model = init_cnn(&mut rng);
+/// let mut model = init_cnn(&mut rng, None);
 /// save_model(&model, "cifar10_cnn_model.bin");
 /// ```
 fn save_model(model: &Cnn, filename: &str) {
-    let file = File::create(filename).unwrap_or_else(|_| {
-        eprintln!("Could not open file {} for writing model", filename);
-        process::exit(1);
-    });
-    let mut writer = BufWriter::new(file);
+    use std::io::Write;
 
-    let write_i32 = |writer: &mut BufWriter<File>, value: i32| {
-        writer.write_all(&value.to_le_bytes()).unwrap_or_else(|_| {
-            eprintln!("Failed writing model data");
-            process::exit(1);
-        });
-    };
-    let write_f32 = |writer: &mut BufWriter<File>, value: f32| {
-        writer.write_all(&value.to_le_bytes()).unwrap_or_else(|_| {
-            eprintln!("Failed writing model data");
-            process::exit(1);
-        });
-    };
+    let mut f = BufWriter::new(File::create(filename).expect("Failed to create model file"));
 
-    // Write conv layer metadata
-    write_i32(&mut writer, model.conv_layer.out_channels() as i32);
-    write_i32(&mut writer, model.conv_layer.in_channels() as i32);
-    write_i32(&mut writer, model.conv_layer.kernel_size() as i32);
-    write_i32(&mut writer, model.conv_layer.input_height() as i32);
-    write_i32(&mut writer, model.conv_layer.input_width() as i32);
+    // Write number of layers
+    let num_layers = model.layers.len() as u32;
+    f.write_all(&num_layers.to_le_bytes())
+        .expect("Failed to write number of layers");
 
-    // Write conv layer weights and biases
-    for &value in model.conv_layer.weights() {
-        write_f32(&mut writer, value);
+    // Iterate through each layer and save based on type
+    for layer in &model.layers {
+        let layer_ref: &dyn Layer = &**layer;
+        let any_layer = layer_ref.as_any();
+
+        // Try to downcast and save each layer type
+        if let Some(dense_layer) = any_layer.downcast_ref::<DenseLayer>() {
+            // Layer type ID: 0 = Dense
+            f.write_all(&[0u8]).expect("Failed to write layer type");
+
+            // Save dimensions
+            let in_size = dense_layer.input_size() as u32;
+            let out_size = dense_layer.output_size() as u32;
+            f.write_all(&in_size.to_le_bytes())
+                .expect("Failed to write input size");
+            f.write_all(&out_size.to_le_bytes())
+                .expect("Failed to write output size");
+
+            // Save weights and biases
+            for &w in dense_layer.weights() {
+                f.write_all(&w.to_le_bytes())
+                    .expect("Failed to write weight");
+            }
+            for &b in dense_layer.biases() {
+                f.write_all(&b.to_le_bytes())
+                    .expect("Failed to write bias");
+            }
+        } else if let Some(conv_layer) = any_layer.downcast_ref::<Conv2DLayer>() {
+            // Layer type ID: 1 = Conv2D
+            f.write_all(&[1u8]).expect("Failed to write layer type");
+
+            // Save configuration
+            let in_channels = conv_layer.in_channels() as u32;
+            let out_channels = conv_layer.out_channels() as u32;
+            let kernel_size = conv_layer.kernel_size() as u32;
+            let padding = conv_layer.padding() as i32;
+            let stride = conv_layer.stride() as u32;
+            let input_height = conv_layer.input_height() as u32;
+            let input_width = conv_layer.input_width() as u32;
+
+            f.write_all(&in_channels.to_le_bytes()).unwrap();
+            f.write_all(&out_channels.to_le_bytes()).unwrap();
+            f.write_all(&kernel_size.to_le_bytes()).unwrap();
+            f.write_all(&padding.to_le_bytes()).unwrap();
+            f.write_all(&stride.to_le_bytes()).unwrap();
+            f.write_all(&input_height.to_le_bytes()).unwrap();
+            f.write_all(&input_width.to_le_bytes()).unwrap();
+
+            // Save weights and biases
+            for &w in conv_layer.weights() {
+                f.write_all(&w.to_le_bytes()).unwrap();
+            }
+            for &b in conv_layer.biases() {
+                f.write_all(&b.to_le_bytes()).unwrap();
+            }
+        } else if let Some(bn_layer) = any_layer.downcast_ref::<BatchNormLayer>() {
+            // Layer type ID: 2 = BatchNorm
+            f.write_all(&[2u8]).expect("Failed to write layer type");
+
+            // Save size
+            let size = bn_layer.output_size() as u32;
+            f.write_all(&size.to_le_bytes()).unwrap();
+
+            // Save learnable parameters
+            for &g in bn_layer.gamma() {
+                f.write_all(&g.to_le_bytes()).unwrap();
+            }
+            for &b in bn_layer.beta() {
+                f.write_all(&b.to_le_bytes()).unwrap();
+            }
+
+            // Save running statistics
+            for &m in &bn_layer.running_mean() {
+                f.write_all(&m.to_le_bytes()).unwrap();
+            }
+            for &v in &bn_layer.running_var() {
+                f.write_all(&v.to_le_bytes()).unwrap();
+            }
+        } else if let Some(dropout_layer) = any_layer.downcast_ref::<DropoutLayer>() {
+            // Layer type ID: 3 = Dropout
+            f.write_all(&[3u8]).expect("Failed to write layer type");
+
+            // Dropout has no trainable parameters, just save size and drop_rate for reconstruction
+            let size = dropout_layer.output_size() as u32;
+            f.write_all(&size.to_le_bytes()).unwrap();
+
+            // Note: drop_rate would need a getter method to save, but it's a hyperparameter
+            // not a learned parameter, so we can skip it for now
+            // For full model persistence, we'd need to save drop_rate too
+        } else {
+            panic!("Unknown layer type encountered during serialization");
+        }
     }
-    for &value in model.conv_layer.biases() {
-        write_f32(&mut writer, value);
-    }
 
-    // Write FC layer metadata
-    write_i32(&mut writer, model.fc_layer.input_size() as i32);
-    write_i32(&mut writer, model.fc_layer.output_size() as i32);
-
-    // Write FC layer weights and biases
-    for &value in model.fc_layer.weights() {
-        write_f32(&mut writer, value);
-    }
-    for &value in model.fc_layer.biases() {
-        write_f32(&mut writer, value);
-    }
-
-    println!("Model saved to {}", filename);
+    println!("Model saved to: {}", filename);
 }
 
-fn scheduler_from_args(learning_rate: f32, epochs: usize, config_path: Option<&str>) -> Box<dyn LRScheduler> {
+fn scheduler_from_args(
+    learning_rate: f32,
+    epochs: usize,
+    config_path: Option<&str>,
+) -> Box<dyn LRScheduler> {
     create_scheduler_from_config(learning_rate, epochs, config_path)
 }
 
-/// Parse command-line arguments to get config file path.
-/// Returns the path specified with --config flag, or default path if not provided.
-fn parse_config_path(args: &[String]) -> String {
+/// Parse command-line arguments to get config file paths.
+/// Returns a tuple of (training_config_path, architecture_config_path).
+/// Supports --config for training config and --arch for architecture config.
+fn parse_config_paths(args: &[String]) -> (String, Option<String>) {
+    let mut training_config = DEFAULT_CONFIG_PATH.to_string();
+    let mut arch_config: Option<String> = None;
+
     let mut i = 1;
     while i < args.len() {
-        if args[i] == "--config" && i + 1 < args.len() {
-            return args[i + 1].clone();
+        if args[i] == "--help" || args[i] == "-h" {
+            println!("Usage: {} [OPTIONS]", args[0]);
+            println!("\nOptions:");
+            println!("  --config <path>   Path to training configuration file");
+            println!("                    (default: {})", DEFAULT_CONFIG_PATH);
+            println!("  --arch <path>     Path to architecture configuration file");
+            println!(
+                "                    (default: {})",
+                DEFAULT_ARCHITECTURE_PATH
+            );
+            println!("  --help, -h        Show this help message");
+            process::exit(0);
+        } else if args[i] == "--config" && i + 1 < args.len() {
+            training_config = args[i + 1].clone();
+            i += 2;
+        } else if args[i] == "--arch" && i + 1 < args.len() {
+            arch_config = Some(args[i + 1].clone());
+            i += 2;
+        } else {
+            i += 1;
         }
-        i += 1;
     }
-    DEFAULT_CONFIG_PATH.to_string()
+
+    (training_config, arch_config)
 }
 
 /// Entry point that trains a small convolutional neural network on the CIFAR-10 dataset and evaluates it on the test set.
@@ -643,13 +736,13 @@ fn parse_config_path(args: &[String]) -> String {
 /// main();
 /// ```
 fn main() {
-    // Parse command-line arguments for config file path
+    // Parse command-line arguments for config file paths
     let args: Vec<String> = env::args().collect();
-    let config_path = parse_config_path(&args);
+    let (config_path, arch_path) = parse_config_paths(&args);
 
     // Load config
     println!("=== CIFAR-10 CNN Training ===");
-    println!("Loading configuration from: {}", config_path);
+    println!("Loading training configuration from: {}", config_path);
     let config = match load_config(&config_path) {
         Ok(cfg) => cfg,
         Err(e) => {
@@ -664,8 +757,20 @@ fn main() {
     let epochs = config.epochs.unwrap_or(EPOCHS);
     let batch_size = config.batch_size.unwrap_or(BATCH_SIZE);
     let validation_split = config.validation_split.unwrap_or(VALIDATION_SPLIT);
-    let early_stopping_patience = config.early_stopping_patience.unwrap_or(EARLY_STOPPING_PATIENCE);
-    let early_stopping_min_delta = config.early_stopping_min_delta.unwrap_or(EARLY_STOPPING_MIN_DELTA);
+    let early_stopping_patience = config
+        .early_stopping_patience
+        .unwrap_or(EARLY_STOPPING_PATIENCE);
+    let early_stopping_min_delta = config
+        .early_stopping_min_delta
+        .unwrap_or(EARLY_STOPPING_MIN_DELTA);
+
+    // Extract augmentation parameters from config
+    let enable_augmentation = config.enable_augmentation.unwrap_or(false);
+    let horizontal_flip_prob = config.horizontal_flip_prob;
+    let random_crop_padding = config.random_crop_padding;
+    let brightness_jitter = config.brightness_jitter;
+    let contrast_jitter = config.contrast_jitter;
+    let saturation_jitter = config.saturation_jitter;
 
     // Print loaded configuration
     println!("\nConfiguration:");
@@ -678,6 +783,31 @@ fn main() {
     println!("  Scheduler type: {}", config.scheduler_type);
     if let Some(ref activation) = config.activation_function {
         println!("  Activation function: {}", activation);
+    }
+    println!(
+        "  Data augmentation: {}",
+        if enable_augmentation {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
+    if enable_augmentation {
+        if let Some(prob) = horizontal_flip_prob {
+            println!("    Horizontal flip probability: {}", prob);
+        }
+        if let Some(padding) = random_crop_padding {
+            println!("    Random crop padding: {}", padding);
+        }
+        if let Some(delta) = brightness_jitter {
+            println!("    Brightness jitter: {}", delta);
+        }
+        if let Some(delta) = contrast_jitter {
+            println!("    Contrast jitter: {}", delta);
+        }
+        if let Some(delta) = saturation_jitter {
+            println!("    Saturation jitter: {}", delta);
+        }
     }
     println!();
 
@@ -742,7 +872,7 @@ fn main() {
         actual_train_samples, validation_samples, test_n
     );
 
-    let mut model = init_cnn(&mut rng);
+    let mut model = init_cnn(&mut rng, arch_path.as_deref());
 
     // Create learning rate scheduler
     let mut scheduler = scheduler_from_args(learning_rate, epochs, Some(&config_path));
@@ -759,21 +889,20 @@ fn main() {
     let mut batch_inputs = vec![0.0f32; batch_size * NUM_INPUTS];
     let mut batch_labels = vec![0u8; batch_size];
 
-    let mut conv_out = vec![0.0f32; batch_size * CONV_OUT * IMG_H * IMG_W];
-    let mut pool_out = vec![0.0f32; batch_size * FC_IN];
-    let mut pool_idx = vec![0u8; batch_size * CONV_OUT * POOL_H * POOL_W];
+    // Buffers for generic forward/backward passes
+    let num_layers = model.layers.len();
+    let mut activations = LayerActivations::new(num_layers);
+    let mut temp_buffer = Vec::new();
+    let mut grad_buffer1 = Vec::new();
+    let mut grad_buffer2 = Vec::new();
+
     let mut logits = vec![0.0f32; batch_size * NUM_CLASSES];
     let mut delta = vec![0.0f32; batch_size * NUM_CLASSES];
 
-    let mut d_pool = vec![0.0f32; batch_size * FC_IN];
-    let mut d_conv = vec![0.0f32; batch_size * CONV_OUT * IMG_H * IMG_W];
-    let mut _grad_input = vec![0.0f32; batch_size * NUM_INPUTS]; // unused (first layer)
-
     // Validation buffers (reused each epoch to avoid repeated allocations).
     let mut val_batch_inputs = vec![0.0f32; batch_size * NUM_INPUTS];
-    let mut val_conv_out = vec![0.0f32; batch_size * CONV_OUT * IMG_H * IMG_W];
-    let mut val_pool_out = vec![0.0f32; batch_size * FC_IN];
-    let mut val_pool_idx = vec![0u8; batch_size * CONV_OUT * POOL_H * POOL_W];
+    let mut val_activations = LayerActivations::new(num_layers);
+    let mut val_temp_buffer = Vec::new();
     let mut val_logits = vec![0.0f32; batch_size * NUM_CLASSES];
 
     let mut indices: Vec<usize> = (0..train_n).collect();
@@ -792,6 +921,9 @@ fn main() {
         rng.shuffle_usize(&mut indices);
         let current_lr = scheduler.get_lr();
 
+        // Set BatchNorm and Dropout to training mode
+        set_training_mode(&mut model, true);
+
         let mut total_loss = 0.0f32;
 
         for batch_start in (0..train_n).step_by(batch_size) {
@@ -799,6 +931,7 @@ fn main() {
             let scale = 1.0f32;
 
             // Gather a random mini-batch into contiguous buffers.
+            // Apply augmentation only during training if enabled.
             gather_batch(
                 &train_images,
                 &train_labels,
@@ -807,30 +940,96 @@ fn main() {
                 batch,
                 &mut batch_inputs,
                 &mut batch_labels,
+                if enable_augmentation {
+                    horizontal_flip_prob
+                } else {
+                    None
+                },
+                if enable_augmentation {
+                    random_crop_padding
+                } else {
+                    None
+                },
+                if enable_augmentation {
+                    brightness_jitter
+                } else {
+                    None
+                },
+                if enable_augmentation {
+                    contrast_jitter
+                } else {
+                    None
+                },
+                if enable_augmentation {
+                    saturation_jitter
+                } else {
+                    None
+                },
+                if enable_augmentation {
+                    Some(&mut rng)
+                } else {
+                    None
+                },
             );
 
-            // Forward: conv -> pool -> FC -> logits.
-            conv_forward_relu(&mut model, batch, &batch_inputs, &mut conv_out);
-            maxpool_forward(batch, &conv_out, &mut pool_out, &mut pool_idx);
-            fc_forward(&mut model, batch, &pool_out, &mut logits);
+            // Forward pass through all layers
+            let output_idx = forward_pass(
+                &mut model,
+                batch,
+                &batch_inputs,
+                &mut activations,
+                &mut temp_buffer,
+            );
+
+            // Get logits from the last layer output
+            let logits_slice = &mut activations.data[output_idx];
+            logits[..logits_slice.len()].copy_from_slice(logits_slice);
 
             // Softmax + loss + gradient at logits.
             let batch_loss =
                 softmax_xent_backward(&mut logits, &batch_labels, batch, &mut delta, scale);
             total_loss += batch_loss;
 
-            // Backward: FC -> pool -> conv.
-            fc_backward(&mut model, batch, &pool_out, &delta, &mut d_pool);
-            maxpool_backward_relu(batch, &conv_out, &d_pool, &pool_idx, &mut d_conv);
-            conv_backward(&mut model, batch, &batch_inputs, &d_conv, &mut _grad_input);
+            // Backward pass through all layers
+            backward_pass(
+                &mut model,
+                batch,
+                &batch_inputs,
+                &activations,
+                &delta[..batch * NUM_CLASSES],
+                &mut grad_buffer1,
+                &mut grad_buffer2,
+            );
 
-            // SGD update using Layer trait (no momentum, no weight decay).
-            model.fc_layer.update_parameters(current_lr);
-            model.conv_layer.update_parameters(current_lr);
+            // Update parameters for all layers
+            for layer in &mut model.layers {
+                layer.update_parameters(current_lr);
+            }
+
+            // Print progress every 100 batches
+            let batch_idx = batch_start / batch_size;
+            let total_batches = (train_n + batch_size - 1) / batch_size;
+            if batch_idx % 100 == 0 || batch_idx == total_batches - 1 {
+                let progress_pct = (batch_idx as f32 / total_batches as f32) * 100.0;
+                print!(
+                    "\r  Epoch {}/{}: Batch {}/{} ({:.1}%), Loss: {:.4}",
+                    epoch + 1,
+                    epochs,
+                    batch_idx + 1,
+                    total_batches,
+                    progress_pct,
+                    total_loss / (batch_idx + 1) as f32
+                );
+                std::io::stdout().flush().unwrap();
+            }
         }
 
+        println!(); // Newline after progress indicator
         let secs = start_time.elapsed().as_secs_f32();
         let avg_loss = total_loss / train_n as f32;
+
+        // Set BatchNorm and Dropout to inference mode for validation
+        set_training_mode(&mut model, false);
 
         // Evaluate on validation set
         let mut val_total_loss = 0.0f32;
@@ -842,20 +1041,18 @@ fn main() {
             val_batch_inputs[..input_len]
                 .copy_from_slice(&val_images[input_start..input_start + input_len]);
 
-            // Forward pass
-            conv_forward_relu(
+            // Forward pass through all layers
+            let output_idx = forward_pass(
                 &mut model,
                 batch_count,
                 &val_batch_inputs,
-                &mut val_conv_out,
+                &mut val_activations,
+                &mut val_temp_buffer,
             );
-            maxpool_forward(
-                batch_count,
-                &val_conv_out,
-                &mut val_pool_out,
-                &mut val_pool_idx,
-            );
-            fc_forward(&mut model, batch_count, &val_pool_out, &mut val_logits);
+
+            // Get logits from the last layer output
+            let logits_slice = &mut val_activations.data[output_idx];
+            val_logits[..logits_slice.len()].copy_from_slice(logits_slice);
 
             // Apply softmax and compute loss
             softmax_rows(
@@ -958,6 +1155,12 @@ mod tests {
             2,
             &mut out_inputs,
             &mut out_labels,
+            None, // flip_prob
+            None, // crop_padding
+            None, // brightness_jitter
+            None, // contrast_jitter
+            None, // saturation_jitter
+            None, // rng
         );
 
         assert_eq!(out_labels[0], 0);

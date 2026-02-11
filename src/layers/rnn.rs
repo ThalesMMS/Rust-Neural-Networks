@@ -88,16 +88,16 @@ pub struct RnnLayer {
     output_size: usize,
 
     // Weight matrices
-    w_xh: Vec<f32>,  // input_size × hidden_size
-    w_hh: Vec<f32>,  // hidden_size × hidden_size
-    w_hy: Vec<f32>,  // hidden_size × output_size
+    w_xh: Vec<f32>, // input_size × hidden_size
+    w_hh: Vec<f32>, // hidden_size × hidden_size
+    w_hy: Vec<f32>, // hidden_size × output_size
 
     // Biases
-    b_h: Vec<f32>,   // hidden_size
-    b_y: Vec<f32>,   // output_size
+    b_h: Vec<f32>, // hidden_size
+    b_y: Vec<f32>, // output_size
 
     // Hidden state
-    hidden_state: RefCell<Vec<f32>>,  // hidden_size
+    hidden_state: RefCell<Vec<f32>>, // hidden_size
 
     // Gradient accumulators (mutable interior via RefCell for trait compatibility)
     grad_w_xh: RefCell<Vec<f32>>,
@@ -107,8 +107,8 @@ pub struct RnnLayer {
     grad_b_y: RefCell<Vec<f32>>,
 
     // Cache for backward pass
-    cached_h_prev: RefCell<Vec<f32>>,      // h_{t-1} before forward pass
-    cached_h_current: RefCell<Vec<f32>>,   // h_t after tanh in forward pass
+    cached_h_prev: RefCell<Vec<f32>>, // h_{t-1} before forward pass
+    cached_h_current: RefCell<Vec<f32>>, // h_t after tanh in forward pass
 }
 
 impl RnnLayer {
@@ -272,11 +272,7 @@ impl RnnLayer {
     /// assert_eq!(retrieved, custom_state);
     /// ```
     pub fn set_hidden_state(&self, state: &[f32]) {
-        assert_eq!(
-            state.len(),
-            self.hidden_size,
-            "Hidden state size mismatch"
-        );
+        assert_eq!(state.len(), self.hidden_size, "Hidden state size mismatch");
         let mut hidden = self.hidden_state.borrow_mut();
         hidden.copy_from_slice(state);
     }
@@ -859,6 +855,18 @@ impl Layer for RnnLayer {
     fn parameter_count(&self) -> usize {
         self.parameter_count()
     }
+
+    fn into_any(self: Box<Self>) -> Box<dyn std::any::Any> {
+        self
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
 }
 
 #[cfg(test)]
@@ -1109,7 +1117,7 @@ mod tests {
             + hidden_size * hidden_size                 // W_hh
             + hidden_size * output_size                 // W_hy
             + hidden_size                               // b_h
-            + output_size;                              // b_y
+            + output_size; // b_y
         assert_eq!(layer.parameter_count(), expected_params);
 
         // Reset hidden state
@@ -1152,9 +1160,13 @@ mod tests {
         let w_hy_after = layer.w_hy();
 
         // At least some parameters should have changed
-        let w_xh_changed = w_xh_before.iter().zip(w_xh_after.iter())
+        let w_xh_changed = w_xh_before
+            .iter()
+            .zip(w_xh_after.iter())
             .any(|(before, after)| (before - after).abs() > 1e-10);
-        let w_hy_changed = w_hy_before.iter().zip(w_hy_after.iter())
+        let w_hy_changed = w_hy_before
+            .iter()
+            .zip(w_hy_after.iter())
             .any(|(before, after)| (before - after).abs() > 1e-10);
 
         assert!(

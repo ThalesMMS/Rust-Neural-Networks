@@ -1145,7 +1145,11 @@ fn parse_config_path(args: &[String]) -> String {
     DEFAULT_CONFIG_PATH.to_string()
 }
 
-fn scheduler_from_args(learning_rate: f32, epochs: usize, config_path: Option<&str>) -> Box<dyn LRScheduler> {
+fn scheduler_from_args(
+    learning_rate: f32,
+    epochs: usize,
+    config_path: Option<&str>,
+) -> Box<dyn LRScheduler> {
     create_scheduler_from_config(learning_rate, epochs, config_path)
 }
 
@@ -1191,8 +1195,12 @@ fn main() {
     let epochs = config.epochs.unwrap_or(EPOCHS);
     let batch_size = config.batch_size.unwrap_or(BATCH_SIZE);
     let validation_split = config.validation_split.unwrap_or(VALIDATION_SPLIT);
-    let early_stopping_patience = config.early_stopping_patience.unwrap_or(EARLY_STOPPING_PATIENCE);
-    let early_stopping_min_delta = config.early_stopping_min_delta.unwrap_or(EARLY_STOPPING_MIN_DELTA);
+    let early_stopping_patience = config
+        .early_stopping_patience
+        .unwrap_or(EARLY_STOPPING_PATIENCE);
+    let early_stopping_min_delta = config
+        .early_stopping_min_delta
+        .unwrap_or(EARLY_STOPPING_MIN_DELTA);
 
     // Print loaded configuration
     println!("\nConfiguration:");

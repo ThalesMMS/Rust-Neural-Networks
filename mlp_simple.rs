@@ -456,7 +456,11 @@ fn test(nn: &NeuralNetwork, inputs: &[[f32; NUM_INPUTS]], expected_outputs: &[[f
     }
 }
 
-fn scheduler_from_args(learning_rate: f32, epochs: usize, config_path: Option<&str>) -> Box<dyn LRScheduler> {
+fn scheduler_from_args(
+    learning_rate: f32,
+    epochs: usize,
+    config_path: Option<&str>,
+) -> Box<dyn LRScheduler> {
     create_scheduler_from_config(learning_rate, epochs, config_path)
 }
 
@@ -531,7 +535,13 @@ fn main() {
 
     // Training and testing in the same process.
     let mut nn = initialize_network(&mut rng);
-    train(&mut nn, &inputs, &expected_outputs, scheduler.as_mut(), epochs);
+    train(
+        &mut nn,
+        &inputs,
+        &expected_outputs,
+        scheduler.as_mut(),
+        epochs,
+    );
     test(&nn, &inputs, &expected_outputs);
 }
 

@@ -226,7 +226,8 @@ fn test_rnn_gradient_descent_reduces_loss() {
     let learning_rate = 0.1f32;
     let num_steps = 10;
 
-    let loss_reduced = verify_gradient_descent_reduces_loss(&mut layer, &input, &target, learning_rate, num_steps);
+    let loss_reduced =
+        verify_gradient_descent_reduces_loss(&mut layer, &input, &target, learning_rate, num_steps);
 
     assert!(
         loss_reduced,
@@ -258,7 +259,8 @@ fn test_rnn_gradients_with_hidden_state() {
     let learning_rate = 0.05f32;
     let num_steps = 5;
 
-    let loss_reduced = verify_gradient_descent_reduces_loss(&mut layer, &input, &target, learning_rate, num_steps);
+    let loss_reduced =
+        verify_gradient_descent_reduces_loss(&mut layer, &input, &target, learning_rate, num_steps);
 
     assert!(
         loss_reduced,
@@ -280,16 +282,12 @@ fn test_rnn_training_convergence() {
     let mut layer = RnnLayer::new(input_size, hidden_size, output_size, &mut rng);
 
     // Simple training data
-    let inputs = vec![
+    let inputs = [
         vec![1.0f32, 0.0, 0.0, 0.0],
         vec![0.0f32, 1.0, 0.0, 0.0],
         vec![0.0f32, 0.0, 1.0, 0.0],
     ];
-    let targets = vec![
-        vec![1.0f32, 0.0],
-        vec![0.0f32, 1.0],
-        vec![1.0f32, 1.0],
-    ];
+    let targets = [vec![1.0f32, 0.0], vec![0.0f32, 1.0], vec![1.0f32, 1.0]];
 
     let learning_rate = 0.1f32;
     let epochs = 20;
@@ -435,11 +433,17 @@ fn test_rnn_parameter_updates() {
     let w_hy_after = layer.w_hy();
     let b_y_after = layer.b_y();
 
-    let w_xh_changed = w_xh_before.iter().zip(w_xh_after.iter())
+    let w_xh_changed = w_xh_before
+        .iter()
+        .zip(w_xh_after.iter())
         .any(|(before, after)| (before - after).abs() > 1e-10);
-    let w_hy_changed = w_hy_before.iter().zip(w_hy_after.iter())
+    let w_hy_changed = w_hy_before
+        .iter()
+        .zip(w_hy_after.iter())
         .any(|(before, after)| (before - after).abs() > 1e-10);
-    let b_y_changed = b_y_before.iter().zip(b_y_after.iter())
+    let b_y_changed = b_y_before
+        .iter()
+        .zip(b_y_after.iter())
         .any(|(before, after)| (before - after).abs() > 1e-10);
 
     assert!(
@@ -467,7 +471,7 @@ fn test_rnn_batch_processing() {
     layer.reset_hidden_state();
 
     // Create batch input
-    let input_batch = vec![
+    let input_batch = [
         vec![0.1f32, 0.2, 0.3, 0.4],
         vec![0.5f32, 0.6, 0.7, 0.8],
         vec![0.9f32, 1.0, 1.1, 1.2],
@@ -490,7 +494,12 @@ fn test_rnn_batch_processing() {
     // Backward pass on batch
     let grad_output_batch = vec![1.0f32; batch_size * output_size];
     let mut grad_input_batch = vec![0.0f32; batch_size * input_size];
-    layer.backward(&input_flat, &grad_output_batch, &mut grad_input_batch, batch_size);
+    layer.backward(
+        &input_flat,
+        &grad_output_batch,
+        &mut grad_input_batch,
+        batch_size,
+    );
 
     // Check gradient shape
     assert_eq!(grad_input_batch.len(), batch_size * input_size);
@@ -565,11 +574,7 @@ fn test_rnn_temporal_dependencies() {
 
     // Sequence: [1,0] -> [0,1] -> [1,1]
     // Test that the RNN can learn to use hidden state across time steps
-    let sequence = vec![
-        vec![1.0f32, 0.0],
-        vec![0.0f32, 1.0],
-        vec![1.0f32, 1.0],
-    ];
+    let sequence = vec![vec![1.0f32, 0.0], vec![0.0f32, 1.0], vec![1.0f32, 1.0]];
 
     // Train on this sequence multiple times
     let learning_rate = 0.05f32;
@@ -584,7 +589,7 @@ fn test_rnn_temporal_dependencies() {
             layer.forward(input, &mut output, 1);
 
             // Simple target: output should be 1.0
-            let target = vec![1.0f32];
+            let target = [1.0f32];
             let mut grad_output = vec![0.0f32; output_size];
             for i in 0..output_size {
                 grad_output[i] = output[i] - target[i];
@@ -609,11 +614,7 @@ fn test_rnn_temporal_dependencies() {
 
     // Outputs should be reasonable (not NaN, not too far from target)
     for (i, &out) in final_outputs.iter().enumerate() {
-        assert!(
-            out.is_finite(),
-            "Output at step {} should be finite",
-            i
-        );
+        assert!(out.is_finite(), "Output at step {} should be finite", i);
         assert!(
             out.abs() < 5.0,
             "Output at step {} should be reasonable magnitude: {}",
