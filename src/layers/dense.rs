@@ -331,8 +331,38 @@ fn sum_rows(data: &[f32], rows: usize, cols: usize, out: &mut [f32]) {
 impl Layer for DenseLayer {
     /// Computes the layer's linear output for a batch: output = input × weights + biases.
     ///
-    /// Expects `input` to be a row-major matrix with shape (batch_size × input_size)
-    /// and `output` to be a row-major buffer with shape (batch_size × output_size).
+    /// # Forward Pass Formula
+    ///
+    /// The dense layer performs a linear transformation:
+    /// ```text
+    /// y = xW + b
+    /// ```
+    ///
+    /// where:
+    /// - `x` is the input matrix (batch_size × input_size)
+    /// - `W` is the weight matrix (input_size × output_size)
+    /// - `b` is the bias vector (output_size)
+    /// - `y` is the output matrix (batch_size × output_size)
+    ///
+    /// # Dimension Transformations
+    ///
+    /// **Step 1: Matrix multiplication**
+    /// - Input: (batch_size × input_size)
+    /// - Weights: (input_size × output_size)
+    /// - Result: (batch_size × output_size)
+    /// - Operation: y = x × W
+    ///
+    /// **Step 2: Bias addition**
+    /// - Intermediate result: (batch_size × output_size)
+    /// - Bias vector: (output_size) - broadcasted to each row
+    /// - Final output: (batch_size × output_size)
+    /// - Operation: y = y + b (broadcasted)
+    ///
+    /// # Implementation Details
+    ///
+    /// This method uses BLAS `sgemm` (single-precision general matrix-matrix multiplication)
+    /// for efficient computation on CPU. The bias is added to each row of the output matrix
+    /// via element-wise addition.
     ///
     /// # Examples
     ///
@@ -350,10 +380,11 @@ impl Layer for DenseLayer {
     /// assert_eq!(output.len(), 3);
     /// ```
     fn forward(&self, input: &[f32], output: &mut [f32], batch_size: usize) {
-        // Perform matrix multiplication: output = input × weights
-        // input: (batch_size × input_size)
-        // weights: (input_size × output_size)
-        // output: (batch_size × output_size)
+        // Step 1: Perform matrix multiplication: y = x × W
+        // Dimension check:
+        //   - x (input): (batch_size × input_size)
+        //   - W (weights): (input_size × output_size)
+        //   - y (output): (batch_size × output_size)
         assert_eq!(
             input.len(),
             batch_size * self.input_size,
@@ -376,6 +407,8 @@ impl Layer for DenseLayer {
             self.weights.len()
         );
 
+        // BLAS sgemm computes: output = 1.0 * (input × weights) + 0.0 * output
+        // Using row-major layout with no transpose
         sgemm_wrapper(
             batch_size,
             self.output_size,
@@ -392,7 +425,12 @@ impl Layer for DenseLayer {
             0.0,
         );
 
-        // Add biases to each row
+        // Step 2: Add bias vector to each row of the output matrix
+        // Dimension check:
+        //   - output (before bias): (batch_size × output_size)
+        //   - biases: (output_size) - broadcasted to each row
+        //   - output (after bias): (batch_size × output_size)
+        // Operation: y[i,j] = y[i,j] + b[j] for all rows i
         assert_eq!(
             output.len(),
             batch_size * self.output_size,
@@ -433,6 +471,29 @@ impl Layer for DenseLayer {
     /// let mut grad_input = vec![0.0f32; batch_size * layer.input_size()];
     /// layer.backward(&input, &grad_output, &mut grad_input, batch_size);
     /// ```
+    /// # Backward Pass
+    ///
+    /// Computes gradients via the chain rule for backpropagation.
+    ///
+    /// Given gradient w.r.t. output: ∂L/∂y (batch_size × output_size)
+    ///
+    /// **Step 1: Weight gradients**
+    /// - ∂L/∂W = x^T × ∂L/∂y / batch_size
+    /// - Dimension check: (input_size × batch_size) × (batch_size × output_size) → (input_size × output_size)
+    /// - Chain rule: Since y = xW + b, we have ∂y/∂W = x^T (treating x as column vectors)
+    ///
+    /// **Step 2: Bias gradients**
+    /// - ∂L/∂b = Σ(∂L/∂y) / batch_size along batch dimension
+    /// - Dimension check: sum over (batch_size × output_size) → (output_size)
+    /// - Chain rule: Since y = xW + b, we have ∂y/∂b = 1 (for each output neuron)
+    ///
+    /// **Step 3: Input gradients (for backprop to previous layer)**
+    /// - ∂L/∂x = ∂L/∂y × W^T
+    /// - Dimension check: (batch_size × output_size) × (output_size × input_size) → (batch_size × input_size)
+    /// - Chain rule: Since y = xW + b, we have ∂y/∂x = W^T
+    ///
+    /// All gradients are accumulated (added) to existing values to support gradient accumulation
+    /// across mini-batches or shared parameters.
     fn backward(
         &self,
         input: &[f32],
@@ -445,10 +506,11 @@ impl Layer for DenseLayer {
         }
         let scale = 1.0f32 / batch_size as f32;
 
-        // Compute gradient with respect to weights: grad_w = input^T × grad_output / batch_size
-        // input: (batch_size × input_size)
-        // grad_output: (batch_size × output_size)
-        // grad_weights: (input_size × output_size)
+        // ===== Step 1: Weight gradients =====
+        // Compute: ∂L/∂W = x^T × ∂L/∂y / batch_size
+        // Input dimensions: x (batch_size × input_size)
+        // Gradient w.r.t. output: ∂L/∂y (batch_size × output_size)
+        // Result: ∂L/∂W (input_size × output_size)
         assert_eq!(
             input.len(),
             batch_size * self.input_size,
@@ -489,8 +551,10 @@ impl Layer for DenseLayer {
             1.0, // Accumulate gradients
         );
 
-        // Compute gradient with respect to biases: grad_b = sum(grad_output) / batch_size
-        // Compute gradient with respect to biases: grad_b += sum(grad_output) * scale
+        // ===== Step 2: Bias gradients =====
+        // Compute: ∂L/∂b = Σ(∂L/∂y) / batch_size (sum along batch dimension)
+        // Gradient w.r.t. output: ∂L/∂y (batch_size × output_size)
+        // Result: ∂L/∂b (output_size) - one gradient per output neuron
         // We use a temporary buffer to sum the batch, then accumulate into the persistent gradient
         let mut batch_bias_grad = vec![0.0; self.output_size];
         sum_rows(
@@ -513,10 +577,11 @@ impl Layer for DenseLayer {
             *acc += *g * scale;
         }
 
-        // Compute gradient with respect to input: grad_input = grad_output × weights^T
-        // grad_output: (batch_size × output_size)
-        // weights: (input_size × output_size)
-        // grad_input: (batch_size × input_size)
+        // ===== Step 3: Input gradients (backprop to previous layer) =====
+        // Compute: ∂L/∂x = ∂L/∂y × W^T
+        // Gradient w.r.t. output: ∂L/∂y (batch_size × output_size)
+        // Weights transposed: W^T (output_size × input_size)
+        // Result: ∂L/∂x (batch_size × input_size)
         assert_eq!(
             grad_input.len(),
             batch_size * self.input_size,

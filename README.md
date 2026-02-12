@@ -12,6 +12,25 @@ This repository contains small neural networks in Rust for:
 
 Python utilities are included for visualization and digit recognition. The Swift implementation lives in the companion Swift-Neural-Networks repository. The design and binary model format are inspired by https://github.com/djbyrne/mlp.c.
 
+## Learning Tutorials
+
+**New to neural networks?** Start with our comprehensive step-by-step tutorials that guide you through building each architecture from scratch:
+
+→ **[Step-by-Step Tutorials](docs/tutorials/README.md)** - Progressive learning path with worked examples
+
+**Tutorial series:**
+1. **[XOR MLP](docs/tutorials/01_xor_mlp.md)** (30-45 min) - Build your first network, understand backpropagation
+2. **[MNIST MLP](docs/tutorials/02_mnist_mlp.md)** (60-90 min) - Scale to real data with 784→512→10 classifier
+3. **[MNIST CNN](docs/tutorials/03_mnist_cnn.md)** (90-120 min) - Add convolutions for spatial feature extraction
+
+Each tutorial includes:
+- **Incremental construction** - Build networks layer by layer with explanations
+- **Worked examples** - Concrete numerical calculations you can verify
+- **Expected outputs** - Checkpoints to confirm your understanding
+- **Exercises** - Modifications to deepen learning (beginner to advanced)
+
+Perfect for students, researchers, and practitioners wanting to understand neural networks beyond high-level APIs.
+
 ## Repository layout
 
 Rust source:

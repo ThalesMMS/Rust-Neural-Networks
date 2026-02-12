@@ -609,8 +609,7 @@ fn save_model(model: &Cnn, filename: &str) {
                     .expect("Failed to write weight");
             }
             for &b in dense_layer.biases() {
-                f.write_all(&b.to_le_bytes())
-                    .expect("Failed to write bias");
+                f.write_all(&b.to_le_bytes()).expect("Failed to write bias");
             }
         } else if let Some(conv_layer) = any_layer.downcast_ref::<Conv2DLayer>() {
             // Layer type ID: 1 = Conv2D

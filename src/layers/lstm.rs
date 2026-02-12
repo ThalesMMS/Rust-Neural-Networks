@@ -476,6 +476,98 @@ impl Layer for LstmLayer {
     /// updates the cell state, computes the new hidden state, and projects to output.
     /// All intermediate values are cached for use in the backward pass.
     ///
+    /// # Mathematical Formulation
+    ///
+    /// The LSTM forward pass consists of seven sequential steps:
+    ///
+    /// **Step 1: Forget Gate**
+    /// - Controls what information to discard from cell state
+    /// - `f_t = σ(x_t × W_xf + h_{t-1} × W_hf + b_f)`
+    ///
+    /// **Step 2: Input Gate**
+    /// - Controls what new information to add to cell state
+    /// - `i_t = σ(x_t × W_xi + h_{t-1} × W_hi + b_i)`
+    ///
+    /// **Step 3: Cell Candidate**
+    /// - New information that could be added to cell state
+    /// - `c̃_t = tanh(x_t × W_xc + h_{t-1} × W_hc + b_c)`
+    ///
+    /// **Step 4: Cell State Update**
+    /// - Combines forget and input gates with cell state
+    /// - `c_t = f_t ⊙ c_{t-1} + i_t ⊙ c̃_t`
+    ///
+    /// **Step 5: Output Gate**
+    /// - Controls what information from cell state to output
+    /// - `o_t = σ(x_t × W_xo + h_{t-1} × W_ho + b_o)`
+    ///
+    /// **Step 6: Hidden State Update**
+    /// - Filtered cell state becomes new hidden state
+    /// - `h_t = o_t ⊙ tanh(c_t)`
+    ///
+    /// **Step 7: Output Projection**
+    /// - Maps hidden state to output space
+    /// - `y_t = h_t × W_hy + b_y`
+    ///
+    /// where:
+    /// - `x_t` is the input at time step t (batch_size × input_size)
+    /// - `h_{t-1}` is the previous hidden state (hidden_size), broadcasted to batch
+    /// - `c_{t-1}` is the previous cell state (hidden_size), broadcasted to batch
+    /// - `f_t` is the forget gate activation (batch_size × hidden_size)
+    /// - `i_t` is the input gate activation (batch_size × hidden_size)
+    /// - `c̃_t` is the cell candidate (batch_size × hidden_size)
+    /// - `c_t` is the new cell state (batch_size × hidden_size)
+    /// - `o_t` is the output gate activation (batch_size × hidden_size)
+    /// - `h_t` is the new hidden state (batch_size × hidden_size)
+    /// - `y_t` is the output (batch_size × output_size)
+    /// - `σ` is the sigmoid activation function
+    /// - `⊙` is element-wise multiplication
+    ///
+    /// # Matrix Operations
+    ///
+    /// **Forget Gate Computation:**
+    /// 1. `x_t × W_xf`: (batch_size × input_size) × (input_size × hidden_size) → (batch_size × hidden_size)
+    /// 2. `h_{t-1} × W_hf`: (batch_size × hidden_size) × (hidden_size × hidden_size) → (batch_size × hidden_size)
+    /// 3. Add bias b_f and apply sigmoid element-wise
+    ///
+    /// **Input Gate Computation:**
+    /// 1. `x_t × W_xi`: (batch_size × input_size) × (input_size × hidden_size) → (batch_size × hidden_size)
+    /// 2. `h_{t-1} × W_hi`: (batch_size × hidden_size) × (hidden_size × hidden_size) → (batch_size × hidden_size)
+    /// 3. Add bias b_i and apply sigmoid element-wise
+    ///
+    /// **Cell Candidate Computation:**
+    /// 1. `x_t × W_xc`: (batch_size × input_size) × (input_size × hidden_size) → (batch_size × hidden_size)
+    /// 2. `h_{t-1} × W_hc`: (batch_size × hidden_size) × (hidden_size × hidden_size) → (batch_size × hidden_size)
+    /// 3. Add bias b_c and apply tanh element-wise
+    ///
+    /// **Cell State Update:**
+    /// 1. `f_t ⊙ c_{t-1}`: Element-wise multiply forget gate with previous cell state
+    /// 2. `i_t ⊙ c̃_t`: Element-wise multiply input gate with cell candidate
+    /// 3. Sum the two products to get new cell state
+    ///
+    /// **Output Gate Computation:**
+    /// 1. `x_t × W_xo`: (batch_size × input_size) × (input_size × hidden_size) → (batch_size × hidden_size)
+    /// 2. `h_{t-1} × W_ho`: (batch_size × hidden_size) × (hidden_size × hidden_size) → (batch_size × hidden_size)
+    /// 3. Add bias b_o and apply sigmoid element-wise
+    ///
+    /// **Hidden State Update:**
+    /// 1. Apply tanh to cell state: tanh(c_t)
+    /// 2. Element-wise multiply with output gate: h_t = o_t ⊙ tanh(c_t)
+    ///
+    /// **Output Projection:**
+    /// 1. `h_t × W_hy`: (batch_size × hidden_size) × (hidden_size × output_size) → (batch_size × output_size)
+    /// 2. Add bias b_y
+    ///
+    /// # Implementation Details
+    ///
+    /// - Uses BLAS `sgemm` for efficient matrix multiplication in all gate computations
+    /// - Hidden state `h_{t-1}` and cell state `c_{t-1}` are broadcasted to all batch samples
+    /// - All gate activations and states are cached for backward pass:
+    ///   - Previous states: `h_{t-1}`, `c_{t-1}`
+    ///   - Gate activations: `f_t`, `i_t`, `c̃_t`, `o_t`
+    ///   - New states: `c_t`, `tanh(c_t)`, `h_t`
+    /// - After processing, the layer's internal states are updated to `h_t[0]` and `c_t[0]` (first batch sample)
+    /// - All samples in a batch share the same initial hidden/cell state
+    ///
     /// # Arguments
     ///
     /// * `input` - Input data (batch_size × input_size)
@@ -846,7 +938,7 @@ impl Layer for LstmLayer {
         }
     }
 
-    /// Backward propagation through the LSTM layer.
+    /// Backward propagation through the LSTM layer using BPTT.
     ///
     /// Computes gradients for all gate weights and propagates gradients back through time.
     /// The backward pass must be called after a forward pass, as it uses cached values
@@ -855,6 +947,155 @@ impl Layer for LstmLayer {
     /// Gradients are computed for all four gates, their weights and biases, and the
     /// output projection. The gradients are accumulated (not replaced) to support
     /// backpropagation through time (BPTT).
+    ///
+    /// # Mathematical Formulation
+    ///
+    /// Given gradient w.r.t. output: ∂L/∂y_t (batch_size × output_size)
+    ///
+    /// The backward pass reverses the forward computation through the following steps:
+    ///
+    /// ## Step 1: Output Projection Gradients
+    ///
+    /// From: `y_t = h_t × W_hy + b_y`
+    ///
+    /// **Weight gradients:**
+    /// - ∂L/∂W_hy = h_t^T × ∂L/∂y_t
+    /// - Dimension: (hidden_size × batch_size) × (batch_size × output_size) → (hidden_size × output_size)
+    ///
+    /// **Bias gradients:**
+    /// - ∂L/∂b_y = Σ(∂L/∂y_t) along batch dimension
+    /// - Dimension: sum over (batch_size × output_size) → (output_size)
+    ///
+    /// **Hidden state gradients:**
+    /// - ∂L/∂h_t = ∂L/∂y_t × W_hy^T
+    /// - Dimension: (batch_size × output_size) × (output_size × hidden_size) → (batch_size × hidden_size)
+    ///
+    /// ## Step 2: Hidden State Update Gradients
+    ///
+    /// From: `h_t = o_t ⊙ tanh(c_t)`
+    ///
+    /// **Output gate gradients:**
+    /// - ∂L/∂o_t = ∂L/∂h_t ⊙ tanh(c_t)
+    /// - Uses: ∂h_t/∂o_t = tanh(c_t)
+    ///
+    /// **Cell tanh gradients:**
+    /// - ∂L/∂tanh(c_t) = ∂L/∂h_t ⊙ o_t
+    /// - Uses: ∂h_t/∂tanh(c_t) = o_t
+    ///
+    /// ## Step 3: Tanh Derivative
+    ///
+    /// From: `tanh(c_t)`
+    ///
+    /// **Cell state gradients:**
+    /// - ∂L/∂c_t = ∂L/∂tanh(c_t) ⊙ (1 - tanh²(c_t))
+    /// - Uses: ∂tanh(x)/∂x = 1 - tanh²(x)
+    ///
+    /// ## Step 4: Output Gate Weight Gradients
+    ///
+    /// From: `o_t = σ(x_t × W_xo + h_{t-1} × W_ho + b_o)`
+    ///
+    /// **Sigmoid derivative:**
+    /// - ∂L/∂(pre_o) = ∂L/∂o_t ⊙ o_t ⊙ (1 - o_t)
+    /// - Uses: ∂σ(x)/∂x = σ(x) ⊙ (1 - σ(x))
+    ///
+    /// **Weight gradients:**
+    /// - ∂L/∂W_xo = x_t^T × ∂L/∂(pre_o)
+    /// - ∂L/∂W_ho = h_{t-1}^T × ∂L/∂(pre_o)
+    /// - ∂L/∂b_o = Σ(∂L/∂(pre_o)) along batch
+    ///
+    /// ## Step 5: Cell State Update Gradients
+    ///
+    /// From: `c_t = f_t ⊙ c_{t-1} + i_t ⊙ c̃_t`
+    ///
+    /// **Chain rule application:**
+    ///
+    /// **Forget gate gradients:**
+    /// - ∂L/∂f_t = ∂L/∂c_t ⊙ c_{t-1}
+    /// - Uses: ∂c_t/∂f_t = c_{t-1}
+    ///
+    /// **Input gate gradients:**
+    /// - ∂L/∂i_t = ∂L/∂c_t ⊙ c̃_t
+    /// - Uses: ∂c_t/∂i_t = c̃_t
+    ///
+    /// **Cell candidate gradients:**
+    /// - ∂L/∂c̃_t = ∂L/∂c_t ⊙ i_t
+    /// - Uses: ∂c_t/∂c̃_t = i_t
+    ///
+    /// **Previous cell state gradients (BPTT):**
+    /// - ∂L/∂c_{t-1} = ∂L/∂c_t ⊙ f_t
+    /// - Uses: ∂c_t/∂c_{t-1} = f_t
+    /// - Note: This gradient flows back through time for BPTT
+    ///
+    /// ## Step 6: Forget Gate Weight Gradients
+    ///
+    /// From: `f_t = σ(x_t × W_xf + h_{t-1} × W_hf + b_f)`
+    ///
+    /// **Sigmoid derivative:**
+    /// - ∂L/∂(pre_f) = ∂L/∂f_t ⊙ f_t ⊙ (1 - f_t)
+    ///
+    /// **Weight gradients:**
+    /// - ∂L/∂W_xf = x_t^T × ∂L/∂(pre_f)
+    /// - ∂L/∂W_hf = h_{t-1}^T × ∂L/∂(pre_f)
+    /// - ∂L/∂b_f = Σ(∂L/∂(pre_f)) along batch
+    ///
+    /// ## Step 7: Input Gate Weight Gradients
+    ///
+    /// From: `i_t = σ(x_t × W_xi + h_{t-1} × W_hi + b_i)`
+    ///
+    /// **Sigmoid derivative:**
+    /// - ∂L/∂(pre_i) = ∂L/∂i_t ⊙ i_t ⊙ (1 - i_t)
+    ///
+    /// **Weight gradients:**
+    /// - ∂L/∂W_xi = x_t^T × ∂L/∂(pre_i)
+    /// - ∂L/∂W_hi = h_{t-1}^T × ∂L/∂(pre_i)
+    /// - ∂L/∂b_i = Σ(∂L/∂(pre_i)) along batch
+    ///
+    /// ## Step 8: Cell Candidate Weight Gradients
+    ///
+    /// From: `c̃_t = tanh(x_t × W_xc + h_{t-1} × W_hc + b_c)`
+    ///
+    /// **Tanh derivative:**
+    /// - ∂L/∂(pre_c) = ∂L/∂c̃_t ⊙ (1 - c̃_t²)
+    ///
+    /// **Weight gradients:**
+    /// - ∂L/∂W_xc = x_t^T × ∂L/∂(pre_c)
+    /// - ∂L/∂W_hc = h_{t-1}^T × ∂L/∂(pre_c)
+    /// - ∂L/∂b_c = Σ(∂L/∂(pre_c)) along batch
+    ///
+    /// ## Step 9: Input and Hidden State Gradients (BPTT)
+    ///
+    /// **Input gradients:**
+    /// - ∂L/∂x_t = ∂L/∂(pre_f) × W_xf^T + ∂L/∂(pre_i) × W_xi^T + ∂L/∂(pre_c) × W_xc^T + ∂L/∂(pre_o) × W_xo^T
+    /// - Accumulates contributions from all four gates
+    ///
+    /// **Previous hidden state gradients (BPTT):**
+    /// - ∂L/∂h_{t-1} = ∂L/∂(pre_f) × W_hf^T + ∂L/∂(pre_i) × W_hi^T + ∂L/∂(pre_c) × W_hc^T + ∂L/∂(pre_o) × W_ho^T
+    /// - Flows back through time for BPTT
+    /// - Note: Not explicitly computed in single-step backward, but implicitly handled through recurrence
+    ///
+    /// # BPTT Gradient Flow
+    ///
+    /// The LSTM's gating mechanism creates multiple gradient paths:
+    ///
+    /// 1. **Cell state path**: Gradients flow through ∂L/∂c_{t-1} = ∂L/∂c_t ⊙ f_t
+    ///    - The forget gate controls gradient magnitude
+    ///    - When f_t ≈ 1, gradients flow unchanged (mitigates vanishing gradients)
+    ///    - When f_t ≈ 0, gradients are blocked (selective forgetting)
+    ///
+    /// 2. **Hidden state paths**: Gradients flow through W_hf, W_hi, W_hc, W_ho
+    ///    - Four parallel paths from h_t to h_{t-1}
+    ///    - Provides rich gradient signal across time steps
+    ///
+    /// 3. **Gate modulation**: Each gate's sigmoid derivative σ'(x) = σ(x)(1-σ(x))
+    ///    - Maximum gradient at σ(x) = 0.5
+    ///    - Gradients vanish when gates saturate (σ → 0 or σ → 1)
+    ///
+    /// # Implementation Notes
+    ///
+    /// - Gradients are accumulated (use `1.0` as beta in BLAS sgemm) for BPTT
+    /// - All intermediate values from forward pass are cached for backward use
+    /// - Batch processing: gradients averaged by `scale = 1.0 / batch_size`
+    /// - Gate derivatives computed element-wise before matrix operations
     ///
     /// # Arguments
     ///

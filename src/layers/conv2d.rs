@@ -320,11 +320,53 @@ impl Conv2DLayer {
 impl Layer for Conv2DLayer {
     /// Applies this convolutional layer to `input` and writes the computed feature maps into `output`.
     ///
-    /// The expected memory layout for `input` is contiguous row-major with channels-last ordering
-    /// [batch, height, width, channels] (pixel-interleaved RGBRGB...). `input` must have length
-    /// `batch_size * layer.input_size()` and `output` must have length
-    /// `batch_size * layer.output_size()`. The method reads the layer's weights and biases and computes
-    /// a standard 2D convolution using the configured `padding` and `stride`.
+    /// # Forward Pass Formula
+    ///
+    /// The 2D convolution operation computes output feature maps by sliding filters over the input:
+    /// ```text
+    /// y[b,i,j,c_out] = Σ(x[b, i*s + di - p, j*s + dj - p, c_in] × W[c_out, c_in, di, dj]) + b[c_out]
+    /// ```
+    ///
+    /// where the sum is over all kernel positions (di ∈ [0, K), dj ∈ [0, K)) and input channels (c_in ∈ [0, C_in)).
+    ///
+    /// where:
+    /// - `x` is the input tensor (batch_size × input_height × input_width × in_channels)
+    /// - `W` is the filter weights (out_channels × in_channels × kernel_size × kernel_size)
+    /// - `b` is the bias vector (out_channels)
+    /// - `y` is the output tensor (batch_size × output_height × output_width × out_channels)
+    /// - `s` is the stride (step size)
+    /// - `p` is the padding (zero-padding applied to input borders)
+    /// - `K` is the kernel_size (assumed square)
+    ///
+    /// # Dimension Transformations
+    ///
+    /// **Input dimensions:**
+    /// - Input: (batch_size × input_height × input_width × in_channels)
+    /// - Memory layout: channels-last (pixel-interleaved RGBRGB...)
+    ///
+    /// **Output dimensions:**
+    /// - Output height: floor((input_height + 2×padding - kernel_size) / stride) + 1
+    /// - Output width: floor((input_width + 2×padding - kernel_size) / stride) + 1
+    /// - Output: (batch_size × output_height × output_width × out_channels)
+    ///
+    /// **Convolution kernel:**
+    /// - Weights: (out_channels × in_channels × kernel_size × kernel_size)
+    /// - For each output position (i, j), the kernel slides over a (kernel_size × kernel_size) window
+    ///   of the input, computing a weighted sum across all input channels
+    ///
+    /// # Implementation Details
+    ///
+    /// This method uses nested loops to implement the convolution:
+    /// 1. Iterate over batch samples
+    /// 2. Iterate over output channels (filters)
+    /// 3. Iterate over spatial output positions (i, j)
+    /// 4. For each output position, accumulate contributions from:
+    ///    - All input channels (c_in)
+    ///    - All kernel positions (di, dj)
+    /// 5. Add bias for the output channel
+    ///
+    /// Zero-padding is applied by checking bounds during convolution - positions outside
+    /// the input dimensions contribute 0 to the output sum.
     ///
     /// # Parameters
     ///
@@ -348,37 +390,52 @@ impl Layer for Conv2DLayer {
     /// assert_eq!(output.len(), batch_size * layer.output_size());
     /// ```
     fn forward(&self, input: &[f32], output: &mut [f32], batch_size: usize) {
+        // Calculate output spatial dimensions using the convolution formula:
+        // out_dim = floor((in_dim + 2*padding - kernel_size) / stride) + 1
         let out_h = self.output_height();
         let out_w = self.output_width();
-        let out_spatial = out_h * out_w;
-        let in_spatial = self.input_height * self.input_width;
+        let out_spatial = out_h * out_w; // Total spatial elements per output channel
+        let in_spatial = self.input_height * self.input_width; // Total spatial elements per input channel
 
+        // Process each sample in the batch
         for b in 0..batch_size {
+            // Input base offset: (batch_index × in_channels × H × W)
+            // Input dimensions: (batch_size × input_height × input_width × in_channels)
             let in_base = b * (self.in_channels * in_spatial);
+
+            // Output base offset for this batch sample
+            // Output dimensions: (batch_size × out_channels × output_height × output_width)
             let out_base_b = b * (self.out_channels * out_spatial);
 
+            // Process each output channel (filter)
             for oc in 0..self.out_channels {
-                let bias = self.biases[oc];
+                let bias = self.biases[oc]; // Bias for this output channel
                 let out_base = out_base_b + oc * out_spatial;
 
-                // For each output pixel, accumulate over input channels and kernel window
+                // For each output spatial position (oy, ox), compute convolution result
                 for oy in 0..out_h {
                     for ox in 0..out_w {
-                        let mut sum = bias;
+                        let mut sum = bias; // Start with bias
 
-                        // Accumulate over input channels
+                        // Accumulate contributions from all input channels
                         for ic in 0..self.in_channels {
+                            // Weight index base for filter[oc, ic, :, :]
+                            // Weights dimension: (out_channels × in_channels × kernel_size × kernel_size)
                             let w_base =
                                 (oc * self.in_channels + ic) * self.kernel_size * self.kernel_size;
 
-                            // Convolve kernel over input
+                            // Slide kernel window over input spatial positions
+                            // For each kernel position (ky, kx), compute corresponding input position
                             for ky in 0..self.kernel_size {
                                 for kx in 0..self.kernel_size {
+                                    // Input position: output_pos × stride + kernel_offset - padding
+                                    // This implements: i = oy*stride + ky - padding
                                     let iy = oy as isize * self.stride as isize + ky as isize
                                         - self.padding;
                                     let ix = ox as isize * self.stride as isize + kx as isize
                                         - self.padding;
 
+                                    // Zero-padding: only accumulate if position is within input bounds
                                     if iy >= 0
                                         && iy < self.input_height as isize
                                         && ix >= 0
@@ -386,16 +443,24 @@ impl Layer for Conv2DLayer {
                                     {
                                         let iyy = iy as usize;
                                         let ixx = ix as usize;
+
+                                        // Input index in channels-last format: [H, W, C]
+                                        // Index: base + (row × width + col) × channels + channel_index
                                         let in_idx = in_base
                                             + (iyy * self.input_width + ixx) * self.in_channels
                                             + ic;
+
+                                        // Weight index: [oc, ic, ky, kx]
                                         let w_idx = w_base + ky * self.kernel_size + kx;
+
+                                        // Accumulate: sum += input[i,j,c_in] × weight[c_out,c_in,ky,kx]
                                         sum += input[in_idx] * self.weights[w_idx];
                                     }
                                 }
                             }
                         }
 
+                        // Write final convolution result: y[b, oy, ox, oc] = sum
                         let out_idx = out_base + oy * out_w + ox;
                         output[out_idx] = sum;
                     }
@@ -433,6 +498,39 @@ impl Layer for Conv2DLayer {
     /// layer.backward(&input, &grad_out, &mut grad_in, batch);
     /// assert!(grad_in.iter().any(|&v| v != 0.0));
     /// ```
+    /// # Backward Pass
+    ///
+    /// Computes gradients via the chain rule for backpropagation.
+    ///
+    /// Given gradient w.r.t. output: ∂L/∂y (batch_size × out_height × out_width × out_channels)
+    ///
+    /// **Step 1: Weight gradients**
+    /// - ∂L/∂W[c_out, c_in, ky, kx] = Σ (∂L/∂y[b, oy, ox, c_out] × x[b, oy*s + ky - p, ox*s + kx - p, c_in])
+    /// - Summation over all batch samples (b), output spatial positions (oy, ox)
+    /// - Dimension check: For each filter position (c_out, c_in, ky, kx), correlate output gradient with corresponding input patch
+    /// - Chain rule: Since y[b,i,j,c_out] = Σ(x[...] × W[c_out, c_in, di, dj]) + b[c_out], we have ∂y/∂W = x at corresponding positions
+    ///
+    /// **Step 2: Bias gradients**
+    /// - ∂L/∂b[c_out] = Σ (∂L/∂y[b, oy, ox, c_out])
+    /// - Summation over all batch samples (b) and output spatial positions (oy, ox)
+    /// - Dimension check: Sum over (batch_size × out_height × out_width × out_channels) → (out_channels)
+    /// - Chain rule: Since y = convolution + b, we have ∂y/∂b = 1 (for each output channel)
+    ///
+    /// **Step 3: Input gradients (for backprop to previous layer)**
+    /// - ∂L/∂x[b, iy, ix, c_in] = Σ (∂L/∂y[b, oy, ox, c_out] × W[c_out, c_in, ky, kx])
+    /// - Summation over all output channels (c_out) and kernel positions (ky, kx) where iy = oy*s + ky - p and ix = ox*s + kx - p
+    /// - Dimension check: For each input position, accumulate gradients from all output positions that used it in the forward pass
+    /// - Chain rule: Since y = convolution(x, W) + b, we have ∂y/∂x = W^T (transposed/rotated convolution)
+    ///
+    /// where:
+    /// - `s` is the stride
+    /// - `p` is the padding
+    /// - `ky, kx` are kernel spatial indices ∈ [0, kernel_size)
+    /// - `oy, ox` are output spatial indices ∈ [0, output_height), [0, output_width)
+    /// - `iy, ix` are input spatial indices ∈ [0, input_height), [0, input_width)
+    ///
+    /// All gradients are reset at the start and accumulated across the batch to support
+    /// mini-batch gradient descent.
     fn backward(
         &self,
         input: &[f32],

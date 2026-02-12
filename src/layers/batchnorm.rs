@@ -368,6 +368,46 @@ impl Layer for BatchNormLayer {
     /// learnable scale (gamma) and shift (beta), and updates running statistics.
     /// During inference mode, uses accumulated running statistics for normalization.
     ///
+    /// # Normalization Formula
+    ///
+    /// **Training Mode:**
+    ///
+    /// 1. **Compute batch mean per feature:**
+    ///    - `μ_j = (1/m) × Σ(x_ij)` for i = 1 to m
+    ///
+    /// 2. **Compute batch variance per feature:**
+    ///    - `σ²_j = (1/m) × Σ(x_ij - μ_j)²` for i = 1 to m
+    ///
+    /// 3. **Normalize:**
+    ///    - `x̂_ij = (x_ij - μ_j) / sqrt(σ²_j + ε)`
+    ///
+    /// 4. **Scale and shift:**
+    ///    - `y_ij = γ_j × x̂_ij + β_j`
+    ///
+    /// 5. **Update running statistics (exponential moving average):**
+    ///    - `running_μ = α × running_μ + (1 - α) × μ`
+    ///    - `running_σ² = α × running_σ² + (1 - α) × σ²`
+    ///
+    /// where:
+    /// - `x` is the input (batch_size × size)
+    /// - `y` is the output (batch_size × size)
+    /// - `m` is the batch_size
+    /// - `j` indexes features (0 to size-1)
+    /// - `i` indexes samples in the batch (0 to batch_size-1)
+    /// - `μ_j` is the mean of feature j across the batch
+    /// - `σ²_j` is the variance of feature j across the batch
+    /// - `ε` is epsilon for numerical stability
+    /// - `γ_j` is the learnable scale parameter for feature j
+    /// - `β_j` is the learnable shift parameter for feature j
+    /// - `α` is the momentum (typical: 0.9 or 0.99)
+    /// - `x̂_ij` is the normalized value
+    ///
+    /// **Inference Mode:**
+    ///
+    /// Uses accumulated running statistics instead of batch statistics:
+    /// - `x̂_ij = (x_ij - running_μ_j) / sqrt(running_σ²_j + ε)`
+    /// - `y_ij = γ_j × x̂_ij + β_j`
+    ///
     /// # Arguments
     ///
     /// * `input` - Input data (batch_size × size)
@@ -477,6 +517,59 @@ impl Layer for BatchNormLayer {
     ///
     /// Computes gradients with respect to inputs, gamma, and beta using cached values
     /// from the forward pass. Accumulates gradients for gamma and beta internally.
+    ///
+    /// # Gradient Formulas
+    ///
+    /// Given gradient w.r.t. output: `∂L/∂y` (batch_size × size)
+    ///
+    /// **Training Mode:**
+    ///
+    /// The backward pass computes gradients through the normalization chain rule:
+    ///
+    /// **Step 1: Parameter gradients (accumulated across batch)**
+    ///
+    /// - **Gamma gradient:**
+    ///   - `∂L/∂γ_j = (1/m) × Σ(∂L/∂y_ij × x̂_ij)`
+    ///
+    /// - **Beta gradient:**
+    ///   - `∂L/∂β_j = (1/m) × Σ(∂L/∂y_ij)`
+    ///
+    /// **Step 2: Gradient w.r.t. normalized values**
+    ///
+    /// - `∂L/∂x̂_ij = ∂L/∂y_ij × γ_j`
+    ///
+    /// **Step 3: Gradient w.r.t. variance**
+    ///
+    /// - `∂L/∂σ²_j = Σ(∂L/∂x̂_ij × (x_ij - μ_j) × (-0.5) × (σ²_j + ε)^(-3/2))`
+    /// - Simplified: `∂L/∂σ²_j = Σ(∂L/∂x̂_ij × x̂_ij × (-0.5) / sqrt(σ²_j + ε))`
+    ///
+    /// **Step 4: Gradient w.r.t. mean**
+    ///
+    /// - `∂L/∂μ_j = Σ(∂L/∂x̂_ij × (-1 / sqrt(σ²_j + ε)))`
+    /// - Plus contribution from variance: `∂L/∂μ_j += ∂L/∂σ²_j × (-2/m) × Σ(x_ij - μ_j)`
+    ///
+    /// **Step 5: Gradient w.r.t. input (chain rule combination)**
+    ///
+    /// - `∂L/∂x_ij = ∂L/∂x̂_ij / sqrt(σ²_j + ε)`
+    ///   - `+ ∂L/∂σ²_j × (2/m) × (x_ij - μ_j)`
+    ///   - `+ ∂L/∂μ_j / m`
+    ///
+    /// where:
+    /// - `∂L/∂y` is the gradient w.r.t. output (batch_size × size)
+    /// - `∂L/∂x` is the gradient w.r.t. input (batch_size × size)
+    /// - `m` is the batch_size
+    /// - `x̂_ij` is the normalized value (cached from forward pass)
+    /// - `μ_j`, `σ²_j` are the batch mean and variance (cached from forward pass)
+    /// - `ε` is epsilon for numerical stability
+    /// - `γ_j`, `β_j` are the learnable scale and shift parameters
+    ///
+    /// **Inference Mode:**
+    ///
+    /// Simplified gradient pass-through using running statistics:
+    /// - `∂L/∂x_ij = ∂L/∂y_ij × γ_j / sqrt(running_σ²_j + ε)`
+    ///
+    /// Parameter gradients are not accumulated in inference mode as the layer
+    /// should not be trained during inference.
     ///
     /// # Arguments
     ///

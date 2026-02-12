@@ -209,8 +209,40 @@ use crate::optimizers::Optimizer;
 impl Layer for DropoutLayer {
     /// Forward propagation through the dropout layer.
     ///
-    /// During training, randomly drops units with probability `drop_rate` and scales
-    /// remaining units by 1/(1-drop_rate). During inference, passes input through unchanged.
+    /// # Mathematical Operation
+    ///
+    /// **Training mode:**
+    /// - Generate binary dropout mask: `m_i ~ Bernoulli(1 - p)` where `p = drop_rate`
+    /// - Apply mask with scaling: `y_i = (m_i ⊙ x_i) / (1 - p)`
+    ///
+    /// **Inference mode:**
+    /// - Pass through unchanged: `y = x`
+    ///
+    /// where:
+    /// - `x` is the input vector
+    /// - `y` is the output vector
+    /// - `m_i` is the binary dropout mask (1 = keep, 0 = drop)
+    /// - `p` is the dropout probability (`drop_rate`)
+    /// - Each `m_i` is independently sampled from Bernoulli(1-p), meaning P(m_i = 1) = 1-p
+    ///
+    /// **Probability and Scaling:**
+    ///
+    /// For each unit i:
+    /// - Probability of keeping: P(m_i = 1) = 1 - p
+    /// - Probability of dropping: P(m_i = 0) = p
+    ///
+    /// The scaling factor `1/(1-p)` ensures the expected value is preserved:
+    /// - E[y_i] = E[m_i × x_i / (1-p)]
+    /// - E[y_i] = (1-p) × x_i / (1-p) = x_i
+    ///
+    /// This maintains the same expected activation magnitude between training and inference,
+    /// allowing the network to make consistent predictions without retraining.
+    ///
+    /// # Dimensions
+    ///
+    /// - Input x: (batch_size × size)
+    /// - Mask m: (batch_size × size), binary values {0, 1}
+    /// - Output y: (batch_size × size)
     ///
     /// # Arguments
     ///
@@ -276,8 +308,51 @@ impl Layer for DropoutLayer {
 
     /// Backward propagation through the dropout layer.
     ///
-    /// Applies the saved dropout mask to the gradient, passing through gradients
-    /// only for units that were kept during forward pass.
+    /// # Backward Pass
+    ///
+    /// Given gradient w.r.t. output: ∂L/∂y (batch_size × size)
+    ///
+    /// **Training mode:**
+    ///
+    /// Apply the chain rule through the dropout operation:
+    /// - Forward: `y_i = (m_i ⊙ x_i) / (1 - p)`
+    /// - Backward: `∂L/∂x_i = (m_i ⊙ ∂L/∂y_i) / (1 - p)`
+    ///
+    /// **Inference mode:**
+    /// - Forward: `y = x`
+    /// - Backward: `∂L/∂x = ∂L/∂y`
+    ///
+    /// where:
+    /// - `m_i` is the dropout mask from forward pass (1 = kept, 0 = dropped)
+    /// - `p` is the dropout probability (`drop_rate`)
+    ///
+    /// # Chain Rule Explanation
+    ///
+    /// For each unit i, the gradient flows as:
+    ///
+    /// 1. If unit was **kept** during forward pass (m_i = 1):
+    ///    - `∂y_i/∂x_i = 1 / (1 - p)` (scaling factor)
+    ///    - `∂L/∂x_i = ∂L/∂y_i × (1 / (1 - p))`
+    ///    - Gradient flows through with same scaling as forward pass
+    ///
+    /// 2. If unit was **dropped** during forward pass (m_i = 0):
+    ///    - `∂y_i/∂x_i = 0` (no gradient flow)
+    ///    - `∂L/∂x_i = 0`
+    ///    - Gradient is blocked (unit had no effect on loss)
+    ///
+    /// **Probability interpretation:**
+    /// - Each unit's gradient has probability (1-p) of flowing through
+    /// - On average, (1-p) fraction of gradients propagate to previous layer
+    /// - Scaling by 1/(1-p) compensates for the reduced gradient flow
+    ///
+    /// This ensures proper gradient magnitude for layers before dropout, preventing
+    /// learning rate from effectively changing based on dropout rate.
+    ///
+    /// # Dimensions
+    ///
+    /// - Input gradient ∂L/∂y: (batch_size × size)
+    /// - Mask m: (batch_size × size), binary values from forward pass
+    /// - Output gradient ∂L/∂x: (batch_size × size)
     ///
     /// # Arguments
     ///

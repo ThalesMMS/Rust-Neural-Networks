@@ -54,6 +54,10 @@ path = "rnn_char_level.rs"
 name = "hyperparameter_sweep"
 path = "hyperparameter_sweep.rs"
 
+[[bin]]
+name = "transformer_mnist"
+path = "transformer_mnist.rs"
+
 [dev-dependencies]
 approx = "0.5"
 tempfile = "3.24.0"

@@ -409,12 +409,45 @@ impl RnnLayer {
 impl Layer for RnnLayer {
     /// Computes the RNN forward pass for one time step across a batch.
     ///
-    /// For each sample in the batch, computes:
-    /// h_t = tanh(x_t × W_xh + h_{t-1} × W_hh + b_h)
-    /// y_t = h_t × W_hy + b_y
+    /// # Mathematical Formulation
     ///
-    /// The hidden state is maintained internally and updated after each forward call.
-    /// Call `reset_hidden_state()` at the beginning of a new sequence.
+    /// The RNN forward pass consists of two main steps:
+    ///
+    /// **Step 1: Hidden State Update**
+    /// - Compute pre-activation: `z_t = x_t × W_xh + h_{t-1} × W_hh + b_h`
+    /// - Apply activation: `h_t = tanh(z_t)`
+    ///
+    /// **Step 2: Output Computation**
+    /// - Compute output: `y_t = h_t × W_hy + b_y`
+    ///
+    /// where:
+    /// - `x_t` is the input at time step t (batch_size × input_size)
+    /// - `h_{t-1}` is the previous hidden state (hidden_size), broadcasted to batch
+    /// - `h_t` is the new hidden state (hidden_size)
+    /// - `y_t` is the output at time step t (batch_size × output_size)
+    /// - `W_xh` is the input-to-hidden weight matrix (input_size × hidden_size)
+    /// - `W_hh` is the hidden-to-hidden weight matrix (hidden_size × hidden_size)
+    /// - `W_hy` is the hidden-to-output weight matrix (hidden_size × output_size)
+    /// - `b_h` is the hidden bias vector (hidden_size)
+    /// - `b_y` is the output bias vector (output_size)
+    ///
+    /// # Matrix Operations
+    ///
+    /// **Hidden State Computation:**
+    /// 1. `x_t × W_xh`: (batch_size × input_size) × (input_size × hidden_size) → (batch_size × hidden_size)
+    /// 2. `h_{t-1} × W_hh`: (batch_size × hidden_size) × (hidden_size × hidden_size) → (batch_size × hidden_size)
+    /// 3. Add bias and apply tanh element-wise
+    ///
+    /// **Output Computation:**
+    /// 1. `h_t × W_hy`: (batch_size × hidden_size) × (hidden_size × output_size) → (batch_size × output_size)
+    /// 2. Add bias b_y
+    ///
+    /// # Implementation Details
+    ///
+    /// - Uses BLAS `sgemm` for efficient matrix multiplication
+    /// - Hidden state `h_{t-1}` is broadcasted to all batch samples (all samples share the same initial hidden state)
+    /// - The hidden state is cached for backward pass (both `h_{t-1}` and `h_t`)
+    /// - After processing, the layer's internal hidden state is updated to `h_t[0]` (first batch sample)
     ///
     /// # Arguments
     ///
@@ -439,6 +472,12 @@ impl Layer for RnnLayer {
     ///     layer.forward(&input, &mut output, 2);
     /// }
     /// ```
+    ///
+    /// # Important Notes
+    ///
+    /// - Always call `reset_hidden_state()` at the beginning of a new sequence
+    /// - The hidden state persists across forward passes within a sequence
+    /// - For batch processing, all samples in a batch share the same initial hidden state
     fn forward(&self, input: &[f32], output: &mut [f32], batch_size: usize) {
         use cblas::{sgemm, Layout, Transpose};
 
@@ -575,6 +614,106 @@ impl Layer for RnnLayer {
         }
     }
 
+    /// Computes the RNN backward pass using Backpropagation Through Time (BPTT).
+    ///
+    /// # Backpropagation Through Time (BPTT)
+    ///
+    /// BPTT extends standard backpropagation to recurrent networks by unrolling the network
+    /// across time steps and applying the chain rule through the temporal connections.
+    ///
+    /// For a single time step, we compute gradients for:
+    /// - Output layer: `y_t = h_t × W_hy + b_y`
+    /// - Hidden state: `h_t = tanh(x_t × W_xh + h_{t-1} × W_hh + b_h)`
+    ///
+    /// # Mathematical Formulation
+    ///
+    /// Given gradient w.r.t. output: `∂L/∂y_t` (batch_size × output_size)
+    ///
+    /// ## Step 1: Output Layer Gradients
+    ///
+    /// **Gradient w.r.t. W_hy** (hidden-to-output weights):
+    /// - `∂L/∂W_hy = h_t^T × ∂L/∂y_t`
+    /// - Dimension check: (hidden_size × batch_size) × (batch_size × output_size) → (hidden_size × output_size)
+    ///
+    /// **Gradient w.r.t. b_y** (output bias):
+    /// - `∂L/∂b_y = Σ(∂L/∂y_t)` along batch dimension
+    /// - Dimension check: sum over (batch_size × output_size) → (output_size)
+    ///
+    /// **Gradient w.r.t. hidden state**:
+    /// - `∂L/∂h_t = ∂L/∂y_t × W_hy^T`
+    /// - Dimension check: (batch_size × output_size) × (output_size × hidden_size) → (batch_size × hidden_size)
+    ///
+    /// ## Step 2: Hidden State Activation Gradient
+    ///
+    /// Apply tanh derivative using the chain rule:
+    /// - Tanh derivative: `tanh'(z) = 1 - tanh²(z)`
+    /// - `∂L/∂z_h = ∂L/∂h_t ⊙ (1 - h_t²)`
+    /// - Where `z_h = x_t × W_xh + h_{t-1} × W_hh + b_h` (pre-activation)
+    /// - Element-wise multiplication (⊙) applies tanh derivative to each hidden unit
+    ///
+    /// ## Step 3: Weight and Bias Gradients
+    ///
+    /// **Gradient w.r.t. W_xh** (input-to-hidden weights):
+    /// - `∂L/∂W_xh = x_t^T × ∂L/∂z_h`
+    /// - Dimension check: (input_size × batch_size) × (batch_size × hidden_size) → (input_size × hidden_size)
+    ///
+    /// **Gradient w.r.t. W_hh** (hidden-to-hidden weights):
+    /// - `∂L/∂W_hh = h_{t-1}^T × ∂L/∂z_h`
+    /// - Dimension check: (hidden_size × batch_size) × (batch_size × hidden_size) → (hidden_size × hidden_size)
+    /// - This captures how previous hidden state contributes to current error
+    ///
+    /// **Gradient w.r.t. b_h** (hidden bias):
+    /// - `∂L/∂b_h = Σ(∂L/∂z_h)` along batch dimension
+    /// - Dimension check: sum over (batch_size × hidden_size) → (hidden_size)
+    ///
+    /// ## Step 4: Input Gradient (for previous layer)
+    ///
+    /// **Gradient w.r.t. input x_t**:
+    /// - `∂L/∂x_t = ∂L/∂z_h × W_xh^T`
+    /// - Dimension check: (batch_size × hidden_size) × (hidden_size × input_size) → (batch_size × input_size)
+    ///
+    /// ## Temporal Gradient Flow (BPTT)
+    ///
+    /// **Gradient w.r.t. previous hidden state h_{t-1}** (for full BPTT):
+    /// - `∂L/∂h_{t-1} = ∂L/∂z_h × W_hh^T`
+    /// - Dimension check: (batch_size × hidden_size) × (hidden_size × hidden_size) → (batch_size × hidden_size)
+    /// - This gradient would be propagated to time step t-1 in full BPTT
+    /// - **Note**: Current implementation computes this gradient but does not propagate it
+    ///   backward through multiple time steps (truncated BPTT at single step)
+    ///
+    /// # Chain Rule Summary
+    ///
+    /// The complete gradient flow follows this path:
+    /// ```text
+    /// ∂L/∂y_t → ∂L/∂h_t → ∂L/∂z_h → {∂L/∂W_xh, ∂L/∂W_hh, ∂L/∂b_h, ∂L/∂x_t, ∂L/∂h_{t-1}}
+    /// ```
+    ///
+    /// Where:
+    /// - `∂L/∂y_t`: Gradient from loss function or next layer
+    /// - `∂L/∂h_t`: Gradient at hidden state (after activation)
+    /// - `∂L/∂z_h`: Gradient at pre-activation (before tanh)
+    /// - Final gradients: Used to update parameters or backprop to previous layers/time steps
+    ///
+    /// # Implementation Details
+    ///
+    /// - Uses BLAS `sgemm` for efficient matrix multiplications
+    /// - Gradients are **accumulated** (not replaced) to support mini-batch training
+    /// - Scaling by `1/batch_size` for proper gradient averaging
+    /// - Cached values from forward pass (`h_{t-1}`, `h_t`) are used for gradient computation
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Input from current time step (batch_size × input_size)
+    /// * `grad_output` - Gradient w.r.t. output (batch_size × output_size)
+    /// * `grad_input` - Output buffer for gradient w.r.t. input (batch_size × input_size)
+    /// * `batch_size` - Number of sequences in the batch
+    ///
+    /// # Important Notes
+    ///
+    /// - This implements **truncated BPTT** for a single time step
+    /// - For full BPTT across sequences, this method would be called iteratively
+    ///   in reverse time order, accumulating gradients at each step
+    /// - Gradients are accumulated (+=) to support gradient accumulation across time steps
     fn backward(
         &self,
         input: &[f32],
