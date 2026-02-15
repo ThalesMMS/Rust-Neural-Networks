@@ -1769,7 +1769,7 @@ You've built a production-quality digit classifier achieving ~97% accuracy! You 
 - Attention mechanisms (Transformers, modern NLP)
 - Transfer learning (pre-trained models)
 
-**Keep experimenting!** Try the exercises, modify hyperparameters in the config files, and explore the codebase. When you're ready, continue to [Tutorial 03: MNIST CNN](03_mnist_cnn.md) to see how spatial structure improves image recognition. Happy learning! 🚀
+**Keep experimenting!** Try the exercises, modify hyperparameters in the config files, and explore the codebase. When you're ready, continue to [Tutorial 03: MNIST CNN](03_mnist_cnn.md) to see how spatial structure improves image recognition. Happy learning!
 
 ---
 

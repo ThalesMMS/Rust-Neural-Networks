@@ -125,7 +125,7 @@ readme.html
 - <https://www.kaggle.com/c/cifar-10>
 - Mirror sites listed at <https://www.cs.toronto.edu/~kriz/cifar.html>
 
-⚠️ **Important**: Download the **binary version**, not the Python pickle version. The file names must end in `.bin`.
+**Important:** Download the **binary version**, not the Python pickle version. The file names must end in `.bin`.
 
 ## Binary File Format
 

@@ -390,14 +390,14 @@ For output yᵢ = softmax(zᵢ):
 
 | Function | Range | Zero-Centered | Monotonic | Computational Cost | Vanishing Gradient | Common Use Cases |
 |----------|-------|---------------|-----------|-------------------|-------------------|------------------|
-| Sigmoid | (0, 1) | ❌ No | ✅ Yes | High | ⚠️ Yes | Binary classification, LSTM gates |
-| Tanh | (-1, 1) | ✅ Yes | ✅ Yes | High | ⚠️ Yes | RNN hidden layers |
-| ReLU | [0, ∞) | ❌ No | ✅ Yes | Low | ✅ No (x>0) | **Default for hidden layers** |
-| Leaky ReLU | (-∞, ∞) | ❌ No | ✅ Yes | Low | ✅ No | Deep networks, dying ReLU fix |
-| ELU | (-α, ∞) | ⚠️ Closer | ✅ Yes | Medium | ✅ No | Deep networks, noise robustness |
-| GELU | (-∞, ∞) | ✅ Yes | ❌ No | High | ✅ No | **Transformers, NLP** |
-| Swish | (-∞, ∞) | ⚠️ Closer | ❌ No | Medium | ✅ No | Deep CNNs, efficient architectures |
-| Softmax | (0, 1)* | N/A | N/A | High | ⚠️ Can saturate | **Multi-class output layer** |
+| Sigmoid | (0, 1) | No | Yes | High | Yes | Binary classification, LSTM gates |
+| Tanh | (-1, 1) | Yes | Yes | High | Yes | RNN hidden layers |
+| ReLU | [0, ∞) | No | Yes | Low | No (x>0) | **Default for hidden layers** |
+| Leaky ReLU | (-∞, ∞) | No | Yes | Low | No | Deep networks, dying ReLU fix |
+| ELU | (-α, ∞) | Partial | Yes | Medium | No | Deep networks, noise robustness |
+| GELU | (-∞, ∞) | Yes | No | High | No | **Transformers, NLP** |
+| Swish | (-∞, ∞) | Partial | No | Medium | No | Deep CNNs, efficient architectures |
+| Softmax | (0, 1)* | N/A | N/A | High | Can saturate | **Multi-class output layer** |
 
 *Softmax outputs sum to 1 across the vector.
 

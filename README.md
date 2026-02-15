@@ -406,7 +406,7 @@ Total configurations: 18
 [1/18] Running config 1...
   LR: 0.001, Batch: 32, Scheduler: step_decay
   Config: /tmp/sweep_config_1.json
-  ✓ Completed in 45.2s
+  Completed in 45.2s
 
 [2/18] Running config 2...
   ...
@@ -453,9 +453,9 @@ python compare_sweep_results.py logs/sweep_results_20260211_143052.json
 6. Training time vs accuracy (colored by validation loss)
 
 **Recommendations provided:**
-- 🏆 **Best Accuracy**: Configuration with highest validation accuracy
-- ⚡ **Fastest Training**: Configuration with shortest training time
-- ⚖️ **Best Balance**: Optimal tradeoff between accuracy and training time
+- **Best Accuracy**: Configuration with highest validation accuracy
+- **Fastest Training**: Configuration with shortest training time
+- **Best Balance**: Optimal tradeoff between accuracy and training time
 
 **Sweep results format:**
 
@@ -620,12 +620,12 @@ python3 -m http.server 8080
 ```
 
 **Features:**
-- ✅ **Interactive canvas** - Draw digits with mouse or touch
-- ✅ **Real-time predictions** - Instant feedback as you draw
-- ✅ **Client-side inference** - All computation happens in the browser (1-3ms per prediction)
-- ✅ **No installation** - Just open a webpage to try the model
-- ✅ **Cross-platform** - Works on desktop and mobile devices
-- ✅ **Privacy-preserving** - No data leaves your browser
+- **Interactive canvas** - Draw digits with mouse or touch
+- **Real-time predictions** - Instant feedback as you draw
+- **Client-side inference** - All computation happens in the browser (1-3ms per prediction)
+- **No installation** - Just open a webpage to try the model
+- **Cross-platform** - Works on desktop and mobile devices
+- **Privacy-preserving** - No data leaves your browser
 
 **Browser Requirements:**
 - Chrome 61+, Firefox 60+, Safari 11+, or Edge 79+

@@ -440,16 +440,16 @@ cargo test test_build_model --verbose
 ### Test Coverage
 
 Tests validate:
-- ✅ Valid architectures (MLP, CNN, with BatchNorm/Dropout)
-- ✅ Model building from configurations
-- ✅ Layer connection validation
-- ✅ Error handling for invalid configs
-- ✅ Missing required fields
-- ✅ Invalid parameter ranges
-- ✅ Layer size mismatches
-- ✅ Edge cases (single layer, deep networks, default parameters)
-- ✅ Case-insensitive layer types
-- ✅ Example config files parsing
+- Valid architectures (MLP, CNN, with BatchNorm/Dropout)
+- Model building from configurations
+- Layer connection validation
+- Error handling for invalid configs
+- Missing required fields
+- Invalid parameter ranges
+- Layer size mismatches
+- Edge cases (single layer, deep networks, default parameters)
+- Case-insensitive layer types
+- Example config files parsing
 
 ## Common Patterns
 

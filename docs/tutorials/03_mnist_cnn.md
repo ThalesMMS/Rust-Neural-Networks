@@ -1490,12 +1490,12 @@ for c in 0..CONV_OUT {
 
 Congratulations! You now understand:
 
-✅ How convolution operations detect local spatial patterns
-✅ Why parameter sharing makes CNNs efficient for images
-✅ How pooling downsamples while preserving features
-✅ How to track dimensions through conv and pool layers
-✅ What learned filters and feature maps look like
-✅ Why CNNs achieve better accuracy with fewer parameters than MLPs
+- How convolution operations detect local spatial patterns
+- Why parameter sharing makes CNNs efficient for images
+- How pooling downsamples while preserving features
+- How to track dimensions through conv and pool layers
+- What learned filters and feature maps look like
+- Why CNNs achieve better accuracy with fewer parameters than MLPs
 
 ### Next Tutorial: CIFAR-10 CNN
 
@@ -1583,12 +1583,12 @@ Congratulations! You now understand:
 
 **Congratulations!** You've mastered Convolutional Neural Networks and understand how they revolutionized computer vision. You now know:
 
-✅ How convolution operations detect local spatial patterns
-✅ Why parameter sharing makes CNNs efficient for images (31× fewer parameters!)
-✅ How pooling downsamples while preserving features
-✅ How to track dimensions through conv and pool layers
-✅ What learned filters and feature maps look like
-✅ Why CNNs achieve better accuracy (~98%) with fewer parameters than MLPs (~97%)
+- How convolution operations detect local spatial patterns
+- Why parameter sharing makes CNNs efficient for images (31x fewer parameters!)
+- How pooling downsamples while preserving features
+- How to track dimensions through conv and pool layers
+- What learned filters and feature maps look like
+- Why CNNs achieve better accuracy (~98%) with fewer parameters than MLPs (~97%)
 
 **This prepares you for:**
 - Multi-channel RGB image processing (CIFAR-10, ImageNet)
@@ -1596,7 +1596,7 @@ Congratulations! You now understand:
 - Object detection and segmentation
 - Modern vision transformers (ViT, DINO)
 
-**Keep experimenting!** Try the exercises above, visualize your learned filters, and explore the codebase. When you're ready for color images and deeper networks, move on to CIFAR-10 CNN (Tutorial 04, coming soon). Happy learning! 🚀
+**Keep experimenting!** Try the exercises above, visualize your learned filters, and explore the codebase. When you're ready for color images and deeper networks, move on to CIFAR-10 CNN (Tutorial 04, coming soon). Happy learning!
 
 ---
 

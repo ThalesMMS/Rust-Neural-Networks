@@ -748,7 +748,7 @@ writeln!(grad_log, "{},{},{:.4},{:.4}",
 | < 1e-7 | Severe vanishing | Fix immediately (change architecture) |
 | 1e-7 to 1e-5 | Vanishing | Adjust activation function or architecture |
 | 1e-5 to 1e-3 | Slightly low | Monitor, may be acceptable |
-| 1e-3 to 1.0 | **Healthy** | ✓ Good gradient flow |
+| 1e-3 to 1.0 | **Healthy** | Good gradient flow |
 | 1.0 to 10.0 | Slightly high | Monitor, usually acceptable |
 | 10.0 to 100.0 | High | Consider gradient clipping |
 | > 100.0 | Exploding | Fix immediately (reduce LR, add clipping) |

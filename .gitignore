@@ -4,3 +4,10 @@
 /logs
 /wasm/target
 data/cifar-10-binary.tar.gz
+data/cifar-10-batches-bin/data_batch_1.bin
+data/cifar-10-batches-bin/data_batch_2.bin
+data/cifar-10-batches-bin/data_batch_3.bin
+data/cifar-10-batches-bin/data_batch_4.bin
+data/cifar-10-batches-bin/data_batch_5.bin
+data/cifar-10-batches-bin/test_batch.bin
+transformer_mnist_model.bin

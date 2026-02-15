@@ -439,16 +439,16 @@ The demo is tested and supported on the following browsers:
 The demo requires the following browser features:
 
 **Essential:**
-- ✅ WebAssembly support (`WebAssembly.instantiate`)
-- ✅ ES6 Modules (`import`/`export`)
-- ✅ Canvas API (`<canvas>`, `getContext('2d')`)
-- ✅ Fetch API (`fetch()`, `Response.arrayBuffer()`)
-- ✅ Typed Arrays (`Float32Array`, `Uint8Array`)
+- WebAssembly support (`WebAssembly.instantiate`)
+- ES6 Modules (`import`/`export`)
+- Canvas API (`<canvas>`, `getContext('2d')`)
+- Fetch API (`fetch()`, `Response.arrayBuffer()`)
+- Typed Arrays (`Float32Array`, `Uint8Array`)
 
 **Progressive Enhancement:**
-- ✅ Touch Events (for mobile drawing)
-- ✅ CSS Grid (for responsive layout, fallback available)
-- ✅ CSS Custom Properties (for theming, graceful degradation)
+- Touch Events (for mobile drawing)
+- CSS Grid (for responsive layout, fallback available)
+- CSS Custom Properties (for theming, graceful degradation)
 
 **Check browser compatibility:**
 
@@ -926,6 +926,48 @@ jobs:
 https://your-username.github.io/rust-neural-networks/
 ```
 
+**Required GitHub Settings:**
+
+To enable GitHub Pages deployment:
+
+1. Navigate to **Repository Settings > Pages**
+   - **Source**: GitHub Actions
+   - **Build and deployment**: GitHub Actions (not "Deploy from a branch")
+
+2. The workflow requires these permissions (configured in the workflow file):
+   - `contents: read` - Read repository contents
+   - `pages: write` - Deploy to GitHub Pages
+   - `id-token: write` - OIDC token for deployment
+
+3. After the first successful deployment, the demo will be available at:
+   ```
+   https://<username>.github.io/<repository-name>/
+   ```
+
+**CI Caching:**
+
+The GitHub Actions workflow caches these directories for faster builds:
+- `~/.cargo/registry` - Cargo package registry
+- `~/.cargo/git` - Cargo git dependencies
+- `wasm/target` - Compiled artifacts
+
+This reduces build time from ~5-7 minutes (first run) to ~1-2 minutes (subsequent runs).
+
+**Security and Privacy:**
+
+The demo is safe to deploy publicly:
+- No sensitive data in model file (publicly available MNIST weights)
+- No API keys or credentials required
+- No server-side code execution
+- No user data stored or transmitted
+- All computation happens client-side
+
+Privacy benefits:
+- User drawings never leave their browser
+- No tracking or analytics (unless explicitly added)
+- No cookies or localStorage used
+- Completely static files
+
 ### Static Hosting
 
 The demo is a static site and can be hosted anywhere:
@@ -1132,10 +1174,10 @@ Contributions are welcome! To contribute to the WASM demo:
 The WebAssembly demo showcases Rust neural networks running efficiently in the browser. With near-native performance and no server required, it provides an accessible way for users to experience machine learning inference interactively.
 
 **Key Takeaways:**
-- ✅ Pure Rust implementation (no BLAS) compiles to WASM
-- ✅ Real-time inference (1-3ms) with interactive UI
-- ✅ Cross-browser compatible (Chrome, Firefox, Safari)
-- ✅ Static deployment (GitHub Pages, Netlify, etc.)
-- ✅ Educational and accessible for all users
+- Pure Rust implementation (no BLAS) compiles to WASM
+- Real-time inference (1-3ms) with interactive UI
+- Cross-browser compatible (Chrome, Firefox, Safari)
+- Static deployment (GitHub Pages, Netlify, etc.)
+- Educational and accessible for all users
 
 For questions or issues, please open an issue on the GitHub repository or consult the troubleshooting section above.

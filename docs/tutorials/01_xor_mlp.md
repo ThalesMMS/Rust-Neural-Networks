@@ -1069,7 +1069,7 @@ You've built your first neural network from scratch and understand the core prin
 4. **Parameter update:** Adjust weights to reduce loss
 5. **Iterate:** Repeat until convergence
 
-**Keep experimenting!** Try the exercises, modify the code, and when you're ready, continue to [Tutorial 02: MNIST MLP](02_mnist_mlp.md) to tackle real-world handwritten digit classification. Happy learning! 🚀
+**Keep experimenting!** Try the exercises, modify the code, and when you're ready, continue to [Tutorial 02: MNIST MLP](02_mnist_mlp.md) to tackle real-world handwritten digit classification. Happy learning!
 
 ---
 
