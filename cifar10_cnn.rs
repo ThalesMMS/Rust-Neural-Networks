@@ -1165,4 +1165,97 @@ mod tests {
         assert_eq!(out_labels[0], 0);
         assert_eq!(out_labels[1], 1);
     }
+
+    #[test]
+    fn test_forward_pass_relu_only_after_conv2d() {
+        // Build a small deep CNN: Conv2D -> Conv2D -> Conv2D -> Dense
+        // Input: 1 channel, 4x4 images
+        let mut rng = SimpleRng::new(42);
+
+        // Layer 0: Conv2D (in_ch=1, out_ch=2, kernel=3, padding=1, stride=1, H=4, W=4) -> output 2*4*4=32
+        let conv1 = Conv2DLayer::new(1, 2, 3, 1isize, 1, 4, 4, &mut rng);
+        // Layer 1: Conv2D (in_ch=2, out_ch=4, kernel=3, padding=1, stride=1, H=4, W=4) -> output 4*4*4=64
+        let conv2 = Conv2DLayer::new(2, 4, 3, 1isize, 1, 4, 4, &mut rng);
+        // Layer 2: Conv2D (in_ch=4, out_ch=2, kernel=3, padding=1, stride=1, H=4, W=4) -> output 2*4*4=32
+        let conv3 = Conv2DLayer::new(4, 2, 3, 1isize, 1, 4, 4, &mut rng);
+        // Layer 3: Dense (32 -> 10) - no ReLU should be applied here
+        let dense = DenseLayer::new(32, 10, &mut rng);
+
+        let mut model = Cnn {
+            layers: vec![
+                Box::new(conv1),
+                Box::new(conv2),
+                Box::new(conv3),
+                Box::new(dense),
+            ],
+        };
+
+        let batch_size = 2;
+        let input_size = 1 * 4 * 4; // 1 channel, 4x4 image
+        let input = vec![1.0f32; batch_size * input_size];
+
+        let num_layers = model.layers.len();
+        let mut activations = LayerActivations::new(num_layers);
+        let mut temp_buffer = Vec::new();
+
+        let output_idx = forward_pass(
+            &mut model,
+            batch_size,
+            &input,
+            &mut activations,
+            &mut temp_buffer,
+        );
+
+        // Output index should be the last layer
+        assert_eq!(output_idx, 3, "Output should be from the last layer (index 3)");
+
+        // Verify ReLU only applied after Conv2D layers (is_conv flag)
+        assert!(
+            activations.is_conv[0],
+            "Layer 0 (Conv2D) should be marked as conv"
+        );
+        assert!(
+            activations.is_conv[1],
+            "Layer 1 (Conv2D) should be marked as conv"
+        );
+        assert!(
+            activations.is_conv[2],
+            "Layer 2 (Conv2D) should be marked as conv"
+        );
+        // Dense layer should NOT be marked as conv (no ReLU)
+        assert!(
+            !activations.is_conv[3],
+            "Layer 3 (Dense) should NOT be marked as conv"
+        );
+
+        // All Conv2D layer activations must be non-negative (ReLU was applied)
+        for &val in &activations.data[0] {
+            assert!(
+                val >= 0.0,
+                "Conv2D layer 0 output must be >= 0 after ReLU, got {}",
+                val
+            );
+        }
+        for &val in &activations.data[1] {
+            assert!(
+                val >= 0.0,
+                "Conv2D layer 1 output must be >= 0 after ReLU, got {}",
+                val
+            );
+        }
+        for &val in &activations.data[2] {
+            assert!(
+                val >= 0.0,
+                "Conv2D layer 2 output must be >= 0 after ReLU, got {}",
+                val
+            );
+        }
+
+        // Dense layer output has the expected size (ReLU not applied, values unconstrained)
+        assert_eq!(
+            activations.data[3].len(),
+            batch_size * 10,
+            "Dense layer output should have batch_size * num_classes elements"
+        );
+    }
 }
