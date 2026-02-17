@@ -1,0 +1,25 @@
+{
+  "active": true,
+  "spec": "001-split-large-lstm-layer-file-into-modules",
+  "state": "building",
+  "subtasks": {
+    "completed": 5,
+    "total": 6,
+    "in_progress": 1,
+    "failed": 0
+  },
+  "phase": {
+    "current": "Verify Correctness and Run Tests",
+    "id": null,
+    "total": 2
+  },
+  "workers": {
+    "active": 0,
+    "max": 1
+  },
+  "session": {
+    "number": 7,
+    "started_at": "2026-02-17T00:11:56.256557"
+  },
+  "last_update": "2026-02-17T00:38:15.872073"
+}
