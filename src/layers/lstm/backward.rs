@@ -549,8 +549,7 @@ impl LstmLayer {
             for b in 0..batch_size {
                 for h in 0..self.hidden_size {
                     let idx = b * self.hidden_size + h;
-                    grad_c_prev_out[h] +=
-                        grad_cell_state[idx] * forget_gate_batch[idx];
+                    grad_c_prev_out[h] += grad_cell_state[idx] * forget_gate_batch[idx];
                 }
             }
             for h in 0..self.hidden_size {
@@ -1232,8 +1231,7 @@ impl LstmLayer {
             for b in 0..batch_size {
                 for h in 0..self.hidden_size {
                     let idx = b * self.hidden_size + h;
-                    grad_c_prev_out[h] +=
-                        grad_cell_state[idx] * forget_gate_batch[idx];
+                    grad_c_prev_out[h] += grad_cell_state[idx] * forget_gate_batch[idx];
                 }
             }
             for h in 0..self.hidden_size {

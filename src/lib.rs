@@ -14,6 +14,7 @@
 //! - `sweep`: Hyperparameter sweep configuration structures
 
 pub mod architecture;
+pub mod benchmark;
 pub mod config;
 pub mod data;
 pub mod layers;

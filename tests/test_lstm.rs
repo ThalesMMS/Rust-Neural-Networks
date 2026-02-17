@@ -916,11 +916,7 @@ fn test_lstm_gradient_flow_through_gates() {
 
 /// Compute total MSE loss over a sequence of time steps.
 /// Loss = sum_t 0.5 * sum_i (target_t[i] - output_t[i])^2
-fn compute_sequence_loss(
-    layer: &LstmLayer,
-    inputs: &[Vec<f32>],
-    targets: &[Vec<f32>],
-) -> f32 {
+fn compute_sequence_loss(layer: &LstmLayer, inputs: &[Vec<f32>], targets: &[Vec<f32>]) -> f32 {
     layer.reset_state();
     let output_size = layer.output_size();
     let mut total_loss = 0.0f32;
@@ -1095,8 +1091,14 @@ fn test_bptt_nonzero_incoming_changes_result() {
     let dh_next: Vec<f32> = (0..hidden_size).map(|i| 0.1 * (i as f32)).collect();
     let dc_next: Vec<f32> = (0..hidden_size).map(|i| -0.05 * (i as f32)).collect();
     let mut grad_input_b = vec![0.0f32; input_size];
-    let (dh_prev_b, dc_prev_b) =
-        layer_b.backward_bptt(&input, &grad_output, &mut grad_input_b, &dh_next, &dc_next, 1);
+    let (dh_prev_b, dc_prev_b) = layer_b.backward_bptt(
+        &input,
+        &grad_output,
+        &mut grad_input_b,
+        &dh_next,
+        &dc_next,
+        1,
+    );
 
     // All returned values should be finite
     assert!(dh_prev_b.iter().all(|&x| x.is_finite()), "dh_prev_b finite");

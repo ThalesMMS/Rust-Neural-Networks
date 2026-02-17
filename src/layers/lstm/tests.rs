@@ -259,12 +259,26 @@ fn test_lstm_backward_bptt_returns_state_gradients() {
     let grad_output = vec![1.0f32, -1.0];
     let mut grad_input = vec![0.0f32; input_size];
 
-    let (dh_prev, dc_prev) =
-        layer.backward_bptt(&input, &grad_output, &mut grad_input, &dh_next, &dc_next, batch_size);
+    let (dh_prev, dc_prev) = layer.backward_bptt(
+        &input,
+        &grad_output,
+        &mut grad_input,
+        &dh_next,
+        &dc_next,
+        batch_size,
+    );
 
     // Returned state gradients must have correct size
-    assert_eq!(dh_prev.len(), hidden_size, "dh_prev must have length hidden_size");
-    assert_eq!(dc_prev.len(), hidden_size, "dc_prev must have length hidden_size");
+    assert_eq!(
+        dh_prev.len(),
+        hidden_size,
+        "dh_prev must have length hidden_size"
+    );
+    assert_eq!(
+        dc_prev.len(),
+        hidden_size,
+        "dc_prev must have length hidden_size"
+    );
 
     // All values must be finite
     assert!(
@@ -324,14 +338,26 @@ fn test_lstm_backward_bptt_non_zero_incoming_changes_gradients() {
     // Run A with zero incoming gradients
     let dh_zero = vec![0.0f32; hidden_size];
     let dc_zero = vec![0.0f32; hidden_size];
-    let (dh_prev_zero, dc_prev_zero) =
-        layer_a.backward_bptt(&input, &grad_output, &mut grad_input_a, &dh_zero, &dc_zero, batch_size);
+    let (dh_prev_zero, dc_prev_zero) = layer_a.backward_bptt(
+        &input,
+        &grad_output,
+        &mut grad_input_a,
+        &dh_zero,
+        &dc_zero,
+        batch_size,
+    );
 
     // Run B with non-zero incoming gradients
     let dh_nonzero = vec![0.5f32; hidden_size];
     let dc_nonzero = vec![0.3f32; hidden_size];
-    let (dh_prev_nonzero, dc_prev_nonzero) =
-        layer_b.backward_bptt(&input, &grad_output, &mut grad_input_b, &dh_nonzero, &dc_nonzero, batch_size);
+    let (dh_prev_nonzero, dc_prev_nonzero) = layer_b.backward_bptt(
+        &input,
+        &grad_output,
+        &mut grad_input_b,
+        &dh_nonzero,
+        &dc_nonzero,
+        batch_size,
+    );
 
     // Non-zero incoming gradients should produce different (larger magnitude) returned gradients
     assert_ne!(
@@ -372,7 +398,12 @@ fn test_lstm_backward_bptt_accumulates_weight_gradients() {
     let grad_output_t1 = vec![1.0f32, -1.0];
     let mut grad_input_t1 = vec![0.0f32; input_size];
     layer.backward_bptt(
-        &input_t1, &grad_output_t1, &mut grad_input_t1, &dh_zero, &dc_zero, batch_size,
+        &input_t1,
+        &grad_output_t1,
+        &mut grad_input_t1,
+        &dh_zero,
+        &dc_zero,
+        batch_size,
     );
 
     // W_hy depends on h_t (always non-zero after forward) – verify it is accumulated
@@ -397,7 +428,12 @@ fn test_lstm_backward_bptt_accumulates_weight_gradients() {
     let grad_output_t2 = vec![0.5f32, 0.5];
     let mut grad_input_t2 = vec![0.0f32; input_size];
     layer.backward_bptt(
-        &input_t2, &grad_output_t2, &mut grad_input_t2, &dh_zero, &dc_zero, batch_size,
+        &input_t2,
+        &grad_output_t2,
+        &mut grad_input_t2,
+        &dh_zero,
+        &dc_zero,
+        batch_size,
     );
 
     // Gradients must have changed (second call accumulated on top of first)
@@ -432,9 +468,7 @@ fn test_lstm_backward_bptt_sequence_full_pass() {
     let inputs: Vec<Vec<f32>> = (0..seq_len)
         .map(|t| vec![(t as f32 + 1.0) * 0.1; input_size])
         .collect();
-    let mut outputs: Vec<Vec<f32>> = (0..seq_len)
-        .map(|_| vec![0.0f32; output_size])
-        .collect();
+    let mut outputs: Vec<Vec<f32>> = (0..seq_len).map(|_| vec![0.0f32; output_size]).collect();
 
     for t in 0..seq_len {
         layer.forward(&inputs[t], &mut outputs[t], batch_size);

@@ -1,0 +1,26 @@
+{
+  "description": "Baseline performance thresholds for regression detection. Values are intentionally lenient to accommodate variability across CI machines.",
+  "version": "1.0.0",
+  "architectures": [
+    {
+      "name": "mlp",
+      "max_acceptable_latency_ms": 5000.0,
+      "min_acceptable_throughput_samples_per_sec": 1.0
+    },
+    {
+      "name": "cnn",
+      "max_acceptable_latency_ms": 10000.0,
+      "min_acceptable_throughput_samples_per_sec": 0.5
+    },
+    {
+      "name": "lstm",
+      "max_acceptable_latency_ms": 10000.0,
+      "min_acceptable_throughput_samples_per_sec": 0.5
+    },
+    {
+      "name": "attention",
+      "max_acceptable_latency_ms": 10000.0,
+      "min_acceptable_throughput_samples_per_sec": 0.5
+    }
+  ]
+}

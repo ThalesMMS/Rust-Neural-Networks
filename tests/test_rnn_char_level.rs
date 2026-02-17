@@ -139,7 +139,10 @@ fn test_char_vocab_from_text() {
     let vocab = CharVocab::from_text(text);
 
     // Should have exactly 3 unique characters
-    assert_eq!(vocab.vocab_size, 3, "Vocabulary should contain 3 unique chars");
+    assert_eq!(
+        vocab.vocab_size, 3,
+        "Vocabulary should contain 3 unique chars"
+    );
 
     // Characters should be sorted: a, b, c
     assert_eq!(vocab.idx_to_char[0], 'a');
@@ -157,14 +160,20 @@ fn test_char_vocab_deduplication() {
     // Repeated characters should produce the correct unique count
     let text = "aaabbbccc";
     let vocab = CharVocab::from_text(text);
-    assert_eq!(vocab.vocab_size, 3, "Duplicate chars should be deduplicated");
+    assert_eq!(
+        vocab.vocab_size, 3,
+        "Duplicate chars should be deduplicated"
+    );
 }
 
 #[test]
 fn test_char_vocab_single_char() {
     let text = "aaaa";
     let vocab = CharVocab::from_text(text);
-    assert_eq!(vocab.vocab_size, 1, "All same chars should produce vocab of size 1");
+    assert_eq!(
+        vocab.vocab_size, 1,
+        "All same chars should produce vocab of size 1"
+    );
     assert_eq!(vocab.idx_to_char[0], 'a');
 }
 
@@ -174,14 +183,30 @@ fn test_char_vocab_onehot_encoding() {
     let vocab = CharVocab::from_text(text);
 
     let onehot_a = vocab.char_to_onehot('a');
-    assert_eq!(onehot_a.len(), 3, "One-hot vector should have length equal to vocab_size");
-    assert_eq!(onehot_a, vec![1.0, 0.0, 0.0], "One-hot for 'a' should be [1,0,0]");
+    assert_eq!(
+        onehot_a.len(),
+        3,
+        "One-hot vector should have length equal to vocab_size"
+    );
+    assert_eq!(
+        onehot_a,
+        vec![1.0, 0.0, 0.0],
+        "One-hot for 'a' should be [1,0,0]"
+    );
 
     let onehot_b = vocab.char_to_onehot('b');
-    assert_eq!(onehot_b, vec![0.0, 1.0, 0.0], "One-hot for 'b' should be [0,1,0]");
+    assert_eq!(
+        onehot_b,
+        vec![0.0, 1.0, 0.0],
+        "One-hot for 'b' should be [0,1,0]"
+    );
 
     let onehot_c = vocab.char_to_onehot('c');
-    assert_eq!(onehot_c, vec![0.0, 0.0, 1.0], "One-hot for 'c' should be [0,0,1]");
+    assert_eq!(
+        onehot_c,
+        vec![0.0, 0.0, 1.0],
+        "One-hot for 'c' should be [0,0,1]"
+    );
 }
 
 #[test]
@@ -201,7 +226,11 @@ fn test_char_vocab_onehot_sums_to_one() {
 
         // Exactly one element should be 1.0
         let ones = onehot.iter().filter(|&&x| x == 1.0).count();
-        assert_eq!(ones, 1, "One-hot vector for '{}' should have exactly one 1.0", ch);
+        assert_eq!(
+            ones, 1,
+            "One-hot vector for '{}' should have exactly one 1.0",
+            ch
+        );
     }
 }
 
@@ -284,16 +313,35 @@ fn test_char_level_training_reduces_loss() {
     let gradient_clip_norm = 5.0f32;
 
     // Compute initial loss before any training
-    let initial_loss = compute_epoch_loss(&lstm, &vocab, &text_chars, sequence_length, gradient_clip_norm);
+    let initial_loss = compute_epoch_loss(
+        &lstm,
+        &vocab,
+        &text_chars,
+        sequence_length,
+        gradient_clip_norm,
+    );
 
     // Train for several epochs
     let epochs = 30;
     for _ in 0..epochs {
-        train_one_epoch(&mut lstm, &vocab, &text_chars, sequence_length, learning_rate, gradient_clip_norm);
+        train_one_epoch(
+            &mut lstm,
+            &vocab,
+            &text_chars,
+            sequence_length,
+            learning_rate,
+            gradient_clip_norm,
+        );
     }
 
     // Compute final loss after training
-    let final_loss = compute_epoch_loss(&lstm, &vocab, &text_chars, sequence_length, gradient_clip_norm);
+    let final_loss = compute_epoch_loss(
+        &lstm,
+        &vocab,
+        &text_chars,
+        sequence_length,
+        gradient_clip_norm,
+    );
 
     assert!(
         final_loss < initial_loss,
@@ -341,7 +389,14 @@ fn test_char_level_training_all_outputs_finite() {
             );
         }
 
-        train_one_epoch(&mut lstm, &vocab, &text_chars, sequence_length, learning_rate, gradient_clip_norm);
+        train_one_epoch(
+            &mut lstm,
+            &vocab,
+            &text_chars,
+            sequence_length,
+            learning_rate,
+            gradient_clip_norm,
+        );
     }
 }
 
@@ -366,17 +421,21 @@ fn test_char_level_generation_produces_valid_chars() {
     let gradient_clip_norm = 5.0f32;
 
     for _ in 0..20 {
-        train_one_epoch(&mut lstm, &vocab, &text_chars, sequence_length, learning_rate, gradient_clip_norm);
+        train_one_epoch(
+            &mut lstm,
+            &vocab,
+            &text_chars,
+            sequence_length,
+            learning_rate,
+            gradient_clip_norm,
+        );
     }
 
     // Generate text and verify every character is in the vocabulary
     let mut sample_rng = SimpleRng::new(7);
     let generated = generate_text(&lstm, &vocab, "a", 20, &mut sample_rng);
 
-    assert!(
-        !generated.is_empty(),
-        "Generated text should not be empty"
-    );
+    assert!(!generated.is_empty(), "Generated text should not be empty");
 
     for ch in generated.chars() {
         assert!(
@@ -544,14 +603,33 @@ fn test_char_level_bptt_loss_decreases() {
     let gradient_clip_norm_value = 5.0f32;
 
     // Measure initial loss
-    let initial_loss = compute_epoch_loss(&lstm, &vocab, &text_chars, sequence_length, gradient_clip_norm_value);
+    let initial_loss = compute_epoch_loss(
+        &lstm,
+        &vocab,
+        &text_chars,
+        sequence_length,
+        gradient_clip_norm_value,
+    );
 
     // Train using BPTT for several epochs
     for _ in 0..40 {
-        train_one_epoch(&mut lstm, &vocab, &text_chars, sequence_length, learning_rate, gradient_clip_norm_value);
+        train_one_epoch(
+            &mut lstm,
+            &vocab,
+            &text_chars,
+            sequence_length,
+            learning_rate,
+            gradient_clip_norm_value,
+        );
     }
 
-    let final_loss = compute_epoch_loss(&lstm, &vocab, &text_chars, sequence_length, gradient_clip_norm_value);
+    let final_loss = compute_epoch_loss(
+        &lstm,
+        &vocab,
+        &text_chars,
+        sequence_length,
+        gradient_clip_norm_value,
+    );
 
     assert!(
         final_loss < initial_loss,

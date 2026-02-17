@@ -1,0 +1,30 @@
+{
+  "warmup_iterations": 5,
+  "measure_iterations": 20,
+  "batch_sizes": [1, 16, 64, 128],
+  "architectures": {
+    "mlp": {
+      "input_size": 784,
+      "hidden_size": 512,
+      "output_size": 10
+    },
+    "cnn": {
+      "in_channels": 1,
+      "filters": 8,
+      "kernel_size": 3,
+      "stride": 1,
+      "padding": 1,
+      "height": 28,
+      "width": 28
+    },
+    "lstm": {
+      "input_size": 28,
+      "hidden_size": 64,
+      "output_size": 10
+    },
+    "attention": {
+      "embed_dim": 64,
+      "num_heads": 4
+    }
+  }
+}
