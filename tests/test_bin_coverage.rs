@@ -179,6 +179,44 @@ mod mlp_simple_bin {
 }
 
 #[allow(dead_code)]
+mod cifar10_cnn_bin {
+    include!("../cifar10_cnn.rs");
+
+    #[cfg(test)]
+    mod coverage_tests {
+        use super::*;
+
+        #[test]
+        fn test_scheduler_from_args_without_config() {
+            let learning_rate = 0.01;
+            let epochs = 10;
+            let mut scheduler = scheduler_from_args(learning_rate, epochs, None);
+            let lr = scheduler.get_lr();
+            scheduler.step();
+            assert_eq!(scheduler.get_lr(), lr);
+        }
+
+        #[test]
+        fn test_scheduler_from_args_step_decay() {
+            let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 2,
+  "gamma": 0.5
+}"#;
+            let temp = crate::write_temp_config(config_json);
+            let learning_rate = 0.01;
+            let epochs = 10;
+            let config_path = temp.path().to_str().unwrap();
+            let mut scheduler = scheduler_from_args(learning_rate, epochs, Some(config_path));
+            scheduler.step();
+            assert_eq!(scheduler.get_lr(), learning_rate);
+            scheduler.step();
+            assert!((scheduler.get_lr() - learning_rate * 0.5).abs() < 1e-6);
+        }
+    }
+}
+
+#[allow(dead_code)]
 mod mnist_attention_pool_bin {
     include!("../mnist_attention_pool.rs");
 
