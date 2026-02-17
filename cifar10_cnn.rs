@@ -1318,4 +1318,129 @@ mod tests {
             "Dense layer output should have batch_size * num_classes elements"
         );
     }
+
+    #[test]
+    fn test_create_optimizer_from_config() {
+        use rust_neural_networks::config::TrainingConfig;
+
+        // Helper to build a minimal TrainingConfig with a given optimizer_type
+        fn make_config(optimizer_type: Option<&str>) -> TrainingConfig {
+            TrainingConfig {
+                scheduler_type: "none".to_string(),
+                step_size: None,
+                gamma: None,
+                decay_rate: None,
+                min_lr: None,
+                T_max: None,
+                activation_function: None,
+                leaky_relu_alpha: None,
+                elu_alpha: None,
+                optimizer_type: optimizer_type.map(|s| s.to_string()),
+                adam_beta1: None,
+                adam_beta2: None,
+                adam_epsilon: None,
+                adamw_weight_decay: None,
+                rmsprop_decay: None,
+                rmsprop_epsilon: None,
+                learning_rate: None,
+                epochs: None,
+                batch_size: None,
+                validation_split: None,
+                early_stopping_patience: None,
+                early_stopping_min_delta: None,
+                enable_augmentation: None,
+                horizontal_flip_prob: None,
+                random_crop_padding: None,
+                brightness_jitter: None,
+                contrast_jitter: None,
+                saturation_jitter: None,
+            }
+        }
+
+        let lr = 0.01f32;
+
+        // Test SGD optimizer
+        let config = make_config(Some("sgd"));
+        let opt = create_optimizer(&config, lr);
+        assert!(
+            (opt.learning_rate() - lr).abs() < 1e-6,
+            "SGD optimizer should have learning_rate {}, got {}",
+            lr,
+            opt.learning_rate()
+        );
+
+        // Test Adam optimizer
+        let config = make_config(Some("adam"));
+        let opt = create_optimizer(&config, lr);
+        assert!(
+            (opt.learning_rate() - lr).abs() < 1e-6,
+            "Adam optimizer should have learning_rate {}, got {}",
+            lr,
+            opt.learning_rate()
+        );
+
+        // Test AdamW optimizer
+        let config = make_config(Some("adamw"));
+        let opt = create_optimizer(&config, lr);
+        assert!(
+            (opt.learning_rate() - lr).abs() < 1e-6,
+            "AdamW optimizer should have learning_rate {}, got {}",
+            lr,
+            opt.learning_rate()
+        );
+
+        // Test RMSprop optimizer
+        let config = make_config(Some("rmsprop"));
+        let opt = create_optimizer(&config, lr);
+        assert!(
+            (opt.learning_rate() - lr).abs() < 1e-6,
+            "RMSprop optimizer should have learning_rate {}, got {}",
+            lr,
+            opt.learning_rate()
+        );
+
+        // Test None optimizer_type defaults to AdamW (learning_rate should be set correctly)
+        let config = make_config(None);
+        let opt = create_optimizer(&config, lr);
+        assert!(
+            (opt.learning_rate() - lr).abs() < 1e-6,
+            "Default (None) optimizer should have learning_rate {}, got {}",
+            lr,
+            opt.learning_rate()
+        );
+
+        // Test unknown optimizer_type falls back to AdamW
+        let config = make_config(Some("unknown_type"));
+        let opt = create_optimizer(&config, lr);
+        assert!(
+            (opt.learning_rate() - lr).abs() < 1e-6,
+            "Unknown optimizer type should fall back to AdamW with learning_rate {}, got {}",
+            lr,
+            opt.learning_rate()
+        );
+
+        // Test with non-default hyperparameters (Adam with custom beta1/beta2/epsilon)
+        let mut adam_config = make_config(Some("adam"));
+        adam_config.adam_beta1 = Some(0.95);
+        adam_config.adam_beta2 = Some(0.998);
+        adam_config.adam_epsilon = Some(1e-7);
+        let opt = create_optimizer(&adam_config, lr);
+        assert!(
+            (opt.learning_rate() - lr).abs() < 1e-6,
+            "Adam optimizer with custom hyperparams should have learning_rate {}, got {}",
+            lr,
+            opt.learning_rate()
+        );
+
+        // Test with AdamW weight decay set
+        let mut adamw_config = make_config(Some("adamw"));
+        adamw_config.adamw_weight_decay = Some(0.001);
+        let opt = create_optimizer(&adamw_config, lr);
+        assert!(
+            (opt.learning_rate() - lr).abs() < 1e-6,
+            "AdamW optimizer with custom weight_decay should have learning_rate {}, got {}",
+            lr,
+            opt.learning_rate()
+        );
+    }
 }
