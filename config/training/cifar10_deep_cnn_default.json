@@ -1,9 +1,9 @@
 {
   "optimizer_type": "adamw",
-  "beta1": 0.9,
-  "beta2": 0.999,
-  "epsilon": 1e-8,
-  "weight_decay": 0.01,
+  "adam_beta1": 0.9,
+  "adam_beta2": 0.999,
+  "adam_epsilon": 1e-8,
+  "adamw_weight_decay": 0.01,
   "scheduler_type": "cosine_annealing",
   "learning_rate": 0.001,
   "min_lr": 0.00001,

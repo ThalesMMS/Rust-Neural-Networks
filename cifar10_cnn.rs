@@ -17,8 +17,10 @@ use std::process;
 use std::time::Instant;
 
 use rust_neural_networks::architecture::{build_model, load_architecture};
-use rust_neural_networks::config::load_config;
+use rust_neural_networks::config::{load_config, TrainingConfig};
 use rust_neural_networks::data::cifar10::{read_cifar10_batch, read_cifar10_batches};
+use rust_neural_networks::optimizers::{Adam, AdamW, Optimizer, SGD};
+use rust_neural_networks::optimizers::rmsprop::RMSprop;
 pub use rust_neural_networks::layers::{
     batchnorm::BatchNormLayer, dropout::DropoutLayer, Conv2DLayer, DenseLayer, Layer,
 };
@@ -337,7 +339,7 @@ fn forward_pass(
         layer.forward(input, &mut activations.data[0], batch_size);
 
         // Detect if this is a Conv2D layer and apply ReLU
-        activations.is_conv[0] = (output_size / batch_size) > 5000;
+        activations.is_conv[0] = layer.as_any().downcast_ref::<Conv2DLayer>().is_some();
         if activations.is_conv[0] {
             relu_inplace(&mut activations.data[0]);
         }
@@ -356,7 +358,7 @@ fn forward_pass(
         model.layers[i].forward(prev_output, curr_output, batch_size);
 
         // Detect if this is a Conv2D layer and apply ReLU
-        activations.is_conv[i] = (output_size / batch_size) > 5000;
+        activations.is_conv[i] = model.layers[i].as_any().downcast_ref::<Conv2DLayer>().is_some();
         if activations.is_conv[i] {
             relu_inplace(curr_output);
         }
@@ -689,6 +691,49 @@ fn scheduler_from_args(
     create_scheduler_from_config(learning_rate, epochs, config_path)
 }
 
+/// Creates an optimizer based on the training configuration.
+///
+/// Reads `optimizer_type` from the config (defaulting to "adamw") and constructs
+/// the appropriate optimizer with hyperparameters from the config or sensible defaults.
+///
+/// # Arguments
+///
+/// * `config` - Training configuration containing optimizer settings
+/// * `lr` - Initial learning rate for the optimizer
+///
+/// # Returns
+///
+/// A boxed optimizer implementing the `Optimizer` trait.
+///
+/// # Supported optimizer types
+///
+/// - `"sgd"`: Stochastic Gradient Descent
+/// - `"adam"`: Adam optimizer
+/// - `"adamw"`: AdamW (Adam with decoupled weight decay)
+/// - `"rmsprop"`: RMSprop optimizer
+/// - Unknown types default to AdamW with a warning.
+fn create_optimizer(config: &TrainingConfig, lr: f32) -> Box<dyn Optimizer> {
+    let optimizer_type = config.optimizer_type.as_deref().unwrap_or("adamw");
+    let beta1 = config.adam_beta1.unwrap_or(0.9);
+    let beta2 = config.adam_beta2.unwrap_or(0.999);
+    let epsilon = config.adam_epsilon.unwrap_or(1e-8);
+    let weight_decay = config.adamw_weight_decay.unwrap_or(0.01);
+
+    match optimizer_type {
+        "sgd" => Box::new(SGD::new(lr)),
+        "adam" => Box::new(Adam::new(lr, beta1, beta2, epsilon)),
+        "adamw" => Box::new(AdamW::new(lr, beta1, beta2, epsilon, weight_decay)),
+        "rmsprop" => Box::new(RMSprop::new(lr, 0.9, epsilon)),
+        _ => {
+            eprintln!(
+                "Unknown optimizer type: '{}', defaulting to AdamW",
+                optimizer_type
+            );
+            Box::new(AdamW::new(lr, beta1, beta2, epsilon, weight_decay))
+        }
+    }
+}
+
 /// Parse command-line arguments to get config file paths.
 /// Returns a tuple of (training_config_path, architecture_config_path).
 /// Supports --config for training config and --arch for architecture config.
@@ -873,6 +918,16 @@ fn main() {
 
     let mut model = init_cnn(&mut rng, arch_path.as_deref());
 
+    // Create per-layer optimizers (one per layer to avoid shared optimizer state issues
+    // with different parameter sizes across layers)
+    let mut layer_optimizers: Vec<Box<dyn Optimizer>> = (0..model.layers.len())
+        .map(|_| create_optimizer(&config, learning_rate))
+        .collect();
+
+    // Print optimizer info
+    let optimizer_type = config.optimizer_type.as_deref().unwrap_or("adamw");
+    println!("Optimizer: {}", optimizer_type.to_uppercase());
+
     // Create learning rate scheduler
     let mut scheduler = scheduler_from_args(learning_rate, epochs, Some(&config_path));
 
@@ -919,6 +974,11 @@ fn main() {
         let start_time = Instant::now();
         rng.shuffle_usize(&mut indices);
         let current_lr = scheduler.get_lr();
+
+        // Update learning rate on all per-layer optimizers
+        for opt in layer_optimizers.iter_mut() {
+            opt.set_learning_rate(current_lr);
+        }
 
         // Set BatchNorm and Dropout to training mode
         set_training_mode(&mut model, true);
@@ -1000,9 +1060,9 @@ fn main() {
                 &mut grad_buffer2,
             );
 
-            // Update parameters for all layers
-            for layer in &mut model.layers {
-                layer.update_parameters(current_lr);
+            // Update parameters for all layers using per-layer optimizers
+            for (layer, opt) in model.layers.iter_mut().zip(layer_optimizers.iter_mut()) {
+                layer.update_with_optimizer(opt.as_mut());
             }
 
             // Print progress every 100 batches
@@ -1164,5 +1224,223 @@ mod tests {
 
         assert_eq!(out_labels[0], 0);
         assert_eq!(out_labels[1], 1);
+    }
+
+    #[test]
+    fn test_forward_pass_relu_only_after_conv2d() {
+        // Build a small deep CNN: Conv2D -> Conv2D -> Conv2D -> Dense
+        // Input: 1 channel, 4x4 images
+        let mut rng = SimpleRng::new(42);
+
+        // Layer 0: Conv2D (in_ch=1, out_ch=2, kernel=3, padding=1, stride=1, H=4, W=4) -> output 2*4*4=32
+        let conv1 = Conv2DLayer::new(1, 2, 3, 1isize, 1, 4, 4, &mut rng);
+        // Layer 1: Conv2D (in_ch=2, out_ch=4, kernel=3, padding=1, stride=1, H=4, W=4) -> output 4*4*4=64
+        let conv2 = Conv2DLayer::new(2, 4, 3, 1isize, 1, 4, 4, &mut rng);
+        // Layer 2: Conv2D (in_ch=4, out_ch=2, kernel=3, padding=1, stride=1, H=4, W=4) -> output 2*4*4=32
+        let conv3 = Conv2DLayer::new(4, 2, 3, 1isize, 1, 4, 4, &mut rng);
+        // Layer 3: Dense (32 -> 10) - no ReLU should be applied here
+        let dense = DenseLayer::new(32, 10, &mut rng);
+
+        let mut model = Cnn {
+            layers: vec![
+                Box::new(conv1),
+                Box::new(conv2),
+                Box::new(conv3),
+                Box::new(dense),
+            ],
+        };
+
+        let batch_size = 2;
+        let input_size = 1 * 4 * 4; // 1 channel, 4x4 image
+        let input = vec![1.0f32; batch_size * input_size];
+
+        let num_layers = model.layers.len();
+        let mut activations = LayerActivations::new(num_layers);
+        let mut temp_buffer = Vec::new();
+
+        let output_idx = forward_pass(
+            &mut model,
+            batch_size,
+            &input,
+            &mut activations,
+            &mut temp_buffer,
+        );
+
+        // Output index should be the last layer
+        assert_eq!(output_idx, 3, "Output should be from the last layer (index 3)");
+
+        // Verify ReLU only applied after Conv2D layers (is_conv flag)
+        assert!(
+            activations.is_conv[0],
+            "Layer 0 (Conv2D) should be marked as conv"
+        );
+        assert!(
+            activations.is_conv[1],
+            "Layer 1 (Conv2D) should be marked as conv"
+        );
+        assert!(
+            activations.is_conv[2],
+            "Layer 2 (Conv2D) should be marked as conv"
+        );
+        // Dense layer should NOT be marked as conv (no ReLU)
+        assert!(
+            !activations.is_conv[3],
+            "Layer 3 (Dense) should NOT be marked as conv"
+        );
+
+        // All Conv2D layer activations must be non-negative (ReLU was applied)
+        for &val in &activations.data[0] {
+            assert!(
+                val >= 0.0,
+                "Conv2D layer 0 output must be >= 0 after ReLU, got {}",
+                val
+            );
+        }
+        for &val in &activations.data[1] {
+            assert!(
+                val >= 0.0,
+                "Conv2D layer 1 output must be >= 0 after ReLU, got {}",
+                val
+            );
+        }
+        for &val in &activations.data[2] {
+            assert!(
+                val >= 0.0,
+                "Conv2D layer 2 output must be >= 0 after ReLU, got {}",
+                val
+            );
+        }
+
+        // Dense layer output has the expected size (ReLU not applied, values unconstrained)
+        assert_eq!(
+            activations.data[3].len(),
+            batch_size * 10,
+            "Dense layer output should have batch_size * num_classes elements"
+        );
+    }
+
+    #[test]
+    fn test_create_optimizer_from_config() {
+        use rust_neural_networks::config::TrainingConfig;
+
+        // Helper to build a minimal TrainingConfig with a given optimizer_type
+        fn make_config(optimizer_type: Option<&str>) -> TrainingConfig {
+            TrainingConfig {
+                scheduler_type: "none".to_string(),
+                step_size: None,
+                gamma: None,
+                decay_rate: None,
+                min_lr: None,
+                T_max: None,
+                activation_function: None,
+                leaky_relu_alpha: None,
+                elu_alpha: None,
+                optimizer_type: optimizer_type.map(|s| s.to_string()),
+                adam_beta1: None,
+                adam_beta2: None,
+                adam_epsilon: None,
+                adamw_weight_decay: None,
+                rmsprop_decay: None,
+                rmsprop_epsilon: None,
+                learning_rate: None,
+                epochs: None,
+                batch_size: None,
+                validation_split: None,
+                early_stopping_patience: None,
+                early_stopping_min_delta: None,
+                enable_augmentation: None,
+                horizontal_flip_prob: None,
+                random_crop_padding: None,
+                brightness_jitter: None,
+                contrast_jitter: None,
+                saturation_jitter: None,
+            }
+        }
+
+        let lr = 0.01f32;
+
+        // Test SGD optimizer
+        let config = make_config(Some("sgd"));
+        let opt = create_optimizer(&config, lr);
+        assert!(
+            (opt.learning_rate() - lr).abs() < 1e-6,
+            "SGD optimizer should have learning_rate {}, got {}",
+            lr,
+            opt.learning_rate()
+        );
+
+        // Test Adam optimizer
+        let config = make_config(Some("adam"));
+        let opt = create_optimizer(&config, lr);
+        assert!(
+            (opt.learning_rate() - lr).abs() < 1e-6,
+            "Adam optimizer should have learning_rate {}, got {}",
+            lr,
+            opt.learning_rate()
+        );
+
+        // Test AdamW optimizer
+        let config = make_config(Some("adamw"));
+        let opt = create_optimizer(&config, lr);
+        assert!(
+            (opt.learning_rate() - lr).abs() < 1e-6,
+            "AdamW optimizer should have learning_rate {}, got {}",
+            lr,
+            opt.learning_rate()
+        );
+
+        // Test RMSprop optimizer
+        let config = make_config(Some("rmsprop"));
+        let opt = create_optimizer(&config, lr);
+        assert!(
+            (opt.learning_rate() - lr).abs() < 1e-6,
+            "RMSprop optimizer should have learning_rate {}, got {}",
+            lr,
+            opt.learning_rate()
+        );
+
+        // Test None optimizer_type defaults to AdamW (learning_rate should be set correctly)
+        let config = make_config(None);
+        let opt = create_optimizer(&config, lr);
+        assert!(
+            (opt.learning_rate() - lr).abs() < 1e-6,
+            "Default (None) optimizer should have learning_rate {}, got {}",
+            lr,
+            opt.learning_rate()
+        );
+
+        // Test unknown optimizer_type falls back to AdamW
+        let config = make_config(Some("unknown_type"));
+        let opt = create_optimizer(&config, lr);
+        assert!(
+            (opt.learning_rate() - lr).abs() < 1e-6,
+            "Unknown optimizer type should fall back to AdamW with learning_rate {}, got {}",
+            lr,
+            opt.learning_rate()
+        );
+
+        // Test with non-default hyperparameters (Adam with custom beta1/beta2/epsilon)
+        let mut adam_config = make_config(Some("adam"));
+        adam_config.adam_beta1 = Some(0.95);
+        adam_config.adam_beta2 = Some(0.998);
+        adam_config.adam_epsilon = Some(1e-7);
+        let opt = create_optimizer(&adam_config, lr);
+        assert!(
+            (opt.learning_rate() - lr).abs() < 1e-6,
+            "Adam optimizer with custom hyperparams should have learning_rate {}, got {}",
+            lr,
+            opt.learning_rate()
+        );
+
+        // Test with AdamW weight decay set
+        let mut adamw_config = make_config(Some("adamw"));
+        adamw_config.adamw_weight_decay = Some(0.001);
+        let opt = create_optimizer(&adamw_config, lr);
+        assert!(
+            (opt.learning_rate() - lr).abs() < 1e-6,
+            "AdamW optimizer with custom weight_decay should have learning_rate {}, got {}",
+            lr,
+            opt.learning_rate()
+        );
     }
 }
