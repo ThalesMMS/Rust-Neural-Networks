@@ -904,6 +904,35 @@ impl Layer for Conv2DLayer {
         self.weights.len() + self.biases.len()
     }
 
+    /// Estimated FLOPS for a Conv2D forward pass.
+    ///
+    /// Each output spatial location requires computing
+    /// `in_channels * kernel_size * kernel_size` multiply-add operations per
+    /// output filter, so total FLOPS are:
+    ///
+    /// `2 * batch_size * in_channels * kernel_h * kernel_w * out_channels * out_h * out_w`
+    fn flops_forward(&self, batch_size: usize) -> u64 {
+        let out_h = self.output_height();
+        let out_w = self.output_width();
+        2 * batch_size as u64
+            * self.in_channels as u64
+            * self.kernel_size as u64
+            * self.kernel_size as u64
+            * self.out_channels as u64
+            * out_h as u64
+            * out_w as u64
+    }
+
+    /// Estimated FLOPS for a Conv2D backward pass.
+    ///
+    /// Both the gradient with respect to the input and the gradient with
+    /// respect to the weights involve convolution operations of similar
+    /// complexity to the forward pass.  A conservative estimate of 2× the
+    /// forward FLOPS is used.
+    fn flops_backward(&self, batch_size: usize) -> u64 {
+        2 * self.flops_forward(batch_size)
+    }
+
     fn into_any(self: Box<Self>) -> Box<dyn std::any::Any> {
         self
     }
@@ -1192,8 +1221,7 @@ mod tests {
         // 1 in, 2 out, 3×3 kernel: expects 2*1*3*3 = 18 weights, give 10
         let weights = vec![0.1f32; 10];
         let biases = vec![0.0f32; 2];
-        let _layer =
-            Conv2DLayer::new_with_weights(1, 2, 3, 1, 1, 28, 28, weights, biases);
+        let _layer = Conv2DLayer::new_with_weights(1, 2, 3, 1, 1, 28, 28, weights, biases);
     }
 
     #[test]
@@ -1202,7 +1230,6 @@ mod tests {
         // 1 in, 2 out, 3×3 kernel: expects 2 biases, give 5
         let weights = vec![0.1f32; 2 * 1 * 3 * 3];
         let biases = vec![0.0f32; 5];
-        let _layer =
-            Conv2DLayer::new_with_weights(1, 2, 3, 1, 1, 28, 28, weights, biases);
+        let _layer = Conv2DLayer::new_with_weights(1, 2, 3, 1, 1, 28, 28, weights, biases);
     }
 }

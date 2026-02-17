@@ -1,0 +1,23 @@
+{
+  "optimizer_type": "adamw",
+  "beta1": 0.9,
+  "beta2": 0.999,
+  "epsilon": 1e-8,
+  "weight_decay": 0.0001,
+  "scheduler_type": "cosine_annealing",
+  "min_lr": 0.00001,
+  "T_max": 20,
+  "activation_function": "relu",
+  "learning_rate": 0.001,
+  "epochs": 20,
+  "batch_size": 64,
+  "validation_split": 0.1,
+  "early_stopping_patience": 5,
+  "early_stopping_min_delta": 0.001,
+  "enable_augmentation": true,
+  "horizontal_flip_prob": 0.5,
+  "random_crop_padding": 4,
+  "brightness_jitter": 0.2,
+  "contrast_jitter": 0.2,
+  "saturation_jitter": 0.2
+}

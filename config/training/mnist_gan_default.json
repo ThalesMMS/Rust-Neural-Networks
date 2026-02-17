@@ -1,0 +1,19 @@
+{
+  "optimizer_type": "adam",
+  "beta1": 0.5,
+  "beta2": 0.999,
+  "epsilon": 1e-8,
+  "activation_function": "leaky_relu",
+  "leaky_relu_alpha": 0.2,
+  "learning_rate": 0.0002,
+  "g_lr": 0.0002,
+  "d_lr": 0.0002,
+  "epochs": 50,
+  "batch_size": 64,
+  "validation_split": 0.0,
+  "early_stopping_patience": 10,
+  "early_stopping_min_delta": 0.001,
+  "noise_dim": 100,
+  "label_smoothing": 0.1,
+  "enable_augmentation": false
+}

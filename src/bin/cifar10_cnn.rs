@@ -24,6 +24,11 @@ pub use rust_neural_networks::layers::{
 };
 use rust_neural_networks::optimizers::rmsprop::RMSprop;
 use rust_neural_networks::optimizers::{Adam, AdamW, Optimizer, SGD};
+use rust_neural_networks::training::{
+    compute_softmax_cross_entropy, evaluate_batch_accuracy, gather_batch, parse_config_path,
+    print_training_config, CsvGradientLogger, CsvTrainingLogger, EarlyStopping,
+    EarlyStoppingAction, TrainingMetrics,
+};
 pub use rust_neural_networks::utils::activations::{relu_inplace, softmax_rows};
 use rust_neural_networks::utils::lr_scheduler::{create_scheduler_from_config, LRScheduler};
 pub use rust_neural_networks::utils::rng::SimpleRng;
@@ -52,138 +57,6 @@ const DEFAULT_ARCHITECTURE_PATH: &str = "config/architectures/cifar10_cnn_baseli
 
 // Main Logic
 // ============================================================================
-
-// Copy a subset of images/labels into contiguous batch buffers with optional augmentation.
-/// Copies a contiguous mini-batch of samples (inputs and labels) from the full dataset
-/// into the provided output buffers according to the ordering in `indices`.
-///
-/// Copies `count` samples starting from `indices[start]` into `out_inputs` (flattened, row-major,
-/// length = `count * NUM_INPUTS`) and `out_labels` (length = `count`).
-///
-/// If augmentation parameters are provided, applies data augmentation to each image after copying.
-/// Augmentations are applied in the following order:
-/// 1. Random crop (if `crop_padding` is Some)
-/// 2. Random horizontal flip (if `flip_prob` is Some)
-///
-/// # Arguments
-///
-/// - `images`: flat image buffer where each image occupies `NUM_INPUTS` floats.
-/// - `labels`: label buffer aligned with `images`.
-/// - `indices`: permutation/index array selecting which samples to gather.
-/// - `start`: index within `indices` of the first sample to copy.
-/// - `count`: number of samples to copy.
-/// - `out_inputs`: destination buffer for `count` images (flattened).
-/// - `out_labels`: destination buffer for `count` labels.
-/// - `flip_prob`: optional probability (0.0-1.0) for random horizontal flip.
-/// - `crop_padding`: optional padding amount for random crop (crops back to IMG_W x IMG_H).
-/// - `brightness_jitter`: optional brightness jitter delta (applied uniformly to RGB).
-/// - `contrast_jitter`: optional contrast jitter delta.
-/// - `saturation_jitter`: optional saturation jitter delta.
-/// - `rng`: optional random number generator for augmentation operations.
-///
-/// # Examples
-///
-/// ```
-/// // gather a batch of size 2 without augmentation
-/// let mut out_inputs = vec![0f32; 2 * NUM_INPUTS];
-/// let mut out_labels = vec![0u8; 2];
-/// gather_batch(&images, &labels, &indices, 10, 2, &mut out_inputs, &mut out_labels,
-///              None, None, None, None, None, None);
-/// assert_eq!(out_labels[0], labels[indices[10]]);
-///
-/// // gather a batch with augmentation
-/// let mut rng = SimpleRng::new(42);
-/// gather_batch(&images, &labels, &indices, 10, 2, &mut out_inputs, &mut out_labels,
-///              Some(0.5), Some(4), Some(0.2), Some(0.2), Some(0.2), Some(&mut rng));
-/// ```
-fn gather_batch(
-    images: &[f32],
-    labels: &[u8],
-    indices: &[usize],
-    start: usize,
-    count: usize,
-    out_inputs: &mut [f32],
-    out_labels: &mut [u8],
-    flip_prob: Option<f32>,
-    crop_padding: Option<usize>,
-    brightness_jitter: Option<f32>,
-    contrast_jitter: Option<f32>,
-    saturation_jitter: Option<f32>,
-    mut rng: Option<&mut SimpleRng>,
-) {
-    use rust_neural_networks::data::augmentation::{
-        random_brightness, random_contrast, random_crop, random_horizontal_flip, random_saturation,
-    };
-
-    for i in 0..count {
-        let src_index = indices[start + i];
-        let src_start = src_index * NUM_INPUTS;
-        let dst_start = i * NUM_INPUTS;
-
-        // Copy base image to output buffer
-        out_inputs[dst_start..dst_start + NUM_INPUTS]
-            .copy_from_slice(&images[src_start..src_start + NUM_INPUTS]);
-        out_labels[i] = labels[src_index];
-
-        // Apply augmentations if parameters are provided and RNG is available
-        if let Some(ref mut rng_ref) = rng {
-            let image_slice = &mut out_inputs[dst_start..dst_start + NUM_INPUTS];
-
-            // Apply random crop if padding is specified
-            if let Some(padding) = crop_padding {
-                // random_crop returns a new Vec, so we need to copy it back
-                let cropped = random_crop(
-                    image_slice,
-                    IMG_W,
-                    IMG_H,
-                    IMG_CHANNELS,
-                    padding,
-                    IMG_W, // crop back to original width
-                    IMG_H, // crop back to original height
-                    rng_ref,
-                );
-                image_slice.copy_from_slice(&cropped);
-            }
-
-            // Apply random horizontal flip if probability is specified
-            if let Some(prob) = flip_prob {
-                random_horizontal_flip(image_slice, IMG_W, IMG_H, IMG_CHANNELS, prob, rng_ref);
-            }
-
-            // Apply color jitter if specified
-            if let Some(brightness_delta) = brightness_jitter {
-                random_brightness(
-                    image_slice,
-                    IMG_W,
-                    IMG_H,
-                    IMG_CHANNELS,
-                    brightness_delta,
-                    rng_ref,
-                );
-            }
-            if let Some(contrast_delta) = contrast_jitter {
-                random_contrast(
-                    image_slice,
-                    IMG_W,
-                    IMG_H,
-                    IMG_CHANNELS,
-                    contrast_delta,
-                    rng_ref,
-                );
-            }
-            if let Some(saturation_delta) = saturation_jitter {
-                random_saturation(
-                    image_slice,
-                    IMG_W,
-                    IMG_H,
-                    IMG_CHANNELS,
-                    saturation_delta,
-                    rng_ref,
-                );
-            }
-        }
-    }
-}
 
 // CNN with shared layer abstractions.
 struct Cnn {
@@ -431,71 +304,6 @@ fn backward_pass(
     }
 }
 
-// Softmax + cross-entropy: returns summed loss and writes delta = (probs - onehot) * scale.
-/// Converts logits to probabilities, computes cross-entropy loss for each label, and writes
-/// the softmax gradient (probabilities minus one-hot labels) scaled by `scale` into `delta`.
-///
-/// The `probs_inplace` buffer is overwritten with row-wise softmax probabilities for the
-/// first `batch` rows (each row length is `NUM_CLASSES`). `delta` is populated with the
-/// per-class gradients for each row. Returned value is the sum of cross-entropy losses
-/// over the processed batch.
-///
-/// # Parameters
-///
-/// - `probs_inplace`: input logits which will be replaced with softmax probabilities for
-///   the first `batch * NUM_CLASSES` elements.
-/// - `labels`: slice of length at least `batch` containing class indices (0..NUM_CLASSES-1).
-/// - `batch`: number of rows (examples) to process.
-/// - `delta`: output buffer (length at least `batch * NUM_CLASSES`) which will receive the
-///   gradient dL/dlogits = (probs - one_hot) * scale.
-/// - `scale`: scalar multiplier applied to the computed gradients written into `delta`.
-///
-/// # Returns
-///
-/// Sum of cross-entropy losses across the processed `batch` examples.
-///
-/// # Examples
-///
-/// ```rust
-/// let mut logits = [2.0f32, 1.0, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-/// let labels = [0u8];
-/// let mut delta = [0.0f32; NUM_CLASSES];
-/// let loss = softmax_xent_backward(&mut logits, &labels, 1, &mut delta, 1.0);
-/// assert!(loss > 0.0);
-/// // gradients for the single row should sum approximately to zero
-/// let sum: f32 = delta.iter().sum();
-/// assert!(sum.abs() < 1e-6);
-/// ```
-fn softmax_xent_backward(
-    probs_inplace: &mut [f32], // logits overwritten with probs
-    labels: &[u8],
-    batch: usize,
-    delta: &mut [f32],
-    scale: f32,
-) -> f32 {
-    let eps = 1e-9f32;
-    let len = batch * NUM_CLASSES;
-    softmax_rows(&mut probs_inplace[..len], batch, NUM_CLASSES);
-
-    let mut loss = 0.0f32;
-    for (b, &label) in labels.iter().enumerate().take(batch) {
-        let base = b * NUM_CLASSES;
-        let y = label as usize;
-
-        let p = probs_inplace[base + y].max(eps);
-        loss += -p.ln();
-
-        for j in 0..NUM_CLASSES {
-            let mut d = probs_inplace[base + j];
-            if j == y {
-                d -= 1.0;
-            }
-            delta[base + j] = d * scale;
-        }
-    }
-    loss
-}
-
 /// Computes the classification accuracy (percentage) of the CNN on a dataset.
 ///
 /// Runs the model forward in batches, performs convolution+ReLU, 2x2 max-pooling,
@@ -676,7 +484,8 @@ fn save_model(model: &Cnn, filename: &str) {
             f.write_all(&size.to_le_bytes()).unwrap();
 
             // Save drop_rate so load_model can reconstruct the layer correctly
-            f.write_all(&dropout_layer.drop_rate().to_le_bytes()).unwrap();
+            f.write_all(&dropout_layer.drop_rate().to_le_bytes())
+                .unwrap();
         } else {
             panic!("Unknown layer type encountered during serialization");
         }
@@ -724,7 +533,8 @@ fn load_model(filename: &str) -> Cnn {
 
     // Read number of layers
     let mut buf4 = [0u8; 4];
-    f.read_exact(&mut buf4).expect("Failed to read number of layers");
+    f.read_exact(&mut buf4)
+        .expect("Failed to read number of layers");
     let num_layers = u32::from_le_bytes(buf4) as usize;
 
     let mut layers: Vec<Box<dyn Layer>> = Vec::with_capacity(num_layers);
@@ -735,7 +545,8 @@ fn load_model(filename: &str) -> Cnn {
     for _ in 0..num_layers {
         // Read layer type ID
         let mut type_buf = [0u8; 1];
-        f.read_exact(&mut type_buf).expect("Failed to read layer type");
+        f.read_exact(&mut type_buf)
+            .expect("Failed to read layer type");
         let layer_type = type_buf[0];
 
         match layer_type {
@@ -767,7 +578,8 @@ fn load_model(filename: &str) -> Cnn {
                 // Conv2D layer
                 f.read_exact(&mut buf4).expect("Failed to read in_channels");
                 let in_channels = u32::from_le_bytes(buf4) as usize;
-                f.read_exact(&mut buf4).expect("Failed to read out_channels");
+                f.read_exact(&mut buf4)
+                    .expect("Failed to read out_channels");
                 let out_channels = u32::from_le_bytes(buf4) as usize;
                 f.read_exact(&mut buf4).expect("Failed to read kernel_size");
                 let kernel_size = u32::from_le_bytes(buf4) as usize;
@@ -775,7 +587,8 @@ fn load_model(filename: &str) -> Cnn {
                 let padding = i32::from_le_bytes(buf4) as isize;
                 f.read_exact(&mut buf4).expect("Failed to read stride");
                 let stride = u32::from_le_bytes(buf4) as usize;
-                f.read_exact(&mut buf4).expect("Failed to read input_height");
+                f.read_exact(&mut buf4)
+                    .expect("Failed to read input_height");
                 let input_height = u32::from_le_bytes(buf4) as usize;
                 f.read_exact(&mut buf4).expect("Failed to read input_width");
                 let input_width = u32::from_le_bytes(buf4) as usize;
@@ -824,7 +637,8 @@ fn load_model(filename: &str) -> Cnn {
 
                 let mut running_mean = vec![0.0f32; size];
                 for m in running_mean.iter_mut() {
-                    f.read_exact(&mut buf4).expect("Failed to read running_mean");
+                    f.read_exact(&mut buf4)
+                        .expect("Failed to read running_mean");
                     *m = f32::from_le_bytes(buf4);
                 }
 
@@ -918,13 +732,12 @@ fn create_optimizer(config: &TrainingConfig, lr: f32) -> Box<dyn Optimizer> {
     }
 }
 
-/// Parse command-line arguments to get config file paths.
-/// Returns a tuple of (training_config_path, architecture_config_path).
-/// Supports --config for training config and --arch for architecture config.
-fn parse_config_paths(args: &[String]) -> (String, Option<String>) {
-    let mut training_config = DEFAULT_CONFIG_PATH.to_string();
-    let mut arch_config: Option<String> = None;
-
+/// Parse command-line arguments to get the architecture config file path.
+///
+/// Scans `args` for `--arch <path>` and returns the path as `Some(path)`.
+/// If the flag is absent, `None` is returned (caller should use the default).
+/// Also handles `--help` / `-h` to print usage and exit.
+fn parse_arch_path(args: &[String]) -> Option<String> {
     let mut i = 1;
     while i < args.len() {
         if args[i] == "--help" || args[i] == "-h" {
@@ -939,18 +752,33 @@ fn parse_config_paths(args: &[String]) -> (String, Option<String>) {
             );
             println!("  --help, -h        Show this help message");
             process::exit(0);
-        } else if args[i] == "--config" && i + 1 < args.len() {
-            training_config = args[i + 1].clone();
-            i += 2;
         } else if args[i] == "--arch" && i + 1 < args.len() {
-            arch_config = Some(args[i + 1].clone());
-            i += 2;
-        } else {
-            i += 1;
+            return Some(args[i + 1].clone());
         }
+        i += 1;
     }
+    None
+}
 
-    (training_config, arch_config)
+/// Parses command-line arguments for both the config path and the optional arch path.
+///
+/// Returns `(config_path, arch_path)` where `config_path` defaults to
+/// [`DEFAULT_CONFIG_PATH`] when `--config` is absent, and `arch_path` is
+/// `Some(path)` when `--arch` is present, or `None` otherwise.
+///
+/// # Examples
+///
+/// ```
+/// use rust_neural_networks::training::parse_config_path;
+///
+/// let args = vec!["prog".to_string(), "--config".to_string(), "c.json".to_string()];
+/// // parse_config_paths(&args) would return ("c.json".to_string(), None)
+/// ```
+fn parse_config_paths(args: &[String]) -> (String, Option<String>) {
+    (
+        parse_config_path(args, DEFAULT_CONFIG_PATH),
+        parse_arch_path(args),
+    )
 }
 
 /// Entry point that trains a small convolutional neural network on the CIFAR-10 dataset and evaluates it on the test set.
@@ -966,7 +794,8 @@ fn parse_config_paths(args: &[String]) -> (String, Option<String>) {
 fn main() {
     // Parse command-line arguments for config file paths
     let args: Vec<String> = env::args().collect();
-    let (config_path, arch_path) = parse_config_paths(&args);
+    let arch_path = parse_arch_path(&args);
+    let config_path = parse_config_path(&args, DEFAULT_CONFIG_PATH);
 
     // Load config
     println!("=== CIFAR-10 CNN Training ===");
@@ -1001,43 +830,15 @@ fn main() {
     let saturation_jitter = config.saturation_jitter;
 
     // Print loaded configuration
-    println!("\nConfiguration:");
-    println!("  Learning rate: {}", learning_rate);
-    println!("  Epochs: {}", epochs);
-    println!("  Batch size: {}", batch_size);
-    println!("  Validation split: {:.1}%", validation_split * 100.0);
-    println!("  Early stopping patience: {}", early_stopping_patience);
-    println!("  Early stopping min delta: {}", early_stopping_min_delta);
-    println!("  Scheduler type: {}", config.scheduler_type);
-    if let Some(ref activation) = config.activation_function {
-        println!("  Activation function: {}", activation);
-    }
-    println!(
-        "  Data augmentation: {}",
-        if enable_augmentation {
-            "enabled"
-        } else {
-            "disabled"
-        }
+    print_training_config(
+        &config,
+        learning_rate,
+        epochs,
+        batch_size,
+        validation_split,
+        early_stopping_patience,
+        early_stopping_min_delta,
     );
-    if enable_augmentation {
-        if let Some(prob) = horizontal_flip_prob {
-            println!("    Horizontal flip probability: {}", prob);
-        }
-        if let Some(padding) = random_crop_padding {
-            println!("    Random crop padding: {}", padding);
-        }
-        if let Some(delta) = brightness_jitter {
-            println!("    Brightness jitter: {}", delta);
-        }
-        if let Some(delta) = contrast_jitter {
-            println!("    Contrast jitter: {}", delta);
-        }
-        if let Some(delta) = saturation_jitter {
-            println!("    Saturation jitter: {}", delta);
-        }
-    }
-    println!();
 
     println!("Loading CIFAR-10...");
 
@@ -1117,11 +918,26 @@ fn main() {
 
     // Training log file.
     fs::create_dir_all("./logs").ok();
-    let log_file = File::create("./logs/training_loss_cifar10_cnn.txt").unwrap_or_else(|_| {
-        eprintln!("Could not create logs/training_loss_cifar10_cnn.txt");
+    let mut logger =
+        CsvTrainingLogger::new("./logs/training_loss_cifar10_cnn.csv").unwrap_or_else(|_| {
+            eprintln!("Could not create logs/training_loss_cifar10_cnn.csv");
+            process::exit(1);
+        });
+    logger.write_header().unwrap_or_else(|_| {
+        eprintln!("Could not write CSV header to logs/training_loss_cifar10_cnn.csv");
         process::exit(1);
     });
-    let mut log = BufWriter::new(log_file);
+
+    // Create gradient logging file.
+    let mut gradient_logger = CsvGradientLogger::new("./logs/gradients_cifar10.csv")
+        .unwrap_or_else(|_| {
+            eprintln!("Could not create logs/gradients_cifar10.csv");
+            process::exit(1);
+        });
+    gradient_logger.write_header().unwrap_or_else(|_| {
+        eprintln!("Could not write CSV header to logs/gradients_cifar10.csv");
+        process::exit(1);
+    });
 
     // Training buffers (reused each batch to avoid allocations).
     let mut batch_inputs = vec![0.0f32; batch_size * NUM_INPUTS];
@@ -1146,8 +962,7 @@ fn main() {
     let mut indices: Vec<usize> = (0..train_n).collect();
 
     // Early stopping state
-    let mut best_val_loss = f32::INFINITY;
-    let mut epochs_without_improvement = 0usize;
+    let mut early_stopping = EarlyStopping::new(early_stopping_patience, early_stopping_min_delta);
 
     println!(
         "Training CIFAR-10 CNN: epochs={} batch={} lr={}",
@@ -1169,6 +984,11 @@ fn main() {
 
         let mut total_loss = 0.0f32;
 
+        // Accumulate gradient norms for this epoch (one slot per layer).
+        let mut layer_weight_grad_sums = vec![0.0f32; num_layers];
+        let mut layer_bias_grad_sums = vec![0.0f32; num_layers];
+        let mut batch_count_total = 0usize;
+
         for batch_start in (0..train_n).step_by(batch_size) {
             let batch = (train_n - batch_start).min(batch_size);
             let scale = 1.0f32;
@@ -1183,6 +1003,9 @@ fn main() {
                 batch,
                 &mut batch_inputs,
                 &mut batch_labels,
+                IMG_W,
+                IMG_H,
+                IMG_CHANNELS,
                 if enable_augmentation {
                     horizontal_flip_prob
                 } else {
@@ -1229,8 +1052,15 @@ fn main() {
             logits[..logits_slice.len()].copy_from_slice(logits_slice);
 
             // Softmax + loss + gradient at logits.
-            let batch_loss =
-                softmax_xent_backward(&mut logits, &batch_labels, batch, &mut delta, scale);
+            softmax_rows(&mut logits[..batch * NUM_CLASSES], batch, NUM_CLASSES);
+            let batch_loss = compute_softmax_cross_entropy(
+                &logits[..batch * NUM_CLASSES],
+                &batch_labels,
+                batch,
+                NUM_CLASSES,
+                &mut delta,
+                scale,
+            );
             total_loss += batch_loss;
 
             // Backward pass through all layers
@@ -1243,6 +1073,21 @@ fn main() {
                 &mut grad_buffer1,
                 &mut grad_buffer2,
             );
+
+            // Log gradient magnitudes before parameter update (accumulate for epoch).
+            for (layer_idx, layer) in model.layers.iter().enumerate() {
+                let any_layer = layer.as_ref().as_any();
+                if let Some(conv_layer) = any_layer.downcast_ref::<Conv2DLayer>() {
+                    let (w_norm, b_norm) = conv_layer.get_gradient_magnitude();
+                    layer_weight_grad_sums[layer_idx] += w_norm;
+                    layer_bias_grad_sums[layer_idx] += b_norm;
+                } else if let Some(dense_layer) = any_layer.downcast_ref::<DenseLayer>() {
+                    let (w_norm, b_norm) = dense_layer.get_gradient_magnitude();
+                    layer_weight_grad_sums[layer_idx] += w_norm;
+                    layer_bias_grad_sums[layer_idx] += b_norm;
+                }
+            }
+            batch_count_total += 1;
 
             // Update parameters for all layers using per-layer optimizers
             for (layer, opt) in model.layers.iter_mut().zip(layer_optimizers.iter_mut()) {
@@ -1271,6 +1116,33 @@ fn main() {
         let secs = start_time.elapsed().as_secs_f32();
         let avg_loss = total_loss / train_n as f32;
 
+        // Write gradient magnitudes (averaged across batches) to gradient log.
+        if batch_count_total > 0 {
+            let num_batches = batch_count_total as f32;
+            for (layer_idx, layer) in model.layers.iter().enumerate() {
+                let any_layer = layer.as_ref().as_any();
+                let layer_name = if any_layer.downcast_ref::<Conv2DLayer>().is_some() {
+                    format!("layer_{}_conv", layer_idx)
+                } else if any_layer.downcast_ref::<DenseLayer>().is_some() {
+                    format!("layer_{}_dense", layer_idx)
+                } else {
+                    continue;
+                };
+                let avg_w = layer_weight_grad_sums[layer_idx] / num_batches;
+                let avg_b = layer_bias_grad_sums[layer_idx] / num_batches;
+                gradient_logger
+                    .write_layer(epoch + 1, &layer_name, avg_w, avg_b)
+                    .unwrap_or_else(|_| {
+                        eprintln!("Failed writing gradient data.");
+                        process::exit(1);
+                    });
+            }
+            gradient_logger.flush().unwrap_or_else(|_| {
+                eprintln!("Failed flushing gradient log.");
+                process::exit(1);
+            });
+        }
+
         // Set BatchNorm and Dropout to inference mode for validation
         set_training_mode(&mut model, false);
 
@@ -1297,35 +1169,22 @@ fn main() {
             let logits_slice = &mut val_activations.data[output_idx];
             val_logits[..logits_slice.len()].copy_from_slice(logits_slice);
 
-            // Apply softmax and compute loss
+            // Apply softmax and compute loss + accuracy using shared utility
             softmax_rows(
                 &mut val_logits[..batch_count * NUM_CLASSES],
                 batch_count,
                 NUM_CLASSES,
             );
 
-            // Compute loss and accuracy
-            let epsilon = 1e-9f32;
-            for row_idx in 0..batch_count {
-                let row_start = row_idx * NUM_CLASSES;
-                let label = val_labels[batch_start + row_idx] as usize;
-                let prob = val_logits[row_start + label].max(epsilon);
-                val_total_loss -= prob.ln();
-
-                // Compute accuracy
-                let row = &val_logits[row_start..row_start + NUM_CLASSES];
-                let mut predicted = 0usize;
-                let mut max_prob = row[0];
-                for (i, &value) in row.iter().enumerate().skip(1) {
-                    if value > max_prob {
-                        max_prob = value;
-                        predicted = i;
-                    }
-                }
-                if predicted == label {
-                    val_correct += 1;
-                }
-            }
+            let batch_val_labels = &val_labels[batch_start..batch_start + batch_count];
+            let (batch_loss, batch_correct) = evaluate_batch_accuracy(
+                &val_logits[..batch_count * NUM_CLASSES],
+                batch_val_labels,
+                batch_count,
+                NUM_CLASSES,
+            );
+            val_total_loss += batch_loss;
+            val_correct += batch_correct;
         }
 
         let val_average_loss = val_total_loss / validation_samples as f32;
@@ -1339,34 +1198,28 @@ fn main() {
             val_accuracy,
             secs
         );
-        writeln!(
-            log,
-            "{},{},{},{},{},{}",
-            epoch + 1,
-            avg_loss,
-            secs,
-            val_average_loss,
+        let metrics = TrainingMetrics {
+            train_loss: avg_loss,
+            val_loss: val_average_loss,
             val_accuracy,
-            current_lr
-        )
-        .ok();
+            train_time: secs,
+            learning_rate: current_lr,
+        };
+        logger.write_epoch(epoch + 1, &metrics).ok();
 
         // Early stopping check
-        if val_average_loss < best_val_loss - early_stopping_min_delta {
-            best_val_loss = val_average_loss;
-            epochs_without_improvement = 0;
-            // Save best model
-            save_model(&model, "cifar10_cnn_model_best.bin");
-        } else {
-            epochs_without_improvement += 1;
-        }
-
-        if epochs_without_improvement >= early_stopping_patience {
-            println!(
-                "\nEarly stopping triggered! No improvement for {} epochs. Best validation loss: {:.6}",
-                early_stopping_patience, best_val_loss
-            );
-            break;
+        match early_stopping.check(val_average_loss) {
+            EarlyStoppingAction::Improved => {
+                save_model(&model, "cifar10_cnn_model_best.bin");
+            }
+            EarlyStoppingAction::Stop => {
+                println!(
+                    "\nEarly stopping triggered! No improvement for {} epochs. Best validation loss: {:.6}",
+                    early_stopping_patience, early_stopping.best_val_loss
+                );
+                break;
+            }
+            EarlyStoppingAction::Continue => {}
         }
 
         // Update learning rate scheduler
@@ -1398,12 +1251,15 @@ mod tests {
             2,
             &mut out_inputs,
             &mut out_labels,
-            None, // flip_prob
-            None, // crop_padding
-            None, // brightness_jitter
-            None, // contrast_jitter
-            None, // saturation_jitter
-            None, // rng
+            IMG_W,        // img_width
+            IMG_H,        // img_height
+            IMG_CHANNELS, // img_channels
+            None,         // flip_prob
+            None,         // crop_padding
+            None,         // brightness_jitter
+            None,         // contrast_jitter
+            None,         // saturation_jitter
+            None,         // rng
         );
 
         assert_eq!(out_labels[0], 0);
@@ -1535,12 +1391,17 @@ mod tests {
                 validation_split: None,
                 early_stopping_patience: None,
                 early_stopping_min_delta: None,
+                enable_profiling: None,
                 enable_augmentation: None,
                 horizontal_flip_prob: None,
                 random_crop_padding: None,
                 brightness_jitter: None,
                 contrast_jitter: None,
                 saturation_jitter: None,
+                noise_dim: None,
+                g_lr: None,
+                d_lr: None,
+                label_smoothing: None,
             }
         }
 

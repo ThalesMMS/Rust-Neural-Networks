@@ -1,5 +1,11 @@
 use std::io::Write;
+use std::sync::Mutex;
 use tempfile::NamedTempFile;
+
+/// Global mutex to serialize tests that change the process working directory.
+/// `std::env::set_current_dir` is process-wide and unsafe to call concurrently
+/// from multiple threads.
+static CWD_LOCK: Mutex<()> = Mutex::new(());
 
 fn write_temp_config(contents: &str) -> NamedTempFile {
     let mut file = NamedTempFile::new().expect("failed to create temp config");
@@ -52,6 +58,7 @@ mod mnist_mlp_bin {
         fn test_train_single_sample_runs() {
             struct DirGuard {
                 old: std::path::PathBuf,
+                _lock: std::sync::MutexGuard<'static, ()>,
             }
 
             impl Drop for DirGuard {
@@ -62,7 +69,10 @@ mod mnist_mlp_bin {
 
             let temp_dir = tempdir().expect("failed to create temp dir");
             let old_dir = std::env::current_dir().expect("failed to get cwd");
-            let _guard = DirGuard { old: old_dir };
+            let _guard = DirGuard {
+                old: old_dir,
+                _lock: crate::CWD_LOCK.lock().expect("CWD_LOCK poisoned"),
+            };
             std::env::set_current_dir(temp_dir.path()).expect("failed to set cwd");
 
             let mut rng = SimpleRng::new(1);
@@ -201,7 +211,15 @@ mod mnist_cnn_bin {
             let mut delta = vec![0.0f32; batch * NUM_CLASSES];
             let scale = 1.0f32;
 
-            let loss = softmax_xent_backward(&mut logits, &labels, batch, &mut delta, scale);
+            softmax_rows(&mut logits[..batch * NUM_CLASSES], batch, NUM_CLASSES);
+            let loss = compute_softmax_cross_entropy(
+                &logits[..batch * NUM_CLASSES],
+                &labels,
+                batch,
+                NUM_CLASSES,
+                &mut delta,
+                scale,
+            );
 
             // Loss should be positive
             assert!(loss > 0.0);
@@ -219,6 +237,7 @@ mod mnist_cnn_bin {
 
             struct DirGuard {
                 old: std::path::PathBuf,
+                _lock: std::sync::MutexGuard<'static, ()>,
             }
             impl Drop for DirGuard {
                 fn drop(&mut self) {
@@ -228,7 +247,10 @@ mod mnist_cnn_bin {
 
             let temp_dir = tempdir().expect("failed to create temp dir");
             let old_dir = std::env::current_dir().expect("failed to get cwd");
-            let _guard = DirGuard { old: old_dir };
+            let _guard = DirGuard {
+                old: old_dir,
+                _lock: crate::CWD_LOCK.lock().expect("CWD_LOCK poisoned"),
+            };
             std::env::set_current_dir(temp_dir.path()).expect("failed to set cwd");
 
             let mut rng = SimpleRng::new(1);
@@ -261,11 +283,15 @@ mod mnist_cnn_bin {
                 1,
                 &mut batch_inputs,
                 &mut batch_labels,
-                None,
-                None,
-                None,
-                None,
-                None,
+                IMG_W,
+                IMG_H,
+                IMG_CHANNELS,
+                None, // flip_prob
+                None, // crop_padding
+                None, // brightness_jitter
+                None, // contrast_jitter
+                None, // saturation_jitter
+                None, // rng
             );
 
             // Forward pass
@@ -274,8 +300,15 @@ mod mnist_cnn_bin {
             fc_forward(&mut model, 1, &pool_out, &mut logits);
 
             // Softmax + cross-entropy loss + gradient
-            let loss =
-                softmax_xent_backward(&mut logits, &batch_labels, 1, &mut delta, 1.0);
+            softmax_rows(&mut logits[..NUM_CLASSES], 1, NUM_CLASSES);
+            let loss = compute_softmax_cross_entropy(
+                &logits[..NUM_CLASSES],
+                &batch_labels,
+                1,
+                NUM_CLASSES,
+                &mut delta,
+                1.0,
+            );
 
             // Backward pass
             fc_backward(&mut model, 1, &pool_out, &delta, &mut d_pool);
@@ -291,11 +324,10 @@ mod mnist_cnn_bin {
 
             // Write the training log file (as main() does)
             std::fs::create_dir_all("./logs").expect("failed to create logs dir");
-            let log_file = File::create("./logs/training_loss_cnn.txt")
-                .expect("failed to create log file");
+            let log_file =
+                File::create("./logs/training_loss_cnn.txt").expect("failed to create log file");
             let mut log = BufWriter::new(log_file);
-            writeln!(log, "1,{},0.0,0.0,0.0,{}", loss, learning_rate)
-                .expect("failed to write log");
+            writeln!(log, "1,{},0.0,0.0,0.0,{}", loss, learning_rate).expect("failed to write log");
             drop(log);
 
             assert!(Path::new("logs/training_loss_cnn.txt").exists());
@@ -367,8 +399,7 @@ mod mlp_simple_bin {
             let mut nn = initialize_network(&mut rng);
             let inputs: [[f32; NUM_INPUTS]; NUM_SAMPLES] =
                 [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]];
-            let expected: [[f32; NUM_OUTPUTS]; NUM_SAMPLES] =
-                [[0.0], [1.0], [1.0], [0.0]];
+            let expected: [[f32; NUM_OUTPUTS]; NUM_SAMPLES] = [[0.0], [1.0], [1.0], [0.0]];
             let mut scheduler = ConstantLR::new(0.1);
             // Run a small number of epochs to verify the training loop executes correctly
             train(&mut nn, &inputs, &expected, &mut scheduler, 10);
@@ -436,7 +467,9 @@ mod cifar10_cnn_bin {
             assert!((scheduler.get_lr() - learning_rate * 0.5).abs() < 1e-6);
         }
 
-        fn make_config(optimizer_type: Option<&str>) -> rust_neural_networks::config::TrainingConfig {
+        fn make_config(
+            optimizer_type: Option<&str>,
+        ) -> rust_neural_networks::config::TrainingConfig {
             rust_neural_networks::config::TrainingConfig {
                 scheduler_type: "none".to_string(),
                 step_size: None,
@@ -460,12 +493,17 @@ mod cifar10_cnn_bin {
                 validation_split: None,
                 early_stopping_patience: None,
                 early_stopping_min_delta: None,
+                enable_profiling: None,
                 enable_augmentation: None,
                 horizontal_flip_prob: None,
                 random_crop_padding: None,
                 brightness_jitter: None,
                 contrast_jitter: None,
                 saturation_jitter: None,
+                noise_dim: None,
+                g_lr: None,
+                d_lr: None,
+                label_smoothing: None,
             }
         }
 
@@ -764,7 +802,10 @@ mod mnist_attention_pool_bin {
 
             // Gradients should not all be zero after backward pass
             let all_zero = grads.w_cls.iter().all(|&v| v == 0.0);
-            assert!(!all_zero, "w_cls gradients should be non-zero after backward");
+            assert!(
+                !all_zero,
+                "w_cls gradients should be non-zero after backward"
+            );
         }
 
         #[test]
@@ -784,11 +825,15 @@ mod mnist_attention_pool_bin {
                 1, // gather 1 sample
                 &mut out_inputs,
                 &mut out_labels,
-                None,
-                None,
-                None,
-                None,
-                None,
+                IMG_W,
+                IMG_H,
+                IMG_CHANNELS,
+                None, // flip_prob
+                None, // crop_padding
+                None, // brightness_jitter
+                None, // contrast_jitter
+                None, // saturation_jitter
+                None, // rng
             );
 
             // Should copy label from position indices[1] = 1

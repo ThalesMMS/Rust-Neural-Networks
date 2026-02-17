@@ -51,7 +51,16 @@ This directory organizes tutorials by increasing complexity, from basic feedforw
   - Expected output: Model generates coherent-looking text sequences after training
   - **Time:** 120-150 minutes | **Prerequisites:** Tutorial 02, sequence modeling concepts
 
-- **Tutorial 05: CIFAR-10 CNN** (Coming Soon) - Build an RGB image classifier
+- **[Tutorial 05: Automatic Differentiation Engine](05_autograd_engine.md)** - Build and understand an autograd engine
+  - Computational graphs: DAG of tensors with recorded operations
+  - Reverse-mode AD: topological sort and chain rule traversal
+  - Worked example: trace every gradient for `a·b + c` step by step
+  - MLP training using the autograd engine (zero manual gradient derivation)
+  - Comparison with manual gradient derivation from Tutorial 01
+  - Expected output: Exact gradients verified against hand calculations
+  - **Time:** 90-120 minutes | **Prerequisites:** Tutorial 01, chain rule, basic graph theory
+
+- **Tutorial 06: CIFAR-10 CNN** (Coming Soon) - Build an RGB image classifier
   - Multi-channel input handling (RGB vs grayscale)
   - Deeper networks and filter progression
   - Color feature extraction
@@ -127,6 +136,7 @@ Each tutorial follows a consistent structure:
 - XOR → MNIST: Scaling to real data, multi-class classification
 - MNIST MLP → MNIST CNN: Adding spatial structure, convolutions
 - MNIST CNN → RNN/LSTM: Shifting from spatial to sequential data
+- RNN/LSTM → Autograd Engine: Understanding automatic gradient computation
 - MNIST → CIFAR-10: Color images, deeper networks, harder problem
 
 ## Mathematical Notation
@@ -174,6 +184,9 @@ These tutorials follow the project's standard mathematical notation (see [Mathem
 - `src/utils/activations.rs` - Activation functions
 - `src/config.rs` - Configuration system
 - `src/data/` - Dataset loaders (MNIST, CIFAR-10)
+- `src/autograd/tensor.rs` - `Tensor` type with gradient storage and `backward()`
+- `src/autograd/tape.rs` - `Op` enum, `GradNode`, topological sort
+- `src/autograd/ops.rs` - Differentiable operations and `backward_op` dispatcher
 
 **Tests** (validation):
 - `tests/test_backward_pass.rs` - Gradient correctness
@@ -282,7 +295,8 @@ When creating new tutorials:
 2. [Tutorial 02: MNIST MLP](02_mnist_mlp.md) → Scaling to real data
 3. [Tutorial 03: MNIST CNN](03_mnist_cnn.md) → Adding spatial structure
 4. [Tutorial 04: RNN/LSTM Character-Level Model](04_rnn_lstm_char_level.md) → Sequences and recurrent networks
-5. Tutorial 05: CIFAR-10 CNN (Coming Soon) → Color images and deeper networks
+5. [Tutorial 05: Automatic Differentiation Engine](05_autograd_engine.md) → Automatic gradient computation
+6. Tutorial 06: CIFAR-10 CNN (Coming Soon) → Color images and deeper networks
 
 **Need help?**
 - Review [backpropagation documentation](../backpropagation/README.md) for mathematical details

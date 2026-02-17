@@ -86,6 +86,10 @@ use std::time::Instant;
 
 use rust_neural_networks::config::load_config;
 use rust_neural_networks::data::mnist::{read_mnist_images, read_mnist_labels};
+use rust_neural_networks::training::{
+    evaluate_batch_accuracy, gather_batch, parse_config_path, CsvGradientLogger, CsvTrainingLogger,
+    EarlyStopping, EarlyStoppingAction, TrainingMetrics,
+};
 use rust_neural_networks::utils::activations::softmax_rows;
 use rust_neural_networks::utils::lr_scheduler::{
     ConstantLR, CosineAnnealing, ExponentialDecay, LRScheduler, StepDecay,
@@ -139,115 +143,6 @@ const EARLY_STOPPING_MIN_DELTA: f32 = 0.001; // Minimum change to be considered 
 
 // Default config path
 const DEFAULT_CONFIG_PATH: &str = "config/training/mnist_attention_default.json";
-
-// Copy a subset of images/labels into contiguous batch buffers with optional augmentation.
-/// Copies a contiguous mini-batch of examples and their labels into preallocated output buffers.
-///
-/// The function reads `count` examples by mapping `indices[start..start+count]` into `images` and
-/// `labels`, copying each example's NUM_INPUTS floats into `out_inputs` and the corresponding label
-/// into `out_labels` in batch order.
-///
-/// If augmentation parameters are provided, applies data augmentation to each image after copying.
-/// Augmentations are applied in the following order:
-/// 1. Random crop (if `crop_padding` is Some)
-/// 2. Random horizontal flip (if `flip_prob` is Some)
-/// 3. Brightness jitter (if `brightness_jitter` is Some)
-/// 4. Contrast jitter (if `contrast_jitter` is Some)
-///
-/// Note: saturation_jitter is not supported for MNIST (grayscale, 1 channel).
-///
-/// # Parameters
-///
-/// - `images`: flat slice of all images laid out as consecutive blocks of `NUM_INPUTS` floats.
-/// - `labels`: slice of labels corresponding to `images`.
-/// - `indices`: permutation or index list used to select examples from the dataset.
-/// - `start`: starting offset in `indices` for this batch.
-/// - `count`: number of examples to copy into the outputs.
-/// - `out_inputs`: destination buffer for the batch inputs; must have length at least `count * NUM_INPUTS`.
-/// - `out_labels`: destination buffer for the batch labels; must have length at least `count`.
-/// - `flip_prob`: optional probability (0.0-1.0) for random horizontal flip.
-/// - `crop_padding`: optional padding amount for random crop (crops back to IMG_W x IMG_H).
-/// - `brightness_jitter`: optional brightness jitter delta (applied uniformly).
-/// - `contrast_jitter`: optional contrast jitter delta.
-/// - `rng`: optional random number generator for augmentation operations.
-fn gather_batch(
-    images: &[f32],
-    labels: &[u8],
-    indices: &[usize],
-    start: usize,
-    count: usize,
-    out_inputs: &mut [f32],
-    out_labels: &mut [u8],
-    flip_prob: Option<f32>,
-    crop_padding: Option<usize>,
-    brightness_jitter: Option<f32>,
-    contrast_jitter: Option<f32>,
-    mut rng: Option<&mut SimpleRng>,
-) {
-    use rust_neural_networks::data::augmentation::{
-        random_brightness, random_contrast, random_crop, random_horizontal_flip,
-    };
-
-    for i in 0..count {
-        let src_index = indices[start + i];
-        let src_start = src_index * NUM_INPUTS;
-        let dst_start = i * NUM_INPUTS;
-
-        // Copy base image to output buffer
-        out_inputs[dst_start..dst_start + NUM_INPUTS]
-            .copy_from_slice(&images[src_start..src_start + NUM_INPUTS]);
-        out_labels[i] = labels[src_index];
-
-        // Apply augmentations if parameters are provided and RNG is available
-        if let Some(ref mut rng_ref) = rng {
-            let image_slice = &mut out_inputs[dst_start..dst_start + NUM_INPUTS];
-
-            // Apply random crop if padding is specified
-            if let Some(padding) = crop_padding {
-                // random_crop returns a new Vec, so we need to copy it back
-                let cropped = random_crop(
-                    image_slice,
-                    IMG_W,
-                    IMG_H,
-                    IMG_CHANNELS,
-                    padding,
-                    IMG_W, // crop back to original width
-                    IMG_H, // crop back to original height
-                    rng_ref,
-                );
-                image_slice.copy_from_slice(&cropped);
-            }
-
-            // Apply random horizontal flip if probability is specified
-            if let Some(prob) = flip_prob {
-                random_horizontal_flip(image_slice, IMG_W, IMG_H, IMG_CHANNELS, prob, rng_ref);
-            }
-
-            // Apply color jitter if specified
-            if let Some(brightness_delta) = brightness_jitter {
-                random_brightness(
-                    image_slice,
-                    IMG_W,
-                    IMG_H,
-                    IMG_CHANNELS,
-                    brightness_delta,
-                    rng_ref,
-                );
-            }
-            if let Some(contrast_delta) = contrast_jitter {
-                random_contrast(
-                    image_slice,
-                    IMG_W,
-                    IMG_H,
-                    IMG_CHANNELS,
-                    contrast_delta,
-                    rng_ref,
-                );
-            }
-            // Note: saturation_jitter is skipped for MNIST (grayscale, 1 channel)
-        }
-    }
-}
 
 struct AttnModel {
     // Patch projection: token = patch * W + b.
@@ -1039,6 +934,12 @@ fn apply_sgd(model: &mut AttnModel, grads: &Grads, lr: f32) {
     }
 }
 
+// Compute the L2 (Euclidean) norm of a slice of f32 values.
+// Used to measure gradient magnitudes for monitoring training health.
+fn l2_norm(v: &[f32]) -> f32 {
+    v.iter().map(|x| x * x).sum::<f32>().sqrt()
+}
+
 // Save the attention model in binary (little-endian f32).
 fn save_model(model: &AttnModel, filename: &str) {
     let file = File::create(filename).unwrap_or_else(|_| {
@@ -1407,10 +1308,14 @@ fn train_model_with_config(
                 batch_count,
                 &mut batch_inputs,
                 &mut batch_labels,
+                IMG_W,
+                IMG_H,
+                IMG_CHANNELS,
                 None,
                 None,
                 None,
                 None,
+                None, // saturation_jitter: not applicable for grayscale MNIST
                 None,
             );
 
@@ -1575,11 +1480,26 @@ fn main() {
     fs::create_dir_all("./logs").ok();
 
     // Training log file.
-    let log_file = File::create("./logs/training_loss_attention.txt").unwrap_or_else(|_| {
-        eprintln!("Could not create logs/training_loss_attention.txt");
+    let mut logger =
+        CsvTrainingLogger::new("./logs/training_loss_attention.csv").unwrap_or_else(|_| {
+            eprintln!("Could not create logs/training_loss_attention.csv");
+            process::exit(1);
+        });
+    logger.write_header().unwrap_or_else(|e| {
+        eprintln!("Failed to write log header: {}", e);
         process::exit(1);
     });
-    let mut log = BufWriter::new(log_file);
+
+    // Gradient log file.
+    let mut gradient_logger = CsvGradientLogger::new("./logs/gradients_attention.csv")
+        .unwrap_or_else(|_| {
+            eprintln!("Could not create logs/gradients_attention.csv");
+            process::exit(1);
+        });
+    gradient_logger.write_header().unwrap_or_else(|e| {
+        eprintln!("Failed to write gradient log header: {}", e);
+        process::exit(1);
+    });
 
     println!("Initializing model with sinusoidal positional encoding...");
     let mut rng = SimpleRng::new(42);
@@ -1591,11 +1511,7 @@ fn main() {
 
     // Parse CLI arguments
     let args: Vec<String> = env::args().collect();
-    let config_path = if args.len() > 1 && args[1] == "--config" && args.len() > 2 {
-        args[2].clone()
-    } else {
-        DEFAULT_CONFIG_PATH.to_string()
-    };
+    let config_path = parse_config_path(&args, DEFAULT_CONFIG_PATH);
 
     println!("Loading config from: {}", config_path);
 
@@ -1655,9 +1571,8 @@ fn main() {
     println!("Training...");
     let train_start = Instant::now();
 
-    // Early stopping tracking
-    let mut best_val_acc = 0.0f32;
-    let mut epochs_without_improvement = 0usize;
+    // Early stopping state
+    let mut early_stopping = EarlyStopping::new(EARLY_STOPPING_PATIENCE, EARLY_STOPPING_MIN_DELTA);
 
     for epoch in 0..EPOCHS {
         let epoch_start = Instant::now();
@@ -1667,6 +1582,17 @@ fn main() {
         let current_lr = scheduler.get_lr();
 
         let mut total_loss = 0.0f32;
+
+        // Accumulate gradient norms for this epoch (grouped by semantic layer)
+        let mut patch_proj_w_sum = 0.0f32;
+        let mut patch_proj_b_sum = 0.0f32;
+        let mut attention_w_sum = 0.0f32;
+        let mut attention_b_sum = 0.0f32;
+        let mut feedforward_w_sum = 0.0f32;
+        let mut feedforward_b_sum = 0.0f32;
+        let mut classifier_w_sum = 0.0f32;
+        let mut classifier_b_sum = 0.0f32;
+        let mut batch_count_total = 0usize;
 
         for batch_start in (0..actual_train_samples).step_by(BATCH_SIZE) {
             let batch_count = (actual_train_samples - batch_start).min(BATCH_SIZE);
@@ -1681,6 +1607,9 @@ fn main() {
                 batch_count,
                 &mut batch_inputs,
                 &mut batch_labels,
+                IMG_W,
+                IMG_H,
+                IMG_CHANNELS,
                 if enable_augmentation {
                     horizontal_flip_prob
                 } else {
@@ -1701,6 +1630,7 @@ fn main() {
                 } else {
                     None
                 },
+                None, // saturation_jitter: not applicable for grayscale MNIST
                 if enable_augmentation {
                     Some(&mut aug_rng)
                 } else {
@@ -1713,54 +1643,124 @@ fn main() {
                 forward_batch(&model, &batch_inputs, &batch_labels, batch_count, &mut buf);
             total_loss += batch_loss;
 
-            // Backward pass + SGD update.
+            // Backward pass.
             backward_batch(&model, batch_count, &mut buf, &mut grads);
+
+            // Accumulate gradient norms before parameter update (grouped by semantic layer).
+            patch_proj_w_sum += l2_norm(&grads.w_patch);
+            patch_proj_b_sum += l2_norm(&grads.b_patch);
+            // attention: combined Q/K/V norms
+            attention_w_sum += l2_norm(&grads.w_q) + l2_norm(&grads.w_k) + l2_norm(&grads.w_v);
+            attention_b_sum += l2_norm(&grads.b_q) + l2_norm(&grads.b_k) + l2_norm(&grads.b_v);
+            // feedforward: ff1 + ff2 norms
+            feedforward_w_sum += l2_norm(&grads.w_ff1) + l2_norm(&grads.w_ff2);
+            feedforward_b_sum += l2_norm(&grads.b_ff1) + l2_norm(&grads.b_ff2);
+            // classifier
+            classifier_w_sum += l2_norm(&grads.w_cls);
+            classifier_b_sum += l2_norm(&grads.b_cls);
+            batch_count_total += 1;
+
+            // SGD update.
             apply_sgd(&mut model, &grads, current_lr);
         }
 
         let avg_loss = total_loss / actual_train_samples as f32;
 
-        // Evaluate on validation set
-        let val_acc = test_accuracy(&model, &val_images, &val_labels);
+        // Write gradient norms (averaged across batches) to gradient log.
+        let num_batches = batch_count_total as f32;
+        gradient_logger
+            .write_layer(
+                epoch + 1,
+                "patch_projection",
+                patch_proj_w_sum / num_batches,
+                patch_proj_b_sum / num_batches,
+            )
+            .unwrap_or_else(|_| eprintln!("Failed writing gradient data."));
+        gradient_logger
+            .write_layer(
+                epoch + 1,
+                "attention",
+                attention_w_sum / num_batches,
+                attention_b_sum / num_batches,
+            )
+            .unwrap_or_else(|_| eprintln!("Failed writing gradient data."));
+        gradient_logger
+            .write_layer(
+                epoch + 1,
+                "feedforward",
+                feedforward_w_sum / num_batches,
+                feedforward_b_sum / num_batches,
+            )
+            .unwrap_or_else(|_| eprintln!("Failed writing gradient data."));
+        gradient_logger
+            .write_layer(
+                epoch + 1,
+                "classifier",
+                classifier_w_sum / num_batches,
+                classifier_b_sum / num_batches,
+            )
+            .unwrap_or_else(|_| eprintln!("Failed writing gradient data."));
+        gradient_logger
+            .flush()
+            .unwrap_or_else(|_| eprintln!("Failed flushing gradient log."));
+
+        // Evaluate on validation set (loss and accuracy)
+        let vn = val_labels.len();
+        let mut total_val_loss = 0.0f32;
+        let mut total_val_correct = 0usize;
+        for v_start in (0..vn).step_by(BATCH_SIZE) {
+            let v_count = (vn - v_start).min(BATCH_SIZE);
+            let len = v_count * NUM_INPUTS;
+            batch_inputs[..len]
+                .copy_from_slice(&val_images[v_start * NUM_INPUTS..v_start * NUM_INPUTS + len]);
+            forward_inference(&model, &batch_inputs, v_count, &mut buf);
+            let (batch_loss, batch_correct) = evaluate_batch_accuracy(
+                &buf.probs,
+                &val_labels[v_start..v_start + v_count],
+                v_count,
+                NUM_CLASSES,
+            );
+            total_val_loss += batch_loss;
+            total_val_correct += batch_correct;
+        }
+        let val_loss = total_val_loss / vn as f32;
+        let val_accuracy = 100.0 * total_val_correct as f32 / vn as f32;
         let epoch_time = epoch_start.elapsed().as_secs_f32();
 
         println!(
-            "  Epoch {:2}: loss={:.6} | val_acc={:5.2}% | time={:.2}s",
+            "  Epoch {:2}: loss={:.6} | val_loss={:.6} | val_acc={:5.2}% | time={:.2}s",
             epoch + 1,
             avg_loss,
-            val_acc,
+            val_loss,
+            val_accuracy,
             epoch_time
         );
 
-        // Log to file: epoch,loss,val_accuracy,time
-        if let Err(e) = writeln!(
-            log,
-            "{},{:.6},{:.2},{:.2}",
-            epoch + 1,
-            avg_loss,
-            val_acc,
-            epoch_time
-        ) {
+        let metrics = TrainingMetrics {
+            train_loss: avg_loss,
+            val_loss,
+            val_accuracy,
+            train_time: epoch_time,
+            learning_rate: current_lr,
+        };
+        if let Err(e) = logger.write_epoch(epoch + 1, &metrics) {
             eprintln!("Warning: Failed to write to log file: {}", e);
         }
 
         // Early stopping check
-        if val_acc > best_val_acc + EARLY_STOPPING_MIN_DELTA {
-            best_val_acc = val_acc;
-            epochs_without_improvement = 0;
-            // Save best model
-            save_model(&model, "mnist_attention_model_best.bin");
-        } else {
-            epochs_without_improvement += 1;
-            if epochs_without_improvement >= EARLY_STOPPING_PATIENCE {
+        match early_stopping.check(val_loss) {
+            EarlyStoppingAction::Improved => {
+                save_model(&model, "mnist_attention_model_best.bin");
+            }
+            EarlyStoppingAction::Stop => {
                 println!();
                 println!(
-                    "Early stopping triggered after {} epochs without improvement (best val_acc: {:.2}%)",
-                    EARLY_STOPPING_PATIENCE, best_val_acc
+                    "\nEarly stopping triggered! No improvement for {} epochs. Best validation loss: {:.6}",
+                    EARLY_STOPPING_PATIENCE, early_stopping.best_val_loss
                 );
-                println!("Stopping at epoch {}", epoch + 1);
                 break;
             }
+            EarlyStoppingAction::Continue => {}
         }
 
         // Update learning rate at end of epoch
@@ -1781,6 +1781,7 @@ fn main() {
     let total_time = program_start.elapsed().as_secs_f32();
     println!("Total time: {:.2}s", total_time);
     println!();
-    println!("Training log saved to: ./logs/training_loss_attention.txt");
+    println!("Training log saved to: ./logs/training_loss_attention.csv");
+    println!("Gradient log saved to: ./logs/gradients_attention.csv");
     println!("Final test accuracy: {:.2}%", final_acc);
 }

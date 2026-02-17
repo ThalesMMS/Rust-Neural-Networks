@@ -7,7 +7,7 @@
 //   ./data/t10k-labels.idx1-ubyte
 //
 // Output:
-//   - logs/training_loss_cnn.txt (epoch,loss,time)
+//   - logs/training_loss_cnn.csv (epoch,train_loss,train_time,val_loss,val_accuracy,learning_rate)
 //   - prints test accuracy
 //
 // Note: educational implementation (no BLAS/GEMM), so it is intentionally slow.
@@ -23,6 +23,10 @@ use std::time::Instant;
 use rust_neural_networks::config::load_config;
 use rust_neural_networks::data::mnist::{read_mnist_images, read_mnist_labels};
 use rust_neural_networks::layers::{DenseLayer, Layer};
+use rust_neural_networks::training::{
+    compute_softmax_cross_entropy, evaluate_batch_accuracy, gather_batch, parse_config_path,
+    print_training_config, CsvTrainingLogger, EarlyStopping, EarlyStoppingAction, TrainingMetrics,
+};
 use rust_neural_networks::utils::activations::{relu_inplace, softmax_rows};
 use rust_neural_networks::utils::lr_scheduler::{create_scheduler_from_config, LRScheduler};
 use rust_neural_networks::utils::rng::SimpleRng;
@@ -330,138 +334,6 @@ impl Layer for Conv2DLayer {
     }
 }
 
-// Copy a subset of images/labels into contiguous batch buffers with optional augmentation.
-/// Copies a contiguous mini-batch of examples and their labels into preallocated output buffers.
-///
-/// The function reads `count` examples by mapping `indices[start..start+count]` into `images` and
-/// `labels`, copying each example's NUM_INPUTS floats into `out_inputs` and the corresponding label
-/// into `out_labels` in batch order.
-///
-/// If augmentation parameters are provided, applies data augmentation to each image after copying.
-/// Augmentations are applied in the following order:
-/// 1. Random crop (if `crop_padding` is Some)
-/// 2. Random horizontal flip (if `flip_prob` is Some)
-/// 3. Brightness jitter (if `brightness_jitter` is Some)
-/// 4. Contrast jitter (if `contrast_jitter` is Some)
-///
-/// Note: saturation_jitter is not supported for MNIST (grayscale, 1 channel).
-///
-/// # Parameters
-///
-/// - `images`: flat slice of all images laid out as consecutive blocks of `NUM_INPUTS` floats.
-/// - `labels`: slice of labels corresponding to `images`.
-/// - `indices`: permutation or index list used to select examples from the dataset.
-/// - `start`: starting offset in `indices` for this batch.
-/// - `count`: number of examples to copy into the outputs.
-/// - `out_inputs`: destination buffer for the batch inputs; must have length at least `count * NUM_INPUTS`.
-/// - `out_labels`: destination buffer for the batch labels; must have length at least `count`.
-/// - `flip_prob`: optional probability (0.0-1.0) for random horizontal flip.
-/// - `crop_padding`: optional padding amount for random crop (crops back to IMG_W x IMG_H).
-/// - `brightness_jitter`: optional brightness jitter delta (applied uniformly).
-/// - `contrast_jitter`: optional contrast jitter delta.
-/// - `rng`: optional random number generator for augmentation operations.
-///
-/// # Examples
-///
-/// ```
-/// // prepare a tiny dataset with NUM_INPUTS per example
-/// let mut images = vec![0.0f32; NUM_INPUTS * 3];
-/// // fill example 1 and 2 with distinguishable values
-/// for i in 0..NUM_INPUTS { images[i] = 1.0; images[NUM_INPUTS * 2 + i] = 3.0; }
-/// let labels = vec![0u8, 1u8, 2u8];
-/// let indices = vec![2usize, 0, 1];
-///
-/// let mut batch_inputs = vec![0.0f32; NUM_INPUTS * 2];
-/// let mut batch_labels = vec![0u8; 2];
-///
-/// // gather two examples starting from indices[0] => picks examples 2 and 0
-/// gather_batch(&images, &labels, &indices, 0, 2, &mut batch_inputs, &mut batch_labels,
-///              None, None, None, None, None);
-///
-/// // verify the labels and a couple of input values
-/// assert_eq!(batch_labels, vec![2u8, 0u8]);
-/// assert_eq!(batch_inputs[0], 3.0);
-/// assert_eq!(batch_inputs[NUM_INPUTS], 1.0);
-/// ```
-fn gather_batch(
-    images: &[f32],
-    labels: &[u8],
-    indices: &[usize],
-    start: usize,
-    count: usize,
-    out_inputs: &mut [f32],
-    out_labels: &mut [u8],
-    flip_prob: Option<f32>,
-    crop_padding: Option<usize>,
-    brightness_jitter: Option<f32>,
-    contrast_jitter: Option<f32>,
-    mut rng: Option<&mut SimpleRng>,
-) {
-    use rust_neural_networks::data::augmentation::{
-        random_brightness, random_contrast, random_crop, random_horizontal_flip,
-    };
-
-    for i in 0..count {
-        let src_index = indices[start + i];
-        let src_start = src_index * NUM_INPUTS;
-        let dst_start = i * NUM_INPUTS;
-
-        // Copy base image to output buffer
-        out_inputs[dst_start..dst_start + NUM_INPUTS]
-            .copy_from_slice(&images[src_start..src_start + NUM_INPUTS]);
-        out_labels[i] = labels[src_index];
-
-        // Apply augmentations if parameters are provided and RNG is available
-        if let Some(ref mut rng_ref) = rng {
-            let image_slice = &mut out_inputs[dst_start..dst_start + NUM_INPUTS];
-
-            // Apply random crop if padding is specified
-            if let Some(padding) = crop_padding {
-                // random_crop returns a new Vec, so we need to copy it back
-                let cropped = random_crop(
-                    image_slice,
-                    IMG_W,
-                    IMG_H,
-                    IMG_CHANNELS,
-                    padding,
-                    IMG_W, // crop back to original width
-                    IMG_H, // crop back to original height
-                    rng_ref,
-                );
-                image_slice.copy_from_slice(&cropped);
-            }
-
-            // Apply random horizontal flip if probability is specified
-            if let Some(prob) = flip_prob {
-                random_horizontal_flip(image_slice, IMG_W, IMG_H, IMG_CHANNELS, prob, rng_ref);
-            }
-
-            // Apply color jitter if specified
-            if let Some(brightness_delta) = brightness_jitter {
-                random_brightness(
-                    image_slice,
-                    IMG_W,
-                    IMG_H,
-                    IMG_CHANNELS,
-                    brightness_delta,
-                    rng_ref,
-                );
-            }
-            if let Some(contrast_delta) = contrast_jitter {
-                random_contrast(
-                    image_slice,
-                    IMG_W,
-                    IMG_H,
-                    IMG_CHANNELS,
-                    contrast_delta,
-                    rng_ref,
-                );
-            }
-            // Note: saturation_jitter is skipped for MNIST (grayscale, 1 channel)
-        }
-    }
-}
-
 // CNN with shared layer abstractions.
 struct Cnn {
     conv_layer: Conv2DLayer,
@@ -617,37 +489,6 @@ fn maxpool_forward(batch: usize, conv_act: &[f32], pool_out: &mut [f32], pool_id
 fn fc_forward(model: &mut Cnn, batch: usize, x: &[f32], logits: &mut [f32]) {
     // Use DenseLayer for forward pass
     model.fc_layer.forward(x, logits, batch);
-}
-
-// Softmax + cross-entropy: returns summed loss and writes delta = (probs - onehot) * scale.
-fn softmax_xent_backward(
-    probs_inplace: &mut [f32], // logits overwritten with probs
-    labels: &[u8],
-    batch: usize,
-    delta: &mut [f32],
-    scale: f32,
-) -> f32 {
-    let eps = 1e-9f32;
-    let len = batch * NUM_CLASSES;
-    softmax_rows(&mut probs_inplace[..len], batch, NUM_CLASSES);
-
-    let mut loss = 0.0f32;
-    for (b, &label) in labels.iter().enumerate().take(batch) {
-        let base = b * NUM_CLASSES;
-        let y = label as usize;
-
-        let p = probs_inplace[base + y].max(eps);
-        loss += -p.ln();
-
-        for j in 0..NUM_CLASSES {
-            let mut d = probs_inplace[base + j];
-            if j == y {
-                d -= 1.0;
-            }
-            delta[base + j] = d * scale;
-        }
-    }
-    loss
 }
 
 // FC backward: compute gradW, gradB and dX.
@@ -902,17 +743,6 @@ fn save_model(model: &Cnn, filename: &str) {
     println!("Model saved to {}", filename);
 }
 
-fn parse_config_path(args: &[String]) -> String {
-    let mut i = 1;
-    while i < args.len() {
-        if args[i] == "--config" && i + 1 < args.len() {
-            return args[i + 1].clone();
-        }
-        i += 1;
-    }
-    DEFAULT_CONFIG_PATH.to_string()
-}
-
 fn scheduler_from_args(
     learning_rate: f32,
     epochs: usize,
@@ -944,7 +774,7 @@ fn scheduler_from_args(
 fn main() {
     // Parse command-line arguments for config file path
     let args: Vec<String> = env::args().collect();
-    let config_path = parse_config_path(&args);
+    let config_path = parse_config_path(&args, DEFAULT_CONFIG_PATH);
 
     // Load config
     println!("=== MNIST CNN Training ===");
@@ -978,40 +808,15 @@ fn main() {
     let contrast_jitter = config.contrast_jitter;
 
     // Print loaded configuration
-    println!("\nConfiguration:");
-    println!("  Learning rate: {}", learning_rate);
-    println!("  Epochs: {}", epochs);
-    println!("  Batch size: {}", batch_size);
-    println!("  Validation split: {:.1}%", validation_split * 100.0);
-    println!("  Early stopping patience: {}", early_stopping_patience);
-    println!("  Early stopping min delta: {}", early_stopping_min_delta);
-    println!("  Scheduler type: {}", config.scheduler_type);
-    if let Some(ref activation) = config.activation_function {
-        println!("  Activation function: {}", activation);
-    }
-    println!(
-        "  Data augmentation: {}",
-        if enable_augmentation {
-            "enabled"
-        } else {
-            "disabled"
-        }
+    print_training_config(
+        &config,
+        learning_rate,
+        epochs,
+        batch_size,
+        validation_split,
+        early_stopping_patience,
+        early_stopping_min_delta,
     );
-    if enable_augmentation {
-        if let Some(prob) = horizontal_flip_prob {
-            println!("    Horizontal flip probability: {}", prob);
-        }
-        if let Some(padding) = random_crop_padding {
-            println!("    Random crop padding: {}", padding);
-        }
-        if let Some(delta) = brightness_jitter {
-            println!("    Brightness jitter: {}", delta);
-        }
-        if let Some(delta) = contrast_jitter {
-            println!("    Contrast jitter: {}", delta);
-        }
-    }
-    println!();
 
     // Create learning rate scheduler
     let mut scheduler = scheduler_from_args(learning_rate, epochs, Some(&config_path));
@@ -1065,11 +870,14 @@ fn main() {
 
     // Training log file.
     fs::create_dir_all("./logs").ok();
-    let log_file = File::create("./logs/training_loss_cnn.txt").unwrap_or_else(|_| {
-        eprintln!("Could not create logs/training_loss_cnn.txt");
+    let mut logger = CsvTrainingLogger::new("./logs/training_loss_cnn.csv").unwrap_or_else(|_| {
+        eprintln!("Could not create logs/training_loss_cnn.csv");
         process::exit(1);
     });
-    let mut log = BufWriter::new(log_file);
+    logger.write_header().unwrap_or_else(|_| {
+        eprintln!("Could not write CSV header to logs/training_loss_cnn.csv");
+        process::exit(1);
+    });
 
     // Create gradient logging file
     let gradient_log_filename = "./logs/gradients_cnn.csv";
@@ -1106,8 +914,7 @@ fn main() {
     let mut indices: Vec<usize> = (0..train_n).collect();
 
     // Early stopping state
-    let mut best_val_loss = f32::INFINITY;
-    let mut epochs_without_improvement = 0usize;
+    let mut early_stopping = EarlyStopping::new(early_stopping_patience, early_stopping_min_delta);
 
     println!(
         "Training CNN: epochs={} batch={} lr={}",
@@ -1142,6 +949,9 @@ fn main() {
                 batch,
                 &mut batch_inputs,
                 &mut batch_labels,
+                IMG_W,
+                IMG_H,
+                IMG_CHANNELS,
                 if enable_augmentation {
                     horizontal_flip_prob
                 } else {
@@ -1162,6 +972,7 @@ fn main() {
                 } else {
                     None
                 },
+                None, // saturation_jitter: not applicable for grayscale MNIST
                 if enable_augmentation {
                     Some(&mut aug_rng)
                 } else {
@@ -1175,8 +986,15 @@ fn main() {
             fc_forward(&mut model, batch, &pool_out, &mut logits);
 
             // Softmax + loss + gradient at logits.
-            let batch_loss =
-                softmax_xent_backward(&mut logits, &batch_labels, batch, &mut delta, scale);
+            softmax_rows(&mut logits[..batch * NUM_CLASSES], batch, NUM_CLASSES);
+            let batch_loss = compute_softmax_cross_entropy(
+                &logits[..batch * NUM_CLASSES],
+                &batch_labels,
+                batch,
+                NUM_CLASSES,
+                &mut delta,
+                scale,
+            );
             total_loss += batch_loss;
 
             // Backward: FC -> pool -> conv.
@@ -1232,35 +1050,23 @@ fn main() {
             );
             fc_forward(&mut model, batch_count, &val_pool_out, &mut val_logits);
 
-            // Apply softmax and compute loss
+            // Apply softmax
             softmax_rows(
                 &mut val_logits[..batch_count * NUM_CLASSES],
                 batch_count,
                 NUM_CLASSES,
             );
 
-            // Compute loss and accuracy
-            let epsilon = 1e-9f32;
-            for row_idx in 0..batch_count {
-                let row_start = row_idx * NUM_CLASSES;
-                let label = val_labels[batch_start + row_idx] as usize;
-                let prob = val_logits[row_start + label].max(epsilon);
-                val_total_loss -= prob.ln();
-
-                // Compute accuracy
-                let row = &val_logits[row_start..row_start + NUM_CLASSES];
-                let mut predicted = 0usize;
-                let mut max_prob = row[0];
-                for (i, &value) in row.iter().enumerate().skip(1) {
-                    if value > max_prob {
-                        max_prob = value;
-                        predicted = i;
-                    }
-                }
-                if predicted == label {
-                    val_correct += 1;
-                }
-            }
+            // Compute loss and accuracy using shared utility
+            let batch_val_labels = &val_labels[batch_start..batch_start + batch_count];
+            let (batch_loss, batch_correct) = evaluate_batch_accuracy(
+                &val_logits[..batch_count * NUM_CLASSES],
+                batch_val_labels,
+                batch_count,
+                NUM_CLASSES,
+            );
+            val_total_loss += batch_loss;
+            val_correct += batch_correct;
         }
 
         let val_average_loss = val_total_loss / validation_samples as f32;
@@ -1305,34 +1111,28 @@ fn main() {
             val_accuracy,
             secs
         );
-        writeln!(
-            log,
-            "{},{},{},{},{},{}",
-            epoch + 1,
-            avg_loss,
-            secs,
-            val_average_loss,
+        let metrics = TrainingMetrics {
+            train_loss: avg_loss,
+            val_loss: val_average_loss,
             val_accuracy,
-            current_lr
-        )
-        .ok();
+            train_time: secs,
+            learning_rate: current_lr,
+        };
+        logger.write_epoch(epoch + 1, &metrics).ok();
 
         // Early stopping check
-        if val_average_loss < best_val_loss - early_stopping_min_delta {
-            best_val_loss = val_average_loss;
-            epochs_without_improvement = 0;
-            // Save best model
-            save_model(&model, "mnist_cnn_model_best.bin");
-        } else {
-            epochs_without_improvement += 1;
-        }
-
-        if epochs_without_improvement >= early_stopping_patience {
-            println!(
-                "\nEarly stopping triggered! No improvement for {} epochs. Best validation loss: {:.6}",
-                early_stopping_patience, best_val_loss
-            );
-            break;
+        match early_stopping.check(val_average_loss) {
+            EarlyStoppingAction::Improved => {
+                save_model(&model, "mnist_cnn_model_best.bin");
+            }
+            EarlyStoppingAction::Stop => {
+                println!(
+                    "\nEarly stopping triggered! No improvement for {} epochs. Best validation loss: {:.6}",
+                    early_stopping_patience, early_stopping.best_val_loss
+                );
+                break;
+            }
+            EarlyStoppingAction::Continue => {}
         }
 
         // Update learning rate scheduler
@@ -1342,36 +1142,4 @@ fn main() {
     println!("Testing...");
     let acc = test_accuracy(&mut model, &test_images, &test_labels);
     println!("Test Accuracy: {:.2}%", acc);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_gather_batch() {
-        let images = vec![1.0; 784 * 3]; // 3 images
-        let labels = vec![0u8, 1u8, 2u8];
-        let indices = vec![0, 1, 2];
-        let mut out_inputs = vec![0.0; 784 * 2]; // batch of 2
-        let mut out_labels = vec![0u8; 2];
-
-        gather_batch(
-            &images,
-            &labels,
-            &indices,
-            0,
-            2,
-            &mut out_inputs,
-            &mut out_labels,
-            None,
-            None,
-            None,
-            None,
-            None,
-        );
-
-        assert_eq!(out_labels[0], 0);
-        assert_eq!(out_labels[1], 1);
-    }
 }

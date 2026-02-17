@@ -780,6 +780,24 @@ impl Layer for DenseLayer {
         self.weights.len() + self.biases.len()
     }
 
+    /// Estimated FLOPS for a dense forward pass: `Y = X * W + b`.
+    ///
+    /// Each of the `batch_size * output_size` output neurons requires
+    /// `input_size` multiply-add operations, giving
+    /// `2 * batch_size * input_size * output_size` total FLOPS.
+    fn flops_forward(&self, batch_size: usize) -> u64 {
+        2 * batch_size as u64 * self.input_size as u64 * self.output_size as u64
+    }
+
+    /// Estimated FLOPS for a dense backward pass.
+    ///
+    /// Both `dL/dX = dL/dY * Wᵀ` and `dL/dW = Xᵀ * dL/dY` are matrix
+    /// multiplications with the same dimensions as the forward pass, so the
+    /// backward FLOPS equal the forward FLOPS.
+    fn flops_backward(&self, batch_size: usize) -> u64 {
+        2 * batch_size as u64 * self.input_size as u64 * self.output_size as u64
+    }
+
     fn into_any(self: Box<Self>) -> Box<dyn std::any::Any> {
         self
     }

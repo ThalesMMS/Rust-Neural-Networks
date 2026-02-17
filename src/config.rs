@@ -123,6 +123,9 @@ pub struct TrainingConfig {
     /// Minimum change in validation loss to qualify as improvement (optional)
     pub early_stopping_min_delta: Option<f32>,
 
+    /// Enable performance profiling during training (optional, default false)
+    pub enable_profiling: Option<bool>,
+
     /// Enable data augmentation during training (optional, default false)
     pub enable_augmentation: Option<bool>,
 
@@ -140,6 +143,20 @@ pub struct TrainingConfig {
 
     /// Saturation jitter factor for color augmentation (must be non-negative if specified)
     pub saturation_jitter: Option<f32>,
+
+    // --- GAN-specific fields ---
+    /// Dimension of the latent noise vector fed to the GAN generator (must be positive if specified)
+    pub noise_dim: Option<usize>,
+
+    /// Learning rate for the GAN generator (must be positive if specified)
+    pub g_lr: Option<f32>,
+
+    /// Learning rate for the GAN discriminator (must be positive if specified)
+    pub d_lr: Option<f32>,
+
+    /// Label smoothing factor for GAN training, e.g. 0.9 for one-sided smoothing
+    /// (must be in [0.0, 1.0] if specified)
+    pub label_smoothing: Option<f32>,
 }
 
 /// Loads a training configuration from a JSON file.
@@ -446,6 +463,43 @@ fn validate_config(config: &TrainingConfig) -> Result<(), Box<dyn Error>> {
             return Err(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "saturation_jitter must be non-negative",
+            )));
+        }
+    }
+
+    // Validate GAN-specific parameters
+    if let Some(noise_dim) = config.noise_dim {
+        if noise_dim == 0 {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "noise_dim must be positive",
+            )));
+        }
+    }
+
+    if let Some(g_lr) = config.g_lr {
+        if g_lr <= 0.0 {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "g_lr (generator learning rate) must be positive",
+            )));
+        }
+    }
+
+    if let Some(d_lr) = config.d_lr {
+        if d_lr <= 0.0 {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "d_lr (discriminator learning rate) must be positive",
+            )));
+        }
+    }
+
+    if let Some(label_smoothing) = config.label_smoothing {
+        if !(0.0..=1.0).contains(&label_smoothing) {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "label_smoothing must be in the range [0.0, 1.0]",
             )));
         }
     }

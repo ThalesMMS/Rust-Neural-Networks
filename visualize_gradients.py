@@ -20,6 +20,8 @@ ANIMATED_OUTPUT_FILE = "gradient_flow_animated.gif"
 GRADIENT_LOGS = {
     'mlp': f"{LOG_DIR}/gradients_mlp.csv",
     'cnn': f"{LOG_DIR}/gradients_cnn.csv",
+    'cifar10': f"{LOG_DIR}/gradients_cifar10.csv",
+    'attention': f"{LOG_DIR}/gradients_attention.csv",
 }
 
 def load_gradient_data(filepath):
@@ -604,7 +606,7 @@ def main():
             print("Gradient Flow Visualization Tool")
             print("\nUsage: python visualize_gradients.py [options]")
             print("\nOptions:")
-            print("  --model, -m MODEL      Model type to visualize (mlp, cnn)")
+            print("  --model, -m MODEL      Model type to visualize (mlp, cnn, cifar10, attention)")
             print("  --animate, -a          Generate animated GIF showing gradient evolution")
             print("  --fps, -f FPS          Frames per second for animation (default: 2)")
             print("  --window, -w SIZE      Rolling window size for animation (default: progressive)")

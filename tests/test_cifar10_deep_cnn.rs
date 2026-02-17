@@ -641,11 +641,7 @@ fn test_save_load_mixed_architecture() {
         .as_any()
         .downcast_ref::<BatchNormLayer>()
         .expect("Layer 1 should be BatchNormLayer after roundtrip");
-    assert_eq!(
-        loaded_bn.output_size(),
-        512,
-        "BatchNorm size should be 512"
-    );
+    assert_eq!(loaded_bn.output_size(), 512, "BatchNorm size should be 512");
     assert_eq!(
         loaded_bn.gamma(),
         original_bn_gamma.as_slice(),

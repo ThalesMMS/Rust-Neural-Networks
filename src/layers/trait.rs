@@ -141,6 +141,43 @@ pub trait Layer {
     /// plus output_size biases.
     fn parameter_count(&self) -> usize;
 
+    /// Estimated floating-point operations for the forward pass.
+    ///
+    /// Returns the number of multiply-add operations performed during one
+    /// forward pass over a mini-batch of `batch_size` samples.  The default
+    /// implementation returns `0`; layer types with analytically known FLOP
+    /// counts (e.g. `DenseLayer`, `Conv2DLayer`) override this.
+    ///
+    /// # Arguments
+    ///
+    /// * `batch_size` – number of samples in the mini-batch.
+    fn flops_forward(&self, _batch_size: usize) -> u64 {
+        0
+    }
+
+    /// Estimated floating-point operations for the backward pass.
+    ///
+    /// Returns the number of multiply-add operations performed during one
+    /// backward pass over a mini-batch of `batch_size` samples.  The default
+    /// implementation returns `0`; layer types with analytically known FLOP
+    /// counts override this.
+    ///
+    /// # Arguments
+    ///
+    /// * `batch_size` – number of samples in the mini-batch.
+    fn flops_backward(&self, _batch_size: usize) -> u64 {
+        0
+    }
+
+    /// Memory occupied by trainable parameters in bytes.
+    ///
+    /// Defaults to `parameter_count() * 4` (i.e. one `f32` per parameter).
+    /// Layers that store parameters in a different precision or format should
+    /// override this method.
+    fn parameter_memory_bytes(&self) -> usize {
+        self.parameter_count() * 4
+    }
+
     /// Convert the layer to a concrete type via downcasting.
     ///
     /// This method allows downcasting from `Box<dyn Layer>` to specific layer types
