@@ -337,7 +337,7 @@ fn forward_pass(
         layer.forward(input, &mut activations.data[0], batch_size);
 
         // Detect if this is a Conv2D layer and apply ReLU
-        activations.is_conv[0] = (output_size / batch_size) > 5000;
+        activations.is_conv[0] = layer.as_any().downcast_ref::<Conv2DLayer>().is_some();
         if activations.is_conv[0] {
             relu_inplace(&mut activations.data[0]);
         }
@@ -356,7 +356,7 @@ fn forward_pass(
         model.layers[i].forward(prev_output, curr_output, batch_size);
 
         // Detect if this is a Conv2D layer and apply ReLU
-        activations.is_conv[i] = (output_size / batch_size) > 5000;
+        activations.is_conv[i] = model.layers[i].as_any().downcast_ref::<Conv2DLayer>().is_some();
         if activations.is_conv[i] {
             relu_inplace(curr_output);
         }
