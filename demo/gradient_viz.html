@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gradient Flow Visualizer - Rust Neural Networks</title>
+    <link rel="stylesheet" href="gradient_viz_style.css">
+    <!-- Chart.js from CDN for interactive charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <h1>Gradient Flow Visualizer</h1>
+            <p class="subtitle">
+                Inspect gradient magnitudes across layers during training &mdash; detect vanishing
+                and exploding gradients in real-time
+            </p>
+            <nav class="header-nav">
+                <a href="index.html" class="nav-link">&larr; Back to Digit Recognizer</a>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main class="viz-content">
+
+            <!-- ===== Left Panel: Controls & Upload ===== -->
+            <aside class="controls-panel">
+
+                <!-- File Upload Section -->
+                <section class="panel-section upload-section">
+                    <h2>Load Training Log</h2>
+
+                    <!-- Drag-and-Drop Zone -->
+                    <div id="drop-zone" class="drop-zone" role="button" tabindex="0"
+                         aria-label="Drag and drop a gradient CSV log file here">
+                        <span class="drop-zone-icon" aria-hidden="true">&#x1F4C4;</span>
+                        <p class="drop-zone-text">
+                            Drag &amp; drop a CSV file here<br>
+                            or click to browse
+                        </p>
+                        <input type="file" id="file-input" class="file-input"
+                               accept=".csv,text/csv" aria-label="Select gradient CSV file">
+                    </div>
+
+                    <!-- Status Message -->
+                    <div id="upload-status" class="status-message">
+                        Showing demo data &mdash; upload your own CSV to explore
+                    </div>
+                </section>
+
+                <!-- Model Selector -->
+                <section class="panel-section">
+                    <h2>Demo Data</h2>
+                    <div class="form-group">
+                        <label for="model-selector" class="form-label">Model preset</label>
+                        <select id="model-selector" class="form-select">
+                            <option value="mlp">MLP (784&rarr;512&rarr;10)</option>
+                            <option value="cnn">CNN (Conv + MaxPool + FC)</option>
+                        </select>
+                    </div>
+                    <button id="load-demo-btn" class="btn btn-secondary">
+                        Load Demo Data
+                    </button>
+                </section>
+
+                <!-- Epoch Slider -->
+                <section class="panel-section">
+                    <h2>Epoch Control</h2>
+                    <div class="form-group">
+                        <label for="epoch-slider" class="form-label">
+                            Epoch: <span id="epoch-display" class="epoch-display">20</span>
+                        </label>
+                        <input type="range" id="epoch-slider" class="slider"
+                               min="1" max="20" value="20" step="1"
+                               aria-label="Select epoch to display">
+                    </div>
+                </section>
+
+                <!-- Threshold Controls -->
+                <section class="panel-section">
+                    <h2>Thresholds</h2>
+                    <div class="form-group">
+                        <label for="vanishing-threshold" class="form-label">
+                            Vanishing (&lt;)
+                        </label>
+                        <input type="number" id="vanishing-threshold" class="form-input"
+                               value="0.00001" step="0.000001" min="0"
+                               aria-label="Vanishing gradient threshold">
+                        <span class="form-hint">default: 1e-5</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="exploding-threshold" class="form-label">
+                            Exploding (&gt;)
+                        </label>
+                        <input type="number" id="exploding-threshold" class="form-input"
+                               value="100" step="1" min="0"
+                               aria-label="Exploding gradient threshold">
+                        <span class="form-hint">default: 100</span>
+                    </div>
+                    <button id="apply-thresholds-btn" class="btn btn-primary">
+                        Apply Thresholds
+                    </button>
+                </section>
+
+                <!-- Export Section -->
+                <section class="panel-section export-section">
+                    <h2>Export</h2>
+                    <div class="export-buttons">
+                        <button id="export-csv-btn" class="btn btn-secondary" disabled>
+                            Export CSV
+                        </button>
+                        <button id="export-json-btn" class="btn btn-secondary" disabled>
+                            Export JSON
+                        </button>
+                    </div>
+                    <p class="form-hint">Downloads gradient statistics for the current dataset</p>
+                </section>
+
+            </aside>
+
+            <!-- ===== Right Panel: Visualization ===== -->
+            <div class="visualization-panel">
+
+                <!-- Chart Section -->
+                <section class="panel-section chart-section">
+                    <div class="chart-header">
+                        <h2>Gradient Norm Over Epochs</h2>
+                        <div class="layer-selector-wrapper">
+                            <label for="layer-selector" class="form-label">Layer:</label>
+                            <select id="layer-selector" class="form-select form-select-inline">
+                                <!-- Populated dynamically by gradient_viz.js -->
+                            </select>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="gradient-chart" aria-label="Gradient norm line chart"></canvas>
+                    </div>
+                    <div class="chart-legend">
+                        <span class="legend-item legend-weights">&#9632; Weight gradients</span>
+                        <span class="legend-item legend-biases">&#9632; Bias gradients</span>
+                        <span class="legend-zone legend-vanishing">&#9632; Vanishing zone</span>
+                        <span class="legend-zone legend-healthy">&#9632; Healthy zone</span>
+                        <span class="legend-zone legend-exploding">&#9632; Exploding zone</span>
+                    </div>
+                </section>
+
+                <!-- Layer Status Cards -->
+                <section class="panel-section layer-list-section">
+                    <h2>Layer Health</h2>
+                    <p class="section-subtitle">
+                        Gradient health at epoch <span id="health-epoch-label">20</span>
+                    </p>
+                    <div id="layer-list" class="layer-list">
+                        <!-- Populated dynamically by gradient_viz.js -->
+                    </div>
+                </section>
+
+                <!-- Annotations Panel -->
+                <section class="panel-section annotations-section">
+                    <div class="annotations-header">
+                        <h2>Understanding Gradient Flow</h2>
+                        <button id="toggle-annotations-btn" class="btn btn-secondary btn-sm"
+                                aria-expanded="false" aria-controls="annotations-body">
+                            Show Explanations
+                        </button>
+                    </div>
+
+                    <div id="annotations-body" class="annotations-body" hidden>
+
+                        <!-- Healthy Gradients -->
+                        <div class="annotation-card annotation-healthy">
+                            <div class="annotation-title">
+                                <span class="health-badge badge-healthy">Healthy</span>
+                                Gradients in Range ~0.001 &ndash; 10.0
+                            </div>
+                            <p>
+                                Gradient norms are consistent across layers and epochs.
+                                The network is updating weights at an appropriate rate,
+                                enabling stable and effective learning.
+                            </p>
+                            <div class="annotation-fixes">
+                                <strong>Best practices to maintain:</strong>
+                                <ul>
+                                    <li>Monitor gradient norms regularly to catch drift early</li>
+                                    <li>Keep learning rate moderate &mdash; too high risks exploding, too low slows learning</li>
+                                    <li>Use consistent weight initialization (He for ReLU, Xavier for tanh/sigmoid)</li>
+                                    <li>Add batch normalization in very deep networks as a preventive measure</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <!-- Vanishing Gradients -->
+                        <div class="annotation-card annotation-vanishing">
+                            <div class="annotation-title">
+                                <span class="health-badge badge-vanishing">Vanishing</span>
+                                Gradients &lt; 1e-5
+                            </div>
+                            <p>
+                                Early layers receive negligible gradient signal. The network
+                                fails to learn deep representations, often manifesting as
+                                very slow training or stalled loss.
+                            </p>
+                            <div class="annotation-fixes">
+                                <strong>Fixes:</strong>
+                                <ul>
+                                    <li>Use ReLU or Leaky ReLU activations (avoid sigmoid in deep nets)</li>
+                                    <li>Add batch normalization between layers</li>
+                                    <li>Use residual / skip connections</li>
+                                    <li>Apply careful weight initialization (He, Xavier)</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <!-- Exploding Gradients -->
+                        <div class="annotation-card annotation-exploding">
+                            <div class="annotation-title">
+                                <span class="health-badge badge-exploding">Exploding</span>
+                                Gradients &gt; 100
+                            </div>
+                            <p>
+                                Gradient norms are excessively large. Training is unstable:
+                                loss may diverge (NaN/Inf), and weight updates overshoot
+                                the optimum wildly.
+                            </p>
+                            <div class="annotation-fixes">
+                                <strong>Fixes:</strong>
+                                <ul>
+                                    <li>Apply gradient clipping (clip norm to 1.0 or 5.0)</li>
+                                    <li>Lower the learning rate</li>
+                                    <li>Add weight regularization (L2 / weight decay)</li>
+                                    <li>Use batch normalization to stabilize activations</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                    </div>
+                </section>
+
+            </div>
+            <!-- end .visualization-panel -->
+
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>
+                Built with
+                <a href="https://webassembly.org/" target="_blank" rel="noopener noreferrer">WebAssembly</a>
+                and Rust &mdash;
+                Part of the
+                <a href="https://github.com/yourusername/rust-neural-networks" target="_blank" rel="noopener noreferrer">Rust Neural Networks</a>
+                project.
+                &nbsp;|&nbsp;
+                <a href="index.html">Digit Recognizer</a>
+                &nbsp;|&nbsp;
+                <strong>Gradient Flow Visualizer</strong>
+            </p>
+        </footer>
+    </div>
+    <!-- end .container -->
+
+    <!-- ES Module Scripts -->
+    <script type="module" src="gradient_data_loader.js"></script>
+    <script type="module" src="gradient_viz.js"></script>
+    <script type="module">
+        import { GradientVizApp } from './gradient_viz.js';
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            const app = new GradientVizApp({
+                dropZoneId: 'drop-zone',
+                fileInputId: 'file-input',
+                uploadStatusId: 'upload-status',
+                modelSelectorId: 'model-selector',
+                loadDemoBtnId: 'load-demo-btn',
+                epochSliderId: 'epoch-slider',
+                epochDisplayId: 'epoch-display',
+                vanishingThresholdId: 'vanishing-threshold',
+                explodingThresholdId: 'exploding-threshold',
+                applyThresholdsBtnId: 'apply-thresholds-btn',
+                exportCsvBtnId: 'export-csv-btn',
+                exportJsonBtnId: 'export-json-btn',
+                gradientChartId: 'gradient-chart',
+                layerSelectorId: 'layer-selector',
+                layerListId: 'layer-list',
+                healthEpochLabelId: 'health-epoch-label',
+                toggleAnnotationsBtnId: 'toggle-annotations-btn',
+                annotationsBodyId: 'annotations-body'
+            });
+
+            try {
+                await app.initialize();
+            } catch (error) {
+                const statusEl = document.getElementById('upload-status');
+                if (statusEl) {
+                    statusEl.textContent = 'Error initializing app: ' + error.message;
+                    statusEl.className = 'status-message error';
+                }
+            }
+        });
+    </script>
+</body>
+</html>
