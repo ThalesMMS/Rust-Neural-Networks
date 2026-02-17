@@ -4,9 +4,9 @@
 //! commonly used in computer vision tasks like image classification.
 //! Inputs are expected in channels-last (pixel-interleaved) order.
 
+use crate::layers::gradient::GradientAccumulator;
 use crate::layers::Layer;
 use crate::utils::rng::SimpleRng;
-use std::cell::RefCell;
 
 /// 2D Convolutional layer with learnable filters.
 ///
@@ -48,9 +48,9 @@ pub struct Conv2DLayer {
     input_width: usize,
     weights: Vec<f32>, // [out_channels * in_channels * kernel_size * kernel_size]
     biases: Vec<f32>,  // [out_channels]
-    // Gradient accumulators (mutable interior via RefCell for trait compatibility)
-    grad_weights: RefCell<Vec<f32>>,
-    grad_biases: RefCell<Vec<f32>>,
+    // Gradient accumulators
+    grad_weights: GradientAccumulator,
+    grad_biases: GradientAccumulator,
 }
 
 impl Conv2DLayer {
@@ -127,8 +127,8 @@ impl Conv2DLayer {
             input_width,
             weights,
             biases: vec![0.0f32; out_channels],
-            grad_weights: RefCell::new(vec![0.0f32; weight_count]),
-            grad_biases: RefCell::new(vec![0.0f32; out_channels]),
+            grad_weights: GradientAccumulator::new(weight_count),
+            grad_biases: GradientAccumulator::new(out_channels),
         }
     }
 
@@ -303,15 +303,7 @@ impl Conv2DLayer {
     /// assert!(bias_norm >= 0.0);
     /// ```
     pub fn get_gradient_magnitude(&self) -> (f32, f32) {
-        // Compute L2 norm of weight gradients: sqrt(sum(g_i^2))
-        let grad_weights = self.grad_weights.borrow();
-        let weight_norm: f32 = grad_weights.iter().map(|g| g * g).sum::<f32>().sqrt();
-
-        // Compute L2 norm of bias gradients: sqrt(sum(g_i^2))
-        let grad_biases = self.grad_biases.borrow();
-        let bias_norm: f32 = grad_biases.iter().map(|g| g * g).sum::<f32>().sqrt();
-
-        (weight_norm, bias_norm)
+        (self.grad_weights.l2_norm(), self.grad_biases.l2_norm())
     }
 }
 
@@ -543,17 +535,13 @@ impl Layer for Conv2DLayer {
         let out_spatial = out_h * out_w;
         let in_spatial = self.input_height * self.input_width;
 
-        // Borrow gradient accumulators
+        // Zero out accumulators before processing the current batch
+        self.grad_weights.zero();
+        self.grad_biases.zero();
+
+        // Borrow gradient accumulators for direct index-based accumulation
         let mut grad_w = self.grad_weights.borrow_mut();
         let mut grad_b = self.grad_biases.borrow_mut();
-
-        // Zero out accumulators before processing the current batch
-        for g in grad_w.iter_mut() {
-            *g = 0.0;
-        }
-        for g in grad_b.iter_mut() {
-            *g = 0.0;
-        }
 
         // Accumulate gradients for weights and biases
         for b in 0..batch_size {
@@ -683,53 +671,17 @@ impl Layer for Conv2DLayer {
     /// assert_eq!(layer.biases[0], old_b - 0.1 * 0.25);
     /// ```
     fn update_parameters(&mut self, learning_rate: f32) {
-        let grad_w = self.grad_weights.borrow();
-        let grad_b = self.grad_biases.borrow();
-
-        // Update weights: weight = weight - learning_rate * gradient
-        for (weight, &gradient) in self.weights.iter_mut().zip(grad_w.iter()) {
-            *weight -= learning_rate * gradient;
-        }
-
-        // Update biases: bias = bias - learning_rate * gradient
-        for (bias, &gradient) in self.biases.iter_mut().zip(grad_b.iter()) {
-            *bias -= learning_rate * gradient;
-        }
-
-        // Clear gradients for next iteration
-        drop(grad_w);
-        drop(grad_b);
         self.grad_weights
-            .borrow_mut()
-            .iter_mut()
-            .for_each(|g| *g = 0.0);
+            .apply_sgd_update(&mut self.weights, learning_rate);
         self.grad_biases
-            .borrow_mut()
-            .iter_mut()
-            .for_each(|g| *g = 0.0);
+            .apply_sgd_update(&mut self.biases, learning_rate);
     }
 
     fn update_with_optimizer(&mut self, optimizer: &mut dyn crate::optimizers::Optimizer) {
-        let grad_w = self.grad_weights.borrow();
-        let grad_b = self.grad_biases.borrow();
-
-        // Update weights using optimizer
-        optimizer.update(&mut self.weights, &grad_w);
-
-        // Update biases using optimizer
-        optimizer.update(&mut self.biases, &grad_b);
-
-        // Clear gradients for next iteration
-        drop(grad_w);
-        drop(grad_b);
         self.grad_weights
-            .borrow_mut()
-            .iter_mut()
-            .for_each(|g| *g = 0.0);
+            .apply_optimizer_update(&mut self.weights, optimizer);
         self.grad_biases
-            .borrow_mut()
-            .iter_mut()
-            .for_each(|g| *g = 0.0);
+            .apply_optimizer_update(&mut self.biases, optimizer);
     }
 
     /// Computes the total number of values in a single input example.

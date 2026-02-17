@@ -230,7 +230,8 @@ impl Layer for TransformerBlock {
         cached_input.copy_from_slice(input);
 
         // 1. First layer norm
-        self.ln1.forward(input, &mut cached_ln1_out, batch_size * seq_len);
+        self.ln1
+            .forward(input, &mut cached_ln1_out, batch_size * seq_len);
 
         // 2. Multi-head self-attention
         self.attention

@@ -3,9 +3,9 @@
 //! This module provides a DenseLayer (also known as Linear or Fully Connected layer)
 //! that performs the transformation: output = input × weights + biases
 
+use crate::layers::gradient::GradientAccumulator;
 use crate::layers::Layer;
 use crate::utils::rng::SimpleRng;
-use std::cell::RefCell;
 
 #[cfg(target_os = "macos")]
 extern crate blas_src;
@@ -43,9 +43,9 @@ pub struct DenseLayer {
     output_size: usize,
     weights: Vec<f32>,
     biases: Vec<f32>,
-    // Gradient accumulators (mutable interior via RefCell for trait compatibility)
-    grad_weights: RefCell<Vec<f32>>,
-    grad_biases: RefCell<Vec<f32>>,
+    // Gradient accumulators
+    grad_weights: GradientAccumulator,
+    grad_biases: GradientAccumulator,
 }
 
 impl DenseLayer {
@@ -77,8 +77,8 @@ impl DenseLayer {
             output_size,
             weights,
             biases: vec![0.0f32; output_size],
-            grad_weights: RefCell::new(vec![0.0f32; input_size * output_size]),
-            grad_biases: RefCell::new(vec![0.0f32; output_size]),
+            grad_weights: GradientAccumulator::new(input_size * output_size),
+            grad_biases: GradientAccumulator::new(output_size),
         }
     }
 
@@ -192,15 +192,7 @@ impl DenseLayer {
     /// assert!(bias_norm >= 0.0);
     /// ```
     pub fn get_gradient_magnitude(&self) -> (f32, f32) {
-        // Compute L2 norm of weight gradients: sqrt(sum(g_i^2))
-        let grad_weights = self.grad_weights.borrow();
-        let weight_norm: f32 = grad_weights.iter().map(|g| g * g).sum::<f32>().sqrt();
-
-        // Compute L2 norm of bias gradients: sqrt(sum(g_i^2))
-        let grad_biases = self.grad_biases.borrow();
-        let bias_norm: f32 = grad_biases.iter().map(|g| g * g).sum::<f32>().sqrt();
-
-        (weight_norm, bias_norm)
+        (self.grad_weights.l2_norm(), self.grad_biases.l2_norm())
     }
 }
 
@@ -526,36 +518,38 @@ impl Layer for DenseLayer {
             grad_output.len()
         );
 
-        let mut grad_w = self.grad_weights.borrow_mut();
-        assert_eq!(
-            grad_w.len(),
-            self.input_size * self.output_size,
-            "grad_weights len mismatch: expected {}, got {}",
-            self.input_size * self.output_size,
-            grad_w.len()
-        );
+        {
+            let mut grad_w = self.grad_weights.borrow_mut();
+            assert_eq!(
+                grad_w.len(),
+                self.input_size * self.output_size,
+                "grad_weights len mismatch: expected {}, got {}",
+                self.input_size * self.output_size,
+                grad_w.len()
+            );
 
-        sgemm_wrapper(
-            self.input_size,
-            self.output_size,
-            batch_size,
-            input,
-            self.input_size,
-            grad_output,
-            self.output_size,
-            &mut grad_w,
-            self.output_size,
-            true,
-            false,
-            scale,
-            1.0, // Accumulate gradients
-        );
+            sgemm_wrapper(
+                self.input_size,
+                self.output_size,
+                batch_size,
+                input,
+                self.input_size,
+                grad_output,
+                self.output_size,
+                &mut *grad_w,
+                self.output_size,
+                true,
+                false,
+                scale,
+                1.0, // Accumulate gradients
+            );
+        }
 
         // ===== Step 2: Bias gradients =====
         // Compute: ∂L/∂b = Σ(∂L/∂y) / batch_size (sum along batch dimension)
         // Gradient w.r.t. output: ∂L/∂y (batch_size × output_size)
         // Result: ∂L/∂b (output_size) - one gradient per output neuron
-        // We use a temporary buffer to sum the batch, then accumulate into the persistent gradient
+        // We use a temporary buffer to sum the batch, then accumulate scaled into the persistent gradient
         let mut batch_bias_grad = vec![0.0; self.output_size];
         sum_rows(
             grad_output,
@@ -563,19 +557,7 @@ impl Layer for DenseLayer {
             self.output_size,
             &mut batch_bias_grad,
         );
-
-        let mut grad_b = self.grad_biases.borrow_mut();
-        assert_eq!(
-            grad_b.len(),
-            self.output_size,
-            "grad_biases len mismatch: expected {}, got {}",
-            self.output_size,
-            grad_b.len()
-        );
-
-        for (acc, g) in grad_b.iter_mut().zip(batch_bias_grad.iter()) {
-            *acc += *g * scale;
-        }
+        self.grad_biases.accumulate_scaled(&batch_bias_grad, scale);
 
         // ===== Step 3: Input gradients (backprop to previous layer) =====
         // Compute: ∂L/∂x = ∂L/∂y × W^T
@@ -636,53 +618,17 @@ impl Layer for DenseLayer {
     /// assert_eq!(layer.biases()[0], before_b - 0.5 * 0.2);
     /// ```
     fn update_parameters(&mut self, learning_rate: f32) {
-        let grad_w = self.grad_weights.borrow();
-        let grad_b = self.grad_biases.borrow();
-
-        // Update weights: weight = weight - learning_rate * gradient
-        for (weight, &gradient) in self.weights.iter_mut().zip(grad_w.iter()) {
-            *weight -= learning_rate * gradient;
-        }
-
-        // Update biases: bias = bias - learning_rate * gradient
-        for (bias, &gradient) in self.biases.iter_mut().zip(grad_b.iter()) {
-            *bias -= learning_rate * gradient;
-        }
-
-        // Clear gradients for next iteration
-        drop(grad_w);
-        drop(grad_b);
         self.grad_weights
-            .borrow_mut()
-            .iter_mut()
-            .for_each(|g| *g = 0.0);
+            .apply_sgd_update(&mut self.weights, learning_rate);
         self.grad_biases
-            .borrow_mut()
-            .iter_mut()
-            .for_each(|g| *g = 0.0);
+            .apply_sgd_update(&mut self.biases, learning_rate);
     }
 
     fn update_with_optimizer(&mut self, optimizer: &mut dyn crate::optimizers::Optimizer) {
-        let grad_w = self.grad_weights.borrow();
-        let grad_b = self.grad_biases.borrow();
-
-        // Update weights using optimizer
-        optimizer.update(&mut self.weights, &grad_w);
-
-        // Update biases using optimizer
-        optimizer.update(&mut self.biases, &grad_b);
-
-        // Clear gradients for next iteration
-        drop(grad_w);
-        drop(grad_b);
         self.grad_weights
-            .borrow_mut()
-            .iter_mut()
-            .for_each(|g| *g = 0.0);
+            .apply_optimizer_update(&mut self.weights, optimizer);
         self.grad_biases
-            .borrow_mut()
-            .iter_mut()
-            .for_each(|g| *g = 0.0);
+            .apply_optimizer_update(&mut self.biases, optimizer);
     }
 
     /// Number of input features expected by the layer.

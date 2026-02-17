@@ -443,8 +443,7 @@ impl Layer for MultiHeadAttentionLayer {
 
                 for d_in in 0..self.d_model {
                     // Gradient w.r.t. W_o
-                    grad_w_o[d_in * self.d_model + d_out] +=
-                        attn_out[attn_out_base + d_in] * grad;
+                    grad_w_o[d_in * self.d_model + d_out] += attn_out[attn_out_base + d_in] * grad;
 
                     // Gradient w.r.t. attn_out (backprop to attention layer)
                     grad_attn_out[attn_out_base + d_in] +=
@@ -534,7 +533,8 @@ impl Layer for MultiHeadAttentionLayer {
                     grad_w_v[d_in * self.d_model + d_out] += x * grad_v_val;
 
                     // Gradient w.r.t. input
-                    grad_input[input_base + d_in] += grad_q_val * self.w_q[d_in * self.d_model + d_out]
+                    grad_input[input_base + d_in] += grad_q_val
+                        * self.w_q[d_in * self.d_model + d_out]
                         + grad_k_val * self.w_k[d_in * self.d_model + d_out]
                         + grad_v_val * self.w_v[d_in * self.d_model + d_out];
                 }

@@ -58,6 +58,7 @@
 //! - For batch processing, all samples in a batch share the same initial states
 //! - The LSTM has 4× more parameters than a vanilla RNN of the same size due to gating
 
+use crate::layers::gradient::GradientAccumulator;
 use crate::layers::Layer;
 use crate::utils::rng::SimpleRng;
 use std::cell::RefCell;
@@ -165,21 +166,21 @@ pub struct LstmLayer {
     hidden_state: RefCell<Vec<f32>>, // hidden_size
     cell_state: RefCell<Vec<f32>>,   // hidden_size
 
-    // Gradient accumulators (mutable interior via RefCell for trait compatibility)
-    grad_w_xf: RefCell<Vec<f32>>,
-    grad_w_hf: RefCell<Vec<f32>>,
-    grad_b_f: RefCell<Vec<f32>>,
-    grad_w_xi: RefCell<Vec<f32>>,
-    grad_w_hi: RefCell<Vec<f32>>,
-    grad_b_i: RefCell<Vec<f32>>,
-    grad_w_xc: RefCell<Vec<f32>>,
-    grad_w_hc: RefCell<Vec<f32>>,
-    grad_b_c: RefCell<Vec<f32>>,
-    grad_w_xo: RefCell<Vec<f32>>,
-    grad_w_ho: RefCell<Vec<f32>>,
-    grad_b_o: RefCell<Vec<f32>>,
-    grad_w_hy: RefCell<Vec<f32>>,
-    grad_b_y: RefCell<Vec<f32>>,
+    // Gradient accumulators
+    grad_w_xf: GradientAccumulator,
+    grad_w_hf: GradientAccumulator,
+    grad_b_f: GradientAccumulator,
+    grad_w_xi: GradientAccumulator,
+    grad_w_hi: GradientAccumulator,
+    grad_b_i: GradientAccumulator,
+    grad_w_xc: GradientAccumulator,
+    grad_w_hc: GradientAccumulator,
+    grad_b_c: GradientAccumulator,
+    grad_w_xo: GradientAccumulator,
+    grad_w_ho: GradientAccumulator,
+    grad_b_o: GradientAccumulator,
+    grad_w_hy: GradientAccumulator,
+    grad_b_y: GradientAccumulator,
 
     // Cache for backward pass
     cached_h_prev: RefCell<Vec<f32>>, // h_{t-1} before forward pass
@@ -271,20 +272,20 @@ impl LstmLayer {
             b_y: vec![0.0f32; output_size],
             hidden_state: RefCell::new(vec![0.0f32; hidden_size]),
             cell_state: RefCell::new(vec![0.0f32; hidden_size]),
-            grad_w_xf: RefCell::new(vec![0.0f32; input_size * hidden_size]),
-            grad_w_hf: RefCell::new(vec![0.0f32; hidden_size * hidden_size]),
-            grad_b_f: RefCell::new(vec![0.0f32; hidden_size]),
-            grad_w_xi: RefCell::new(vec![0.0f32; input_size * hidden_size]),
-            grad_w_hi: RefCell::new(vec![0.0f32; hidden_size * hidden_size]),
-            grad_b_i: RefCell::new(vec![0.0f32; hidden_size]),
-            grad_w_xc: RefCell::new(vec![0.0f32; input_size * hidden_size]),
-            grad_w_hc: RefCell::new(vec![0.0f32; hidden_size * hidden_size]),
-            grad_b_c: RefCell::new(vec![0.0f32; hidden_size]),
-            grad_w_xo: RefCell::new(vec![0.0f32; input_size * hidden_size]),
-            grad_w_ho: RefCell::new(vec![0.0f32; hidden_size * hidden_size]),
-            grad_b_o: RefCell::new(vec![0.0f32; hidden_size]),
-            grad_w_hy: RefCell::new(vec![0.0f32; hidden_size * output_size]),
-            grad_b_y: RefCell::new(vec![0.0f32; output_size]),
+            grad_w_xf: GradientAccumulator::new(input_size * hidden_size),
+            grad_w_hf: GradientAccumulator::new(hidden_size * hidden_size),
+            grad_b_f: GradientAccumulator::new(hidden_size),
+            grad_w_xi: GradientAccumulator::new(input_size * hidden_size),
+            grad_w_hi: GradientAccumulator::new(hidden_size * hidden_size),
+            grad_b_i: GradientAccumulator::new(hidden_size),
+            grad_w_xc: GradientAccumulator::new(input_size * hidden_size),
+            grad_w_hc: GradientAccumulator::new(hidden_size * hidden_size),
+            grad_b_c: GradientAccumulator::new(hidden_size),
+            grad_w_xo: GradientAccumulator::new(input_size * hidden_size),
+            grad_w_ho: GradientAccumulator::new(hidden_size * hidden_size),
+            grad_b_o: GradientAccumulator::new(hidden_size),
+            grad_w_hy: GradientAccumulator::new(hidden_size * output_size),
+            grad_b_y: GradientAccumulator::new(output_size),
             cached_h_prev: RefCell::new(vec![0.0f32; hidden_size]),
             cached_c_prev: RefCell::new(vec![0.0f32; hidden_size]),
             cached_forget_gate: RefCell::new(vec![0.0f32; hidden_size]),

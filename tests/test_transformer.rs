@@ -5,7 +5,7 @@
 //! integration with the Layer trait.
 
 use rust_neural_networks::layers::{Layer, TransformerBlock, TransformerEncoder};
-use rust_neural_networks::optimizers::{Optimizer, Adam, SGD};
+use rust_neural_networks::optimizers::{Adam, Optimizer, SGD};
 use rust_neural_networks::utils::rng::SimpleRng;
 
 /// Helper function to compute numerical gradient
@@ -300,7 +300,11 @@ fn test_transformer_block_multiple_heads() {
     // Test with different numbers of heads
     for num_heads in [1, 2, 4, 8] {
         let d_model = 32;
-        assert_eq!(d_model % num_heads, 0, "d_model must be divisible by num_heads");
+        assert_eq!(
+            d_model % num_heads,
+            0,
+            "d_model must be divisible by num_heads"
+        );
 
         let block = TransformerBlock::new(d_model, num_heads, 64, &mut rng);
 

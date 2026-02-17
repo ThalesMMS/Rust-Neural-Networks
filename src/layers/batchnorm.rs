@@ -28,6 +28,7 @@
 //! Ioffe, S., & Szegedy, C. (2015). Batch Normalization: Accelerating Deep Network Training
 //! by Reducing Internal Covariate Shift. ICML.
 
+use crate::layers::gradient::GradientAccumulator;
 use std::cell::RefCell;
 
 /// Batch normalization layer with learnable scale and shift parameters.
@@ -67,9 +68,9 @@ pub struct BatchNormLayer {
     gamma: Vec<f32>,
     beta: Vec<f32>,
 
-    // Gradient accumulators (mutable interior via RefCell for trait compatibility)
-    grad_gamma: RefCell<Vec<f32>>,
-    grad_beta: RefCell<Vec<f32>>,
+    // Gradient accumulators
+    grad_gamma: GradientAccumulator,
+    grad_beta: GradientAccumulator,
 
     // Running statistics (updated during training, used during inference)
     // RefCell needed for interior mutability during forward pass
@@ -122,8 +123,8 @@ impl BatchNormLayer {
             beta: vec![0.0f32; size],
 
             // Zero-initialize gradients
-            grad_gamma: RefCell::new(vec![0.0f32; size]),
-            grad_beta: RefCell::new(vec![0.0f32; size]),
+            grad_gamma: GradientAccumulator::new(size),
+            grad_beta: GradientAccumulator::new(size),
 
             // Zero-initialize running statistics
             running_mean: RefCell::new(vec![0.0f32; size]),
@@ -633,18 +634,19 @@ impl Layer for BatchNormLayer {
         let normalized = self.cached_normalized.borrow();
         let std = self.cached_std.borrow();
 
-        let mut grad_gamma = self.grad_gamma.borrow_mut();
-        let mut grad_beta = self.grad_beta.borrow_mut();
-
         // Compute gradients for gamma and beta (accumulated across batch)
         let scale = 1.0 / batch_size as f32;
+        let mut dg = vec![0.0f32; self.size];
+        let mut db = vec![0.0f32; self.size];
         for i in 0..batch_size {
             for j in 0..self.size {
                 let idx = i * self.size + j;
-                grad_gamma[j] += grad_output[idx] * normalized[idx] * scale;
-                grad_beta[j] += grad_output[idx] * scale;
+                dg[j] += grad_output[idx] * normalized[idx];
+                db[j] += grad_output[idx];
             }
         }
+        self.grad_gamma.accumulate_scaled(&dg, scale);
+        self.grad_beta.accumulate_scaled(&db, scale);
 
         // Compute gradient with respect to normalized values
         let mut grad_normalized = vec![0.0f32; total_size];
@@ -714,30 +716,10 @@ impl Layer for BatchNormLayer {
     /// layer.update_parameters(0.01);
     /// ```
     fn update_parameters(&mut self, learning_rate: f32) {
-        let grad_gamma = self.grad_gamma.borrow();
-        let grad_beta = self.grad_beta.borrow();
-
-        // Update gamma: gamma = gamma - learning_rate * gradient
-        for (param, &gradient) in self.gamma.iter_mut().zip(grad_gamma.iter()) {
-            *param -= learning_rate * gradient;
-        }
-
-        // Update beta: beta = beta - learning_rate * gradient
-        for (param, &gradient) in self.beta.iter_mut().zip(grad_beta.iter()) {
-            *param -= learning_rate * gradient;
-        }
-
-        // Clear gradients for next iteration
-        drop(grad_gamma);
-        drop(grad_beta);
         self.grad_gamma
-            .borrow_mut()
-            .iter_mut()
-            .for_each(|g| *g = 0.0);
+            .apply_sgd_update(&mut self.gamma, learning_rate);
         self.grad_beta
-            .borrow_mut()
-            .iter_mut()
-            .for_each(|g| *g = 0.0);
+            .apply_sgd_update(&mut self.beta, learning_rate);
     }
 
     /// Update layer parameters using an optimizer.
@@ -760,26 +742,10 @@ impl Layer for BatchNormLayer {
     /// layer.update_with_optimizer(&mut optimizer);
     /// ```
     fn update_with_optimizer(&mut self, optimizer: &mut dyn Optimizer) {
-        let grad_gamma = self.grad_gamma.borrow();
-        let grad_beta = self.grad_beta.borrow();
-
-        // Update gamma using optimizer
-        optimizer.update(&mut self.gamma, &grad_gamma);
-
-        // Update beta using optimizer
-        optimizer.update(&mut self.beta, &grad_beta);
-
-        // Clear gradients for next iteration
-        drop(grad_gamma);
-        drop(grad_beta);
         self.grad_gamma
-            .borrow_mut()
-            .iter_mut()
-            .for_each(|g| *g = 0.0);
+            .apply_optimizer_update(&mut self.gamma, optimizer);
         self.grad_beta
-            .borrow_mut()
-            .iter_mut()
-            .for_each(|g| *g = 0.0);
+            .apply_optimizer_update(&mut self.beta, optimizer);
     }
 
     /// Get the input size of the layer.

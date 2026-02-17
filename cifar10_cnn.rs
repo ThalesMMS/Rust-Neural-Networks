@@ -19,11 +19,11 @@ use std::time::Instant;
 use rust_neural_networks::architecture::{build_model, load_architecture};
 use rust_neural_networks::config::{load_config, TrainingConfig};
 use rust_neural_networks::data::cifar10::{read_cifar10_batch, read_cifar10_batches};
-use rust_neural_networks::optimizers::{Adam, AdamW, Optimizer, SGD};
-use rust_neural_networks::optimizers::rmsprop::RMSprop;
 pub use rust_neural_networks::layers::{
     batchnorm::BatchNormLayer, dropout::DropoutLayer, Conv2DLayer, DenseLayer, Layer,
 };
+use rust_neural_networks::optimizers::rmsprop::RMSprop;
+use rust_neural_networks::optimizers::{Adam, AdamW, Optimizer, SGD};
 pub use rust_neural_networks::utils::activations::{relu_inplace, softmax_rows};
 use rust_neural_networks::utils::lr_scheduler::{create_scheduler_from_config, LRScheduler};
 pub use rust_neural_networks::utils::rng::SimpleRng;
@@ -358,7 +358,10 @@ fn forward_pass(
         model.layers[i].forward(prev_output, curr_output, batch_size);
 
         // Detect if this is a Conv2D layer and apply ReLU
-        activations.is_conv[i] = model.layers[i].as_any().downcast_ref::<Conv2DLayer>().is_some();
+        activations.is_conv[i] = model.layers[i]
+            .as_any()
+            .downcast_ref::<Conv2DLayer>()
+            .is_some();
         if activations.is_conv[i] {
             relu_inplace(curr_output);
         }
@@ -1267,7 +1270,10 @@ mod tests {
         );
 
         // Output index should be the last layer
-        assert_eq!(output_idx, 3, "Output should be from the last layer (index 3)");
+        assert_eq!(
+            output_idx, 3,
+            "Output should be from the last layer (index 3)"
+        );
 
         // Verify ReLU only applied after Conv2D layers (is_conv flag)
         assert!(

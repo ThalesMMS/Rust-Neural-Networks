@@ -125,11 +125,7 @@ impl LstmLayer {
                     batch_bias_grad[o] += grad_output[b * self.output_size + o];
                 }
             }
-
-            let mut grad_b_y = self.grad_b_y.borrow_mut();
-            for (acc, g) in grad_b_y.iter_mut().zip(batch_bias_grad.iter()) {
-                *acc += *g * scale;
-            }
+            self.grad_b_y.accumulate_scaled(&batch_bias_grad, scale);
         }
 
         // Gradient w.r.t. h_t: grad_h = grad_output × W_hy^T
@@ -238,11 +234,7 @@ impl LstmLayer {
                     batch_bias_grad[h] += grad_output_gate_pre[b * self.hidden_size + h];
                 }
             }
-
-            let mut grad_b_o = self.grad_b_o.borrow_mut();
-            for (acc, g) in grad_b_o.iter_mut().zip(batch_bias_grad.iter()) {
-                *acc += *g * scale;
-            }
+            self.grad_b_o.accumulate_scaled(&batch_bias_grad, scale);
         }
 
         // ========== Step 5: Backprop through cell state (c_t = f_t ⊙ c_{t-1} + i_t ⊙ c̃_t) ==========
@@ -330,11 +322,7 @@ impl LstmLayer {
                     batch_bias_grad[h] += grad_forget_gate_pre[b * self.hidden_size + h];
                 }
             }
-
-            let mut grad_b_f = self.grad_b_f.borrow_mut();
-            for (acc, g) in grad_b_f.iter_mut().zip(batch_bias_grad.iter()) {
-                *acc += *g * scale;
-            }
+            self.grad_b_f.accumulate_scaled(&batch_bias_grad, scale);
         }
 
         // ========== Step 7: Backprop through input gate (i_t = σ(...)) ==========
@@ -399,11 +387,7 @@ impl LstmLayer {
                     batch_bias_grad[h] += grad_input_gate_pre[b * self.hidden_size + h];
                 }
             }
-
-            let mut grad_b_i = self.grad_b_i.borrow_mut();
-            for (acc, g) in grad_b_i.iter_mut().zip(batch_bias_grad.iter()) {
-                *acc += *g * scale;
-            }
+            self.grad_b_i.accumulate_scaled(&batch_bias_grad, scale);
         }
 
         // ========== Step 8: Backprop through cell candidate (c̃_t = tanh(...)) ==========
@@ -468,11 +452,7 @@ impl LstmLayer {
                     batch_bias_grad[h] += grad_cell_candidate_pre[b * self.hidden_size + h];
                 }
             }
-
-            let mut grad_b_c = self.grad_b_c.borrow_mut();
-            for (acc, g) in grad_b_c.iter_mut().zip(batch_bias_grad.iter()) {
-                *acc += *g * scale;
-            }
+            self.grad_b_c.accumulate_scaled(&batch_bias_grad, scale);
         }
 
         // ========== Step 9: Compute gradient w.r.t. input ==========
@@ -577,113 +557,36 @@ impl LstmLayer {
     /// * `learning_rate` - Learning rate for gradient descent
     pub(super) fn update_parameters_impl(&mut self, learning_rate: f32) {
         // Update forget gate weights
-        {
-            let grad_w_xf = self.grad_w_xf.borrow();
-            for (w, &g) in self.w_xf.iter_mut().zip(grad_w_xf.iter()) {
-                *w -= learning_rate * g;
-            }
-        }
-        {
-            let grad_w_hf = self.grad_w_hf.borrow();
-            for (w, &g) in self.w_hf.iter_mut().zip(grad_w_hf.iter()) {
-                *w -= learning_rate * g;
-            }
-        }
-        {
-            let grad_b_f = self.grad_b_f.borrow();
-            for (b, &g) in self.b_f.iter_mut().zip(grad_b_f.iter()) {
-                *b -= learning_rate * g;
-            }
-        }
+        self.grad_w_xf
+            .apply_sgd_update(&mut self.w_xf, learning_rate);
+        self.grad_w_hf
+            .apply_sgd_update(&mut self.w_hf, learning_rate);
+        self.grad_b_f.apply_sgd_update(&mut self.b_f, learning_rate);
 
         // Update input gate weights
-        {
-            let grad_w_xi = self.grad_w_xi.borrow();
-            for (w, &g) in self.w_xi.iter_mut().zip(grad_w_xi.iter()) {
-                *w -= learning_rate * g;
-            }
-        }
-        {
-            let grad_w_hi = self.grad_w_hi.borrow();
-            for (w, &g) in self.w_hi.iter_mut().zip(grad_w_hi.iter()) {
-                *w -= learning_rate * g;
-            }
-        }
-        {
-            let grad_b_i = self.grad_b_i.borrow();
-            for (b, &g) in self.b_i.iter_mut().zip(grad_b_i.iter()) {
-                *b -= learning_rate * g;
-            }
-        }
+        self.grad_w_xi
+            .apply_sgd_update(&mut self.w_xi, learning_rate);
+        self.grad_w_hi
+            .apply_sgd_update(&mut self.w_hi, learning_rate);
+        self.grad_b_i.apply_sgd_update(&mut self.b_i, learning_rate);
 
         // Update cell candidate weights
-        {
-            let grad_w_xc = self.grad_w_xc.borrow();
-            for (w, &g) in self.w_xc.iter_mut().zip(grad_w_xc.iter()) {
-                *w -= learning_rate * g;
-            }
-        }
-        {
-            let grad_w_hc = self.grad_w_hc.borrow();
-            for (w, &g) in self.w_hc.iter_mut().zip(grad_w_hc.iter()) {
-                *w -= learning_rate * g;
-            }
-        }
-        {
-            let grad_b_c = self.grad_b_c.borrow();
-            for (b, &g) in self.b_c.iter_mut().zip(grad_b_c.iter()) {
-                *b -= learning_rate * g;
-            }
-        }
+        self.grad_w_xc
+            .apply_sgd_update(&mut self.w_xc, learning_rate);
+        self.grad_w_hc
+            .apply_sgd_update(&mut self.w_hc, learning_rate);
+        self.grad_b_c.apply_sgd_update(&mut self.b_c, learning_rate);
 
         // Update output gate weights
-        {
-            let grad_w_xo = self.grad_w_xo.borrow();
-            for (w, &g) in self.w_xo.iter_mut().zip(grad_w_xo.iter()) {
-                *w -= learning_rate * g;
-            }
-        }
-        {
-            let grad_w_ho = self.grad_w_ho.borrow();
-            for (w, &g) in self.w_ho.iter_mut().zip(grad_w_ho.iter()) {
-                *w -= learning_rate * g;
-            }
-        }
-        {
-            let grad_b_o = self.grad_b_o.borrow();
-            for (b, &g) in self.b_o.iter_mut().zip(grad_b_o.iter()) {
-                *b -= learning_rate * g;
-            }
-        }
+        self.grad_w_xo
+            .apply_sgd_update(&mut self.w_xo, learning_rate);
+        self.grad_w_ho
+            .apply_sgd_update(&mut self.w_ho, learning_rate);
+        self.grad_b_o.apply_sgd_update(&mut self.b_o, learning_rate);
 
         // Update output projection weights
-        {
-            let grad_w_hy = self.grad_w_hy.borrow();
-            for (w, &g) in self.w_hy.iter_mut().zip(grad_w_hy.iter()) {
-                *w -= learning_rate * g;
-            }
-        }
-        {
-            let grad_b_y = self.grad_b_y.borrow();
-            for (b, &g) in self.b_y.iter_mut().zip(grad_b_y.iter()) {
-                *b -= learning_rate * g;
-            }
-        }
-
-        // Clear gradient accumulators
-        self.grad_w_xf.borrow_mut().fill(0.0);
-        self.grad_w_hf.borrow_mut().fill(0.0);
-        self.grad_b_f.borrow_mut().fill(0.0);
-        self.grad_w_xi.borrow_mut().fill(0.0);
-        self.grad_w_hi.borrow_mut().fill(0.0);
-        self.grad_b_i.borrow_mut().fill(0.0);
-        self.grad_w_xc.borrow_mut().fill(0.0);
-        self.grad_w_hc.borrow_mut().fill(0.0);
-        self.grad_b_c.borrow_mut().fill(0.0);
-        self.grad_w_xo.borrow_mut().fill(0.0);
-        self.grad_w_ho.borrow_mut().fill(0.0);
-        self.grad_b_o.borrow_mut().fill(0.0);
-        self.grad_w_hy.borrow_mut().fill(0.0);
-        self.grad_b_y.borrow_mut().fill(0.0);
+        self.grad_w_hy
+            .apply_sgd_update(&mut self.w_hy, learning_rate);
+        self.grad_b_y.apply_sgd_update(&mut self.b_y, learning_rate);
     }
 }

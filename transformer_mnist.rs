@@ -94,8 +94,8 @@ fn read_be_u32(data: &[u8], offset: &mut usize) -> u32 {
 
 /// Read MNIST images from IDX format file and return as normalized floats [0, 1].
 fn read_mnist_images(filename: &str) -> Result<Vec<f32>, String> {
-    let data = fs::read(filename)
-        .map_err(|e| format!("Could not read file {}: {}", filename, e))?;
+    let data =
+        fs::read(filename).map_err(|e| format!("Could not read file {}: {}", filename, e))?;
 
     let mut offset = 0usize;
     let _magic = read_be_u32(&data, &mut offset);
@@ -129,8 +129,8 @@ fn read_mnist_images(filename: &str) -> Result<Vec<f32>, String> {
 
 /// Read MNIST labels from IDX format file.
 fn read_mnist_labels(filename: &str) -> Result<Vec<u8>, String> {
-    let data = fs::read(filename)
-        .map_err(|e| format!("Could not read file {}: {}", filename, e))?;
+    let data =
+        fs::read(filename).map_err(|e| format!("Could not read file {}: {}", filename, e))?;
 
     let mut offset = 0usize;
     let _magic = read_be_u32(&data, &mut offset);
@@ -259,13 +259,8 @@ fn main() {
     let mut patch_embedding = DenseLayer::new(PATCH_DIM, D_MODEL, &mut rng);
 
     // Transformer encoder: 2 stacked transformer blocks
-    let mut transformer_encoder = TransformerEncoder::new(
-        NUM_BLOCKS,
-        D_MODEL,
-        NUM_HEADS,
-        D_FF,
-        &mut rng,
-    );
+    let mut transformer_encoder =
+        TransformerEncoder::new(NUM_BLOCKS, D_MODEL, NUM_HEADS, D_FF, &mut rng);
 
     // Classifier: Linear projection from D_MODEL to NUM_CLASSES
     let mut classifier = DenseLayer::new(D_MODEL, NUM_CLASSES, &mut rng);
@@ -304,8 +299,7 @@ fn main() {
     let mut classifier_optimizer = Adam::new(learning_rate, 0.9, 0.999, 1e-8);
 
     // Initialize learning rate scheduler
-    let mut lr_scheduler =
-        create_scheduler_from_config(learning_rate, epochs, Some(&config_path));
+    let mut lr_scheduler = create_scheduler_from_config(learning_rate, epochs, Some(&config_path));
 
     // Allocate workspace buffers
     let max_batch = batch_size;

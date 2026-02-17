@@ -40,6 +40,7 @@
 //! - The hidden state persists across forward passes within a sequence
 //! - For batch processing, all samples in a batch share the same initial hidden state
 
+use crate::layers::gradient::GradientAccumulator;
 use crate::layers::Layer;
 use crate::utils::rng::SimpleRng;
 use std::cell::RefCell;
@@ -99,12 +100,12 @@ pub struct RnnLayer {
     // Hidden state
     hidden_state: RefCell<Vec<f32>>, // hidden_size
 
-    // Gradient accumulators (mutable interior via RefCell for trait compatibility)
-    grad_w_xh: RefCell<Vec<f32>>,
-    grad_w_hh: RefCell<Vec<f32>>,
-    grad_w_hy: RefCell<Vec<f32>>,
-    grad_b_h: RefCell<Vec<f32>>,
-    grad_b_y: RefCell<Vec<f32>>,
+    // Gradient accumulators
+    grad_w_xh: GradientAccumulator,
+    grad_w_hh: GradientAccumulator,
+    grad_w_hy: GradientAccumulator,
+    grad_b_h: GradientAccumulator,
+    grad_b_y: GradientAccumulator,
 
     // Cache for backward pass
     cached_h_prev: RefCell<Vec<f32>>, // h_{t-1} before forward pass
@@ -171,11 +172,11 @@ impl RnnLayer {
             b_h: vec![0.0f32; hidden_size],
             b_y: vec![0.0f32; output_size],
             hidden_state: RefCell::new(vec![0.0f32; hidden_size]),
-            grad_w_xh: RefCell::new(vec![0.0f32; input_size * hidden_size]),
-            grad_w_hh: RefCell::new(vec![0.0f32; hidden_size * hidden_size]),
-            grad_w_hy: RefCell::new(vec![0.0f32; hidden_size * output_size]),
-            grad_b_h: RefCell::new(vec![0.0f32; hidden_size]),
-            grad_b_y: RefCell::new(vec![0.0f32; output_size]),
+            grad_w_xh: GradientAccumulator::new(input_size * hidden_size),
+            grad_w_hh: GradientAccumulator::new(hidden_size * hidden_size),
+            grad_w_hy: GradientAccumulator::new(hidden_size * output_size),
+            grad_b_h: GradientAccumulator::new(hidden_size),
+            grad_b_y: GradientAccumulator::new(output_size),
             cached_h_prev: RefCell::new(vec![0.0f32; hidden_size]),
             cached_h_current: RefCell::new(vec![0.0f32; hidden_size]),
         }
@@ -795,11 +796,7 @@ impl Layer for RnnLayer {
                     batch_bias_grad[o] += grad_output[b * self.output_size + o];
                 }
             }
-
-            let mut grad_b_y = self.grad_b_y.borrow_mut();
-            for (acc, g) in grad_b_y.iter_mut().zip(batch_bias_grad.iter()) {
-                *acc += *g * scale;
-            }
+            self.grad_b_y.accumulate_scaled(&batch_bias_grad, scale);
         }
 
         // Gradient w.r.t. h_t: grad_h = grad_output × W_hy^T
@@ -898,11 +895,7 @@ impl Layer for RnnLayer {
                     batch_bias_grad[h] += grad_pre_activation[b * self.hidden_size + h];
                 }
             }
-
-            let mut grad_b_h = self.grad_b_h.borrow_mut();
-            for (acc, g) in grad_b_h.iter_mut().zip(batch_bias_grad.iter()) {
-                *acc += *g * scale;
-            }
+            self.grad_b_h.accumulate_scaled(&batch_bias_grad, scale);
         }
 
         // Gradient w.r.t. input: grad_input = grad_pre_activation × W_xh^T
@@ -935,52 +928,14 @@ impl Layer for RnnLayer {
     }
 
     fn update_parameters(&mut self, learning_rate: f32) {
-        // Update W_xh
-        {
-            let grad_w_xh = self.grad_w_xh.borrow();
-            for (w, &g) in self.w_xh.iter_mut().zip(grad_w_xh.iter()) {
-                *w -= learning_rate * g;
-            }
-        } // Drop borrow before clearing
-
-        // Update W_hh
-        {
-            let grad_w_hh = self.grad_w_hh.borrow();
-            for (w, &g) in self.w_hh.iter_mut().zip(grad_w_hh.iter()) {
-                *w -= learning_rate * g;
-            }
-        } // Drop borrow before clearing
-
-        // Update W_hy
-        {
-            let grad_w_hy = self.grad_w_hy.borrow();
-            for (w, &g) in self.w_hy.iter_mut().zip(grad_w_hy.iter()) {
-                *w -= learning_rate * g;
-            }
-        } // Drop borrow before clearing
-
-        // Update b_h
-        {
-            let grad_b_h = self.grad_b_h.borrow();
-            for (b, &g) in self.b_h.iter_mut().zip(grad_b_h.iter()) {
-                *b -= learning_rate * g;
-            }
-        } // Drop borrow before clearing
-
-        // Update b_y
-        {
-            let grad_b_y = self.grad_b_y.borrow();
-            for (b, &g) in self.b_y.iter_mut().zip(grad_b_y.iter()) {
-                *b -= learning_rate * g;
-            }
-        } // Drop borrow before clearing
-
-        // Clear gradient accumulators
-        self.grad_w_xh.borrow_mut().fill(0.0);
-        self.grad_w_hh.borrow_mut().fill(0.0);
-        self.grad_w_hy.borrow_mut().fill(0.0);
-        self.grad_b_h.borrow_mut().fill(0.0);
-        self.grad_b_y.borrow_mut().fill(0.0);
+        self.grad_w_xh
+            .apply_sgd_update(&mut self.w_xh, learning_rate);
+        self.grad_w_hh
+            .apply_sgd_update(&mut self.w_hh, learning_rate);
+        self.grad_w_hy
+            .apply_sgd_update(&mut self.w_hy, learning_rate);
+        self.grad_b_h.apply_sgd_update(&mut self.b_h, learning_rate);
+        self.grad_b_y.apply_sgd_update(&mut self.b_y, learning_rate);
     }
 
     fn input_size(&self) -> usize {

@@ -388,6 +388,50 @@ impl Layer for DenseLayer {
 // Main Logic
 // ============================================================================
 
+/// Groups the input dataset slices and sample count for a training or validation split.
+///
+/// Holds borrowed slices so the data does not need to be copied. The lifetime
+/// parameter `'a` ties the struct to the lifetime of the underlying data buffers.
+///
+/// # Fields
+///
+/// - `images` – Flattened row-major pixel data (one image per row of `NUM_INPUTS` values).
+/// - `labels` – Class labels for each image (values 0–9 for MNIST).
+/// - `num_samples` – Number of samples (rows) in this dataset split.
+pub struct DataSet<'a> {
+    /// Flattened row-major pixel data (one image per row of NUM_INPUTS values).
+    pub images: &'a [f32],
+    /// Class labels for each image (values 0–9 for MNIST).
+    pub labels: &'a [u8],
+    /// Number of samples (rows) in this dataset split.
+    pub num_samples: usize,
+}
+
+/// Groups scalar training hyperparameters to avoid long parameter lists.
+///
+/// Collects the five scalar training settings that control optimisation,
+/// batching, and early stopping into a single struct.
+///
+/// # Fields
+///
+/// - `learning_rate` – Initial learning rate for the optimiser.
+/// - `epochs` – Total number of training epochs to run.
+/// - `batch_size` – Number of samples per mini-batch.
+/// - `early_stopping_patience` – Epochs without improvement before stopping.
+/// - `early_stopping_min_delta` – Minimum validation-loss improvement threshold.
+pub struct TrainHyperparams {
+    /// Initial learning rate for parameter updates.
+    pub learning_rate: f32,
+    /// Total number of training epochs.
+    pub epochs: usize,
+    /// Mini-batch size used during training.
+    pub batch_size: usize,
+    /// Number of epochs without improvement before early stopping triggers.
+    pub early_stopping_patience: usize,
+    /// Minimum improvement in validation loss to count as progress.
+    pub early_stopping_min_delta: f32,
+}
+
 // Network with one hidden layer and one output layer.
 struct NeuralNetwork {
     hidden_layer: DenseLayer,
@@ -537,33 +581,26 @@ fn gather_batch(
 /// let labels = vec![0u8; 1];
 /// let val_images = vec![0.0f32; NUM_INPUTS * 1];
 /// let val_labels = vec![0u8; 1];
-/// let mut scheduler = ConstantLR::new(0.01);
-/// train(&mut nn, &images, &labels, 1, &val_images, &val_labels, 1, &mut rng, &mut scheduler);
+/// let train_data = DataSet { images: &images, labels: &labels, num_samples: 1 };
+/// let val_data = DataSet { images: &val_images, labels: &val_labels, num_samples: 1 };
+/// let params = TrainHyperparams { learning_rate: 0.01, epochs: 1, batch_size: 64, early_stopping_patience: 3, early_stopping_min_delta: 0.001 };
+/// train(&mut nn, &train_data, &val_data, &mut rng, scheduler, &params);
 /// ```
-#[allow(clippy::too_many_arguments)]
 fn train(
     nn: &mut NeuralNetwork,
-    images: &[f32],
-    labels: &[u8],
-    num_samples: usize,
-    val_images: &[f32],
-    val_labels: &[u8],
-    val_num_samples: usize,
+    train_data: &DataSet,
+    val_data: &DataSet,
     rng: &mut SimpleRng,
     scheduler: &mut dyn LRScheduler,
-    learning_rate: f32,
-    epochs: usize,
-    batch_size: usize,
-    early_stopping_patience: usize,
-    early_stopping_min_delta: f32,
+    params: &TrainHyperparams,
 ) {
     // Attempt to create logs dir if not exists
     std::fs::create_dir_all("./logs").ok();
 
     // Create optimizer based on OPTIMIZER_TYPE
     let mut optimizer: Box<dyn Optimizer> = match OPTIMIZER_TYPE {
-        "sgd" => Box::new(SGD::new(learning_rate)),
-        "adam" => Box::new(Adam::new(learning_rate, 0.9, 0.999, 1e-8)),
+        "sgd" => Box::new(SGD::new(params.learning_rate)),
+        "adam" => Box::new(Adam::new(params.learning_rate, 0.9, 0.999, 1e-8)),
         _ => {
             eprintln!("Unknown optimizer type: {}", OPTIMIZER_TYPE);
             process::exit(1);
@@ -607,25 +644,25 @@ fn train(
     println!(
         "Using {} optimizer with learning rate {}",
         OPTIMIZER_TYPE.to_uppercase(),
-        learning_rate
+        params.learning_rate
     );
 
-    let mut batch_inputs = vec![0.0f32; batch_size * NUM_INPUTS];
-    let mut batch_labels = vec![0u8; batch_size];
-    let mut a1 = vec![0.0f32; batch_size * NUM_HIDDEN];
-    let mut a2 = vec![0.0f32; batch_size * NUM_OUTPUTS];
-    let mut dz2 = vec![0.0f32; batch_size * NUM_OUTPUTS];
-    let mut dz1 = vec![0.0f32; batch_size * NUM_HIDDEN];
+    let mut batch_inputs = vec![0.0f32; params.batch_size * NUM_INPUTS];
+    let mut batch_labels = vec![0u8; params.batch_size];
+    let mut a1 = vec![0.0f32; params.batch_size * NUM_HIDDEN];
+    let mut a2 = vec![0.0f32; params.batch_size * NUM_OUTPUTS];
+    let mut dz2 = vec![0.0f32; params.batch_size * NUM_OUTPUTS];
+    let mut dz1 = vec![0.0f32; params.batch_size * NUM_HIDDEN];
 
-    let mut indices: Vec<usize> = (0..num_samples).collect();
+    let mut indices: Vec<usize> = (0..train_data.num_samples).collect();
 
-    let mut unused_grad = vec![0.0f32; batch_size * NUM_INPUTS]; // Preallocate reusable buffer.
+    let mut unused_grad = vec![0.0f32; params.batch_size * NUM_INPUTS]; // Preallocate reusable buffer.
 
     // Early stopping state
     let mut best_val_loss = f32::INFINITY;
     let mut epochs_without_improvement = 0usize;
 
-    for epoch in 0..epochs {
+    for epoch in 0..params.epochs {
         let mut total_loss = 0.0f32;
         let start_time = Instant::now();
         let current_lr = scheduler.get_lr();
@@ -639,19 +676,19 @@ fn train(
         let mut batch_count_total = 0usize;
 
         // Fisher-Yates shuffle.
-        if num_samples > 1 {
-            for i in (1..num_samples).rev() {
+        if train_data.num_samples > 1 {
+            for i in (1..train_data.num_samples).rev() {
                 let j = rng.gen_usize(i + 1);
                 indices.swap(i, j);
             }
         }
 
-        for batch_start in (0..num_samples).step_by(batch_size) {
-            let batch_count = (num_samples - batch_start).min(batch_size);
+        for batch_start in (0..train_data.num_samples).step_by(params.batch_size) {
+            let batch_count = (train_data.num_samples - batch_start).min(params.batch_size);
 
             gather_batch(
-                images,
-                labels,
+                train_data.images,
+                train_data.labels,
                 &indices,
                 batch_start,
                 batch_count,
@@ -719,21 +756,21 @@ fn train(
         }
 
         let duration = start_time.elapsed().as_secs_f32();
-        let average_loss = total_loss / num_samples as f32;
+        let average_loss = total_loss / train_data.num_samples as f32;
 
         // Evaluate on validation set
         let mut val_total_loss = 0.0f32;
         let mut val_correct = 0usize;
-        let mut val_batch_inputs = vec![0.0f32; batch_size * NUM_INPUTS];
-        let mut val_a1 = vec![0.0f32; batch_size * NUM_HIDDEN];
-        let mut val_a2 = vec![0.0f32; batch_size * NUM_OUTPUTS];
+        let mut val_batch_inputs = vec![0.0f32; params.batch_size * NUM_INPUTS];
+        let mut val_a1 = vec![0.0f32; params.batch_size * NUM_HIDDEN];
+        let mut val_a2 = vec![0.0f32; params.batch_size * NUM_OUTPUTS];
 
-        for batch_start in (0..val_num_samples).step_by(batch_size) {
-            let batch_count = (val_num_samples - batch_start).min(batch_size);
+        for batch_start in (0..val_data.num_samples).step_by(params.batch_size) {
+            let batch_count = (val_data.num_samples - batch_start).min(params.batch_size);
             let input_len = batch_count * NUM_INPUTS;
             let input_start = batch_start * NUM_INPUTS;
             val_batch_inputs[..input_len]
-                .copy_from_slice(&val_images[input_start..input_start + input_len]);
+                .copy_from_slice(&val_data.images[input_start..input_start + input_len]);
 
             // Forward: hidden layer
             let val_a1_len = batch_count * NUM_HIDDEN;
@@ -750,7 +787,7 @@ fn train(
             let epsilon = 1e-9f32;
             for row_idx in 0..batch_count {
                 let row_start = row_idx * NUM_OUTPUTS;
-                let label = val_labels[batch_start + row_idx] as usize;
+                let label = val_data.labels[batch_start + row_idx] as usize;
                 let prob = val_a2[row_start + label].max(epsilon);
                 val_total_loss -= prob.ln();
 
@@ -770,8 +807,8 @@ fn train(
             }
         }
 
-        let val_average_loss = val_total_loss / val_num_samples as f32;
-        let val_accuracy = val_correct as f32 / val_num_samples as f32 * 100.0;
+        let val_average_loss = val_total_loss / val_data.num_samples as f32;
+        let val_accuracy = val_correct as f32 / val_data.num_samples as f32 * 100.0;
 
         // Write gradient magnitudes (averaged across batches) to gradient log
         let num_batches = batch_count_total as f32;
@@ -829,7 +866,7 @@ fn train(
         });
 
         // Early stopping check
-        if val_average_loss < best_val_loss - early_stopping_min_delta {
+        if val_average_loss < best_val_loss - params.early_stopping_min_delta {
             best_val_loss = val_average_loss;
             epochs_without_improvement = 0;
             // Save best model
@@ -838,10 +875,10 @@ fn train(
             epochs_without_improvement += 1;
         }
 
-        if epochs_without_improvement >= early_stopping_patience {
+        if epochs_without_improvement >= params.early_stopping_patience {
             println!(
                 "\nEarly stopping triggered! No improvement for {} epochs. Best validation loss: {:.6}",
-                early_stopping_patience, best_val_loss
+                params.early_stopping_patience, best_val_loss
             );
             break;
         }
@@ -1140,21 +1177,30 @@ fn main() {
 
     println!("Training neural network...");
     let train_start = Instant::now();
-    train(
-        &mut nn,
-        &train_images,
-        &train_labels,
-        actual_train_samples,
-        &val_images,
-        &val_labels,
-        validation_samples,
-        &mut rng,
-        scheduler.as_mut(),
+    let train_data = DataSet {
+        images: &train_images,
+        labels: &train_labels,
+        num_samples: actual_train_samples,
+    };
+    let val_data = DataSet {
+        images: &val_images,
+        labels: &val_labels,
+        num_samples: validation_samples,
+    };
+    let hyperparams = TrainHyperparams {
         learning_rate,
         epochs,
         batch_size,
         early_stopping_patience,
         early_stopping_min_delta,
+    };
+    train(
+        &mut nn,
+        &train_data,
+        &val_data,
+        &mut rng,
+        scheduler.as_mut(),
+        &hyperparams,
     );
     let train_time = train_start.elapsed().as_secs_f64();
     println!("Total training time: {:.2} seconds", train_time);

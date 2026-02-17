@@ -1,6 +1,6 @@
+use super::LstmLayer;
 use crate::layers::Layer;
 use crate::utils::rng::SimpleRng;
-use super::LstmLayer;
 
 #[test]
 fn test_lstm_creation() {

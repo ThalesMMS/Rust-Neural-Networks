@@ -426,7 +426,10 @@ fn test_attention_backward_numerical_stability() {
 
     // Check gradients are finite
     for &g in grad_input.iter() {
-        assert!(g.is_finite(), "Gradients should be finite even with large grad_output");
+        assert!(
+            g.is_finite(),
+            "Gradients should be finite even with large grad_output"
+        );
     }
 }
 

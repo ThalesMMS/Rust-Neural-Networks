@@ -79,21 +79,30 @@ mod mnist_mlp_bin {
             let early_stopping_patience = 3;
             let early_stopping_min_delta = 0.001;
             let mut scheduler = ConstantLR::new(learning_rate);
-            train(
-                &mut nn,
-                &images,
-                &labels,
-                1,
-                &val_images,
-                &val_labels,
-                1,
-                &mut rng,
-                &mut scheduler,
+            let train_data = DataSet {
+                images: &images,
+                labels: &labels,
+                num_samples: 1,
+            };
+            let val_data = DataSet {
+                images: &val_images,
+                labels: &val_labels,
+                num_samples: 1,
+            };
+            let params = TrainHyperparams {
                 learning_rate,
                 epochs,
                 batch_size,
                 early_stopping_patience,
                 early_stopping_min_delta,
+            };
+            train(
+                &mut nn,
+                &train_data,
+                &val_data,
+                &mut rng,
+                &mut scheduler,
+                &params,
             );
 
             assert!(Path::new("logs/training_loss_adam.txt").exists());
