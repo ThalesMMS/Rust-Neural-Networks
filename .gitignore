@@ -11,3 +11,4 @@ data/cifar-10-batches-bin/data_batch_4.bin
 data/cifar-10-batches-bin/data_batch_5.bin
 data/cifar-10-batches-bin/test_batch.bin
 transformer_mnist_model.bin
+
