@@ -17,6 +17,7 @@
 //!   - 4 bytes: number of labels (big-endian u32)
 //!   - N bytes: raw label data (u8, values 0-9)
 
+use crate::utils::error_messages::mnist_data_not_found_message;
 use std::fs;
 
 /// MNIST image dimensions
@@ -64,7 +65,16 @@ fn read_be_u32(data: &[u8], offset: &mut usize) -> u32 {
 /// assert_eq!(images.len(), 60000 * 28 * 28);
 /// ```
 pub fn read_mnist_images(filename: &str) -> std::io::Result<Vec<f32>> {
-    let data = fs::read(filename)?;
+    let data = fs::read(filename).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                mnist_data_not_found_message(filename),
+            )
+        } else {
+            e
+        }
+    })?;
 
     if data.len() < 16 {
         return Err(std::io::Error::new(
@@ -152,7 +162,16 @@ pub fn read_mnist_images(filename: &str) -> std::io::Result<Vec<f32>> {
 /// assert!(labels.iter().all(|&l| l < 10));
 /// ```
 pub fn read_mnist_labels(filename: &str) -> std::io::Result<Vec<u8>> {
-    let data = fs::read(filename)?;
+    let data = fs::read(filename).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                mnist_data_not_found_message(filename),
+            )
+        } else {
+            e
+        }
+    })?;
 
     if data.len() < 8 {
         return Err(std::io::Error::new(
@@ -346,7 +365,7 @@ mod tests {
     fn test_read_mnist_labels_truncated() {
         let mut data = Vec::new();
         data.extend_from_slice(&2049u32.to_be_bytes()); // magic
-        // Claims 100 labels but provides none
+                                                        // Claims 100 labels but provides none
         data.extend_from_slice(&100u32.to_be_bytes());
         // No label bytes
 
@@ -358,6 +377,44 @@ mod tests {
             err.to_string().contains("truncated"),
             "Expected truncated error, got: {}",
             err
+        );
+    }
+
+    #[test]
+    fn test_read_mnist_images_not_found() {
+        let result = read_mnist_images("data/__nonexistent_mnist_images_test__.idx3-ubyte");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+        let msg = err.to_string();
+        assert!(
+            msg.contains("MNIST"),
+            "Expected MNIST in error message, got: {}",
+            msg
+        );
+        assert!(
+            msg.contains("docs/"),
+            "Expected docs/ in error message, got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_read_mnist_labels_not_found() {
+        let result = read_mnist_labels("data/__nonexistent_mnist_labels_test__.idx1-ubyte");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+        let msg = err.to_string();
+        assert!(
+            msg.contains("MNIST"),
+            "Expected MNIST in error message, got: {}",
+            msg
+        );
+        assert!(
+            msg.contains("docs/"),
+            "Expected docs/ in error message, got: {}",
+            msg
         );
     }
 

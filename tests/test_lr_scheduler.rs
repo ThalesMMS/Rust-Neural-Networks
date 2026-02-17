@@ -859,9 +859,12 @@ mod create_scheduler_from_config_tests {
 
     #[test]
     fn test_create_scheduler_cosine_default_t_max() {
+        // cosine_annealing now requires both min_lr and T_max (enhanced validation).
+        // Provide explicit T_max to satisfy the new validation.
         let config_json = r#"{
   "scheduler_type": "cosine_annealing",
-  "min_lr": 0.0
+  "min_lr": 0.0,
+  "T_max": 4
 }"#;
         let temp = write_temp_config(config_json);
         let mut sched = create_scheduler_from_config(0.1, 4, Some(temp.path().to_str().unwrap()));

@@ -675,15 +675,196 @@ fn save_model(model: &Cnn, filename: &str) {
             let size = dropout_layer.output_size() as u32;
             f.write_all(&size.to_le_bytes()).unwrap();
 
-            // Note: drop_rate would need a getter method to save, but it's a hyperparameter
-            // not a learned parameter, so we can skip it for now
-            // For full model persistence, we'd need to save drop_rate too
+            // Save drop_rate so load_model can reconstruct the layer correctly
+            f.write_all(&dropout_layer.drop_rate().to_le_bytes()).unwrap();
         } else {
             panic!("Unknown layer type encountered during serialization");
         }
     }
 
     println!("Model saved to: {}", filename);
+}
+
+/// Loads a CNN model from a binary file previously saved by `save_model`.
+///
+/// Reads the layer count and per-layer parameters from the file, reconstructing
+/// each layer with its saved weights and biases. The binary format mirrors
+/// exactly what `save_model` writes (little-endian u32/i32/f32 values).
+///
+/// Layer type IDs:
+/// - 0 = Dense
+/// - 1 = Conv2D
+/// - 2 = BatchNorm
+/// - 3 = Dropout
+///
+/// # Arguments
+///
+/// * `filename` - Path to the binary model file
+///
+/// # Returns
+///
+/// A `Cnn` with all layers restored from the file.
+///
+/// # Panics
+///
+/// Panics if the file cannot be opened, read, or contains an unknown layer type.
+///
+/// # Examples
+///
+/// ```ignore
+/// let mut rng = SimpleRng::new(42);
+/// let model = init_cnn(&mut rng, None);
+/// save_model(&model, "cifar10_cnn_model_best.bin");
+/// let loaded = load_model("cifar10_cnn_model_best.bin");
+/// ```
+fn load_model(filename: &str) -> Cnn {
+    use std::io::Read;
+
+    let mut f = File::open(filename).expect("Failed to open model file");
+
+    // Read number of layers
+    let mut buf4 = [0u8; 4];
+    f.read_exact(&mut buf4).expect("Failed to read number of layers");
+    let num_layers = u32::from_le_bytes(buf4) as usize;
+
+    let mut layers: Vec<Box<dyn Layer>> = Vec::with_capacity(num_layers);
+
+    // RNG needed only to construct DropoutLayer (no trainable params, just mask).
+    let mut rng = SimpleRng::new(42);
+
+    for _ in 0..num_layers {
+        // Read layer type ID
+        let mut type_buf = [0u8; 1];
+        f.read_exact(&mut type_buf).expect("Failed to read layer type");
+        let layer_type = type_buf[0];
+
+        match layer_type {
+            0 => {
+                // Dense layer
+                f.read_exact(&mut buf4).expect("Failed to read input size");
+                let in_size = u32::from_le_bytes(buf4) as usize;
+                f.read_exact(&mut buf4).expect("Failed to read output size");
+                let out_size = u32::from_le_bytes(buf4) as usize;
+
+                let weight_count = in_size * out_size;
+                let mut weights = vec![0.0f32; weight_count];
+                for w in weights.iter_mut() {
+                    f.read_exact(&mut buf4).expect("Failed to read weight");
+                    *w = f32::from_le_bytes(buf4);
+                }
+
+                let mut biases = vec![0.0f32; out_size];
+                for b in biases.iter_mut() {
+                    f.read_exact(&mut buf4).expect("Failed to read bias");
+                    *b = f32::from_le_bytes(buf4);
+                }
+
+                layers.push(Box::new(DenseLayer::new_with_weights(
+                    in_size, out_size, weights, biases,
+                )));
+            }
+            1 => {
+                // Conv2D layer
+                f.read_exact(&mut buf4).expect("Failed to read in_channels");
+                let in_channels = u32::from_le_bytes(buf4) as usize;
+                f.read_exact(&mut buf4).expect("Failed to read out_channels");
+                let out_channels = u32::from_le_bytes(buf4) as usize;
+                f.read_exact(&mut buf4).expect("Failed to read kernel_size");
+                let kernel_size = u32::from_le_bytes(buf4) as usize;
+                f.read_exact(&mut buf4).expect("Failed to read padding");
+                let padding = i32::from_le_bytes(buf4) as isize;
+                f.read_exact(&mut buf4).expect("Failed to read stride");
+                let stride = u32::from_le_bytes(buf4) as usize;
+                f.read_exact(&mut buf4).expect("Failed to read input_height");
+                let input_height = u32::from_le_bytes(buf4) as usize;
+                f.read_exact(&mut buf4).expect("Failed to read input_width");
+                let input_width = u32::from_le_bytes(buf4) as usize;
+
+                let weight_count = out_channels * in_channels * kernel_size * kernel_size;
+                let mut weights = vec![0.0f32; weight_count];
+                for w in weights.iter_mut() {
+                    f.read_exact(&mut buf4).expect("Failed to read weight");
+                    *w = f32::from_le_bytes(buf4);
+                }
+
+                let mut biases = vec![0.0f32; out_channels];
+                for b in biases.iter_mut() {
+                    f.read_exact(&mut buf4).expect("Failed to read bias");
+                    *b = f32::from_le_bytes(buf4);
+                }
+
+                layers.push(Box::new(Conv2DLayer::new_with_weights(
+                    in_channels,
+                    out_channels,
+                    kernel_size,
+                    padding,
+                    stride,
+                    input_height,
+                    input_width,
+                    weights,
+                    biases,
+                )));
+            }
+            2 => {
+                // BatchNorm layer
+                f.read_exact(&mut buf4).expect("Failed to read size");
+                let size = u32::from_le_bytes(buf4) as usize;
+
+                let mut gamma = vec![0.0f32; size];
+                for g in gamma.iter_mut() {
+                    f.read_exact(&mut buf4).expect("Failed to read gamma");
+                    *g = f32::from_le_bytes(buf4);
+                }
+
+                let mut beta = vec![0.0f32; size];
+                for b in beta.iter_mut() {
+                    f.read_exact(&mut buf4).expect("Failed to read beta");
+                    *b = f32::from_le_bytes(buf4);
+                }
+
+                let mut running_mean = vec![0.0f32; size];
+                for m in running_mean.iter_mut() {
+                    f.read_exact(&mut buf4).expect("Failed to read running_mean");
+                    *m = f32::from_le_bytes(buf4);
+                }
+
+                let mut running_var = vec![0.0f32; size];
+                for v in running_var.iter_mut() {
+                    f.read_exact(&mut buf4).expect("Failed to read running_var");
+                    *v = f32::from_le_bytes(buf4);
+                }
+
+                // Use standard epsilon and momentum defaults matching BatchNormLayer::new
+                layers.push(Box::new(BatchNormLayer::new_with_params(
+                    size,
+                    1e-5,
+                    0.1,
+                    gamma,
+                    beta,
+                    running_mean,
+                    running_var,
+                )));
+            }
+            3 => {
+                // Dropout layer (no trainable parameters)
+                f.read_exact(&mut buf4).expect("Failed to read size");
+                let size = u32::from_le_bytes(buf4) as usize;
+                f.read_exact(&mut buf4).expect("Failed to read drop_rate");
+                let drop_rate = f32::from_le_bytes(buf4);
+
+                layers.push(Box::new(DropoutLayer::new(size, drop_rate, &mut rng)));
+            }
+            _ => {
+                panic!(
+                    "Unknown layer type {} encountered during deserialization",
+                    layer_type
+                );
+            }
+        }
+    }
+
+    println!("Model loaded from: {}", filename);
+    Cnn { layers }
 }
 
 fn scheduler_from_args(
@@ -871,12 +1052,12 @@ fn main() {
 
     let (all_train_images, all_train_labels) = read_cifar10_batches(&train_filenames)
         .unwrap_or_else(|err| {
-            eprintln!("Failed to load CIFAR-10 training data: {}", err);
+            eprintln!("{err}");
             process::exit(1);
         });
     let (test_images, test_labels) =
         read_cifar10_batch("./data/cifar-10-batches-bin/test_batch.bin").unwrap_or_else(|err| {
-            eprintln!("Failed to load CIFAR-10 test batch: {}", err);
+            eprintln!("{err}");
             process::exit(1);
         });
 

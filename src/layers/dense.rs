@@ -194,6 +194,64 @@ impl DenseLayer {
     pub fn get_gradient_magnitude(&self) -> (f32, f32) {
         (self.grad_weights.l2_norm(), self.grad_biases.l2_norm())
     }
+
+    /// Creates a dense layer with pre-existing weights and biases (no random initialization).
+    ///
+    /// This constructor is used when loading a model from disk, allowing the layer to be
+    /// reconstructed with previously trained parameters. Gradient accumulators are
+    /// zero-initialized, ready for the next training pass.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the length of `weights` does not equal `input_size * output_size` or
+    /// the length of `biases` does not equal `output_size`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rust_neural_networks::layers::dense::DenseLayer;
+    /// use rust_neural_networks::layers::Layer;
+    ///
+    /// let input_size = 2;
+    /// let output_size = 3;
+    /// let weights = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6]; // 2 × 3
+    /// let biases = vec![0.1, 0.2, 0.3];
+    /// let layer = DenseLayer::new_with_weights(input_size, output_size, weights.clone(), biases.clone());
+    /// assert_eq!(layer.weights(), weights.as_slice());
+    /// assert_eq!(layer.biases(), biases.as_slice());
+    /// assert_eq!(layer.input_size(), 2);
+    /// assert_eq!(layer.output_size(), 3);
+    /// ```
+    pub fn new_with_weights(
+        input_size: usize,
+        output_size: usize,
+        weights: Vec<f32>,
+        biases: Vec<f32>,
+    ) -> Self {
+        assert_eq!(
+            weights.len(),
+            input_size * output_size,
+            "weights length {} does not match input_size * output_size = {}",
+            weights.len(),
+            input_size * output_size
+        );
+        assert_eq!(
+            biases.len(),
+            output_size,
+            "biases length {} does not match output_size = {}",
+            biases.len(),
+            output_size
+        );
+
+        Self {
+            input_size,
+            output_size,
+            weights,
+            biases,
+            grad_weights: GradientAccumulator::new(input_size * output_size),
+            grad_biases: GradientAccumulator::new(output_size),
+        }
+    }
 }
 
 // Helper functions for BLAS operations
@@ -380,21 +438,42 @@ impl Layer for DenseLayer {
         assert_eq!(
             input.len(),
             batch_size * self.input_size,
-            "input len mismatch: expected {}, got {}",
+            "DenseLayer forward: input shape mismatch. \
+             Expected ({}, {}) = {} elements, got {}. \
+             This check prevents a BLAS segfault: incorrect input dimensions \
+             passed to sgemm() cause undefined behavior in the unsafe BLAS call. \
+             Verify input dimensions match the layer configuration \
+             (see CLAUDE.md \u{2192} BLAS Safety for details).",
+            batch_size,
+            self.input_size,
             batch_size * self.input_size,
             input.len()
         );
         assert_eq!(
             output.len(),
             batch_size * self.output_size,
-            "output len mismatch: expected {}, got {}",
+            "DenseLayer forward: output shape mismatch. \
+             Expected ({}, {}) = {} elements, got {}. \
+             This check prevents a BLAS segfault: incorrect output buffer dimensions \
+             passed to sgemm() cause undefined behavior in the unsafe BLAS call. \
+             Ensure the output buffer has batch_size * output_size elements \
+             (see CLAUDE.md \u{2192} BLAS Safety for details).",
+            batch_size,
+            self.output_size,
             batch_size * self.output_size,
             output.len()
         );
         assert_eq!(
             self.weights.len(),
             self.input_size * self.output_size,
-            "weights len mismatch: expected {}, got {}",
+            "DenseLayer forward: weights shape mismatch. \
+             Expected ({}, {}) = {} elements, got {}. \
+             This check prevents a BLAS segfault: incorrect weight matrix dimensions \
+             passed to sgemm() cause undefined behavior in the unsafe BLAS call. \
+             This indicates an internal layer state inconsistency \
+             (see CLAUDE.md \u{2192} BLAS Safety for details).",
+            self.input_size,
+            self.output_size,
             self.input_size * self.output_size,
             self.weights.len()
         );
@@ -426,14 +505,19 @@ impl Layer for DenseLayer {
         assert_eq!(
             output.len(),
             batch_size * self.output_size,
-            "output len mismatch for add_bias: expected {}, got {}",
+            "DenseLayer forward (bias add): output shape mismatch. \
+             Expected ({}, {}) = {} elements, got {}.",
+            batch_size,
+            self.output_size,
             batch_size * self.output_size,
             output.len()
         );
         assert_eq!(
             self.biases.len(),
             self.output_size,
-            "biases len mismatch: expected {}, got {}",
+            "DenseLayer forward: biases length mismatch. \
+             Expected {} elements (one per output), got {}. \
+             This indicates an internal layer state inconsistency.",
             self.output_size,
             self.biases.len()
         );
@@ -506,14 +590,22 @@ impl Layer for DenseLayer {
         assert_eq!(
             input.len(),
             batch_size * self.input_size,
-            "input len mismatch in backward: expected {}, got {}",
+            "DenseLayer backward: input shape mismatch. \
+             Expected ({}, {}) = {} elements, got {}. \
+             This input must match the input used in the corresponding forward pass.",
+            batch_size,
+            self.input_size,
             batch_size * self.input_size,
             input.len()
         );
         assert_eq!(
             grad_output.len(),
             batch_size * self.output_size,
-            "grad_output len mismatch in backward: expected {}, got {}",
+            "DenseLayer backward: grad_output shape mismatch. \
+             Expected ({}, {}) = {} elements, got {}. \
+             Ensure grad_output has batch_size * output_size elements.",
+            batch_size,
+            self.output_size,
             batch_size * self.output_size,
             grad_output.len()
         );
@@ -523,7 +615,11 @@ impl Layer for DenseLayer {
             assert_eq!(
                 grad_w.len(),
                 self.input_size * self.output_size,
-                "grad_weights len mismatch: expected {}, got {}",
+                "DenseLayer backward: grad_weights shape mismatch. \
+                 Expected ({}, {}) = {} elements, got {}. \
+                 This indicates an internal gradient accumulator inconsistency.",
+                self.input_size,
+                self.output_size,
                 self.input_size * self.output_size,
                 grad_w.len()
             );
@@ -567,7 +663,11 @@ impl Layer for DenseLayer {
         assert_eq!(
             grad_input.len(),
             batch_size * self.input_size,
-            "grad_input len mismatch: expected {}, got {}",
+            "DenseLayer backward: grad_input shape mismatch. \
+             Expected ({}, {}) = {} elements, got {}. \
+             Ensure grad_input buffer has batch_size * input_size elements.",
+            batch_size,
+            self.input_size,
             batch_size * self.input_size,
             grad_input.len()
         );
@@ -962,5 +1062,71 @@ mod tests {
         // Gradients should have accumulated (increased)
         assert!(weight_norm_second > weight_norm_first);
         assert!(bias_norm_second > bias_norm_first);
+    }
+
+    #[test]
+    fn test_dense_new_with_weights_stores_parameters() {
+        let input_size = 2;
+        let output_size = 3;
+        let weights = vec![0.1f32, 0.2, 0.3, 0.4, 0.5, 0.6]; // 2 × 3
+        let biases = vec![0.1f32, 0.2, 0.3];
+
+        let layer =
+            DenseLayer::new_with_weights(input_size, output_size, weights.clone(), biases.clone());
+
+        assert_eq!(layer.input_size(), input_size);
+        assert_eq!(layer.output_size(), output_size);
+        assert_eq!(layer.weights(), weights.as_slice());
+        assert_eq!(layer.biases(), biases.as_slice());
+    }
+
+    #[test]
+    fn test_dense_new_with_weights_gradient_initially_zero() {
+        let weights = vec![1.0f32, 2.0, 3.0, 4.0]; // 2 × 2
+        let biases = vec![0.5f32, -0.5];
+
+        let layer = DenseLayer::new_with_weights(2, 2, weights, biases);
+
+        // Gradient accumulators should start at zero
+        let (weight_norm, bias_norm) = layer.get_gradient_magnitude();
+        assert_eq!(weight_norm, 0.0);
+        assert_eq!(bias_norm, 0.0);
+    }
+
+    #[test]
+    fn test_dense_new_with_weights_correct_forward_output() {
+        // Use a known weight matrix to verify forward computation
+        // Input: [1.0, 0.0], Weights: [[1.0, 2.0], [3.0, 4.0]], Biases: [0.5, -0.5]
+        // Expected output: [1.0*1.0 + 0.0*3.0 + 0.5, 1.0*2.0 + 0.0*4.0 + (-0.5)]
+        //                = [1.5, 1.5]
+        let weights = vec![1.0f32, 2.0, 3.0, 4.0]; // row-major 2×2
+        let biases = vec![0.5f32, -0.5];
+
+        let layer = DenseLayer::new_with_weights(2, 2, weights, biases);
+
+        let input = vec![1.0f32, 0.0];
+        let mut output = vec![0.0f32; 2];
+        layer.forward(&input, &mut output, 1);
+
+        assert!((output[0] - 1.5).abs() < 1e-6, "output[0] = {}", output[0]);
+        assert!((output[1] - 1.5).abs() < 1e-6, "output[1] = {}", output[1]);
+    }
+
+    #[test]
+    #[should_panic(expected = "weights length")]
+    fn test_dense_new_with_weights_wrong_weight_length_panics() {
+        // 2×2 layer but only 3 weights provided (should be 4)
+        let weights = vec![0.1f32, 0.2, 0.3];
+        let biases = vec![0.0f32, 0.0];
+        let _layer = DenseLayer::new_with_weights(2, 2, weights, biases);
+    }
+
+    #[test]
+    #[should_panic(expected = "biases length")]
+    fn test_dense_new_with_weights_wrong_bias_length_panics() {
+        // 2×2 layer but 3 biases provided (should be 2)
+        let weights = vec![0.1f32, 0.2, 0.3, 0.4];
+        let biases = vec![0.0f32, 0.0, 0.0];
+        let _layer = DenseLayer::new_with_weights(2, 2, weights, biases);
     }
 }

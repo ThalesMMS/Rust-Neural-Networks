@@ -4,10 +4,16 @@
 //! activation functions, and other helper functions used across models.
 
 pub mod activations;
+pub mod error_messages;
 pub mod gradient_clipping;
 pub mod lr_scheduler;
 pub mod positional_encoding;
 pub mod rng;
+
+// Re-export error message helper functions
+pub use error_messages::{
+    blas_setup_hint, cifar10_data_not_found_message, mnist_data_not_found_message, print_blas_info,
+};
 
 // Re-export commonly used gradient clipping functions
 pub use gradient_clipping::{clip_gradient_norm, clip_gradient_value};

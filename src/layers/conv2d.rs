@@ -92,14 +92,34 @@ impl Conv2DLayer {
 
         if h_num < 0 {
             panic!(
-                "Invalid Conv2D configuration: Output height would be negative. Input H: {}, Kernel: {}, Padding: {}",
-                input_height, kernel_size, padding
+                "Invalid Conv2D configuration: Output height would be negative. \
+                 Input H: {}, Kernel: {}, Padding: {}, Stride: {}. \
+                 Formula: Output = (input + 2*padding - kernel) / stride + 1 = ({} + {} - {}) / {} + 1. \
+                 Fix: increase padding or reduce kernel size.",
+                input_height,
+                kernel_size,
+                padding,
+                stride,
+                input_height,
+                2 * padding,
+                kernel_size,
+                stride
             );
         }
         if w_num < 0 {
             panic!(
-                "Invalid Conv2D configuration: Output width would be negative. Input W: {}, Kernel: {}, Padding: {}",
-                input_width, kernel_size, padding
+                "Invalid Conv2D configuration: Output width would be negative. \
+                 Input W: {}, Kernel: {}, Padding: {}, Stride: {}. \
+                 Formula: Output = (input + 2*padding - kernel) / stride + 1 = ({} + {} - {}) / {} + 1. \
+                 Fix: increase padding or reduce kernel size.",
+                input_width,
+                kernel_size,
+                padding,
+                stride,
+                input_width,
+                2 * padding,
+                kernel_size,
+                stride
             );
         }
 
@@ -305,6 +325,81 @@ impl Conv2DLayer {
     pub fn get_gradient_magnitude(&self) -> (f32, f32) {
         (self.grad_weights.l2_norm(), self.grad_biases.l2_norm())
     }
+
+    /// Creates a Conv2DLayer with pre-existing weights and biases (no random initialization).
+    ///
+    /// This constructor is used when loading a model from disk, allowing the layer to be
+    /// reconstructed with previously trained parameters. Gradient accumulators are
+    /// zero-initialized, ready for the next training pass.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the length of `weights` does not equal
+    /// `out_channels * in_channels * kernel_size * kernel_size` or
+    /// the length of `biases` does not equal `out_channels`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rust_neural_networks::layers::conv2d::Conv2DLayer;
+    /// use rust_neural_networks::layers::Layer;
+    ///
+    /// let in_channels = 1;
+    /// let out_channels = 2;
+    /// let kernel_size = 3;
+    /// let weight_count = out_channels * in_channels * kernel_size * kernel_size;
+    /// let weights = vec![0.1f32; weight_count];
+    /// let biases = vec![0.0f32; out_channels];
+    /// let layer = Conv2DLayer::new_with_weights(
+    ///     in_channels, out_channels, kernel_size, 1, 1, 28, 28, weights.clone(), biases.clone()
+    /// );
+    /// assert_eq!(layer.weights(), weights.as_slice());
+    /// assert_eq!(layer.biases(), biases.as_slice());
+    /// assert_eq!(layer.in_channels(), 1);
+    /// assert_eq!(layer.out_channels(), 2);
+    /// ```
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_weights(
+        in_channels: usize,
+        out_channels: usize,
+        kernel_size: usize,
+        padding: isize,
+        stride: usize,
+        input_height: usize,
+        input_width: usize,
+        weights: Vec<f32>,
+        biases: Vec<f32>,
+    ) -> Self {
+        let expected_weight_count = out_channels * in_channels * kernel_size * kernel_size;
+        assert_eq!(
+            weights.len(),
+            expected_weight_count,
+            "weights length {} does not match out_channels * in_channels * kernel_size * kernel_size = {}",
+            weights.len(),
+            expected_weight_count
+        );
+        assert_eq!(
+            biases.len(),
+            out_channels,
+            "biases length {} does not match out_channels = {}",
+            biases.len(),
+            out_channels
+        );
+
+        Self {
+            in_channels,
+            out_channels,
+            kernel_size,
+            padding,
+            stride,
+            input_height,
+            input_width,
+            grad_weights: GradientAccumulator::new(weights.len()),
+            grad_biases: GradientAccumulator::new(biases.len()),
+            weights,
+            biases,
+        }
+    }
 }
 
 // Layer trait implementation
@@ -386,6 +481,36 @@ impl Layer for Conv2DLayer {
         // out_dim = floor((in_dim + 2*padding - kernel_size) / stride) + 1
         let out_h = self.output_height();
         let out_w = self.output_width();
+
+        // Dimension checks: verify input and output buffers have the expected sizes.
+        // Input layout: (batch_size × input_height × input_width × in_channels) — channels-last
+        // Output layout: (batch_size × out_channels × output_height × output_width)
+        assert_eq!(
+            input.len(),
+            batch_size * self.input_size(),
+            "Conv2DLayer forward: input shape mismatch. \
+             Expected (batch={}, H={}, W={}, C_in={}) = {} elements, got {}. \
+             Ensure input has batch_size * in_channels * input_height * input_width elements.",
+            batch_size,
+            self.input_height,
+            self.input_width,
+            self.in_channels,
+            batch_size * self.input_size(),
+            input.len()
+        );
+        assert_eq!(
+            output.len(),
+            batch_size * self.output_size(),
+            "Conv2DLayer forward: output shape mismatch. \
+             Expected (batch={}, C_out={}, H_out={}, W_out={}) = {} elements, got {}. \
+             Ensure output buffer has batch_size * out_channels * output_height * output_width elements.",
+            batch_size,
+            self.out_channels,
+            out_h,
+            out_w,
+            batch_size * self.output_size(),
+            output.len()
+        );
         let out_spatial = out_h * out_w; // Total spatial elements per output channel
         let in_spatial = self.input_height * self.input_width; // Total spatial elements per input channel
 
@@ -532,6 +657,51 @@ impl Layer for Conv2DLayer {
     ) {
         let out_h = self.output_height();
         let out_w = self.output_width();
+
+        // Dimension checks: verify all buffers have the expected sizes before computing gradients.
+        // Input layout: (batch_size × input_height × input_width × in_channels) — channels-last
+        // grad_output layout: (batch_size × out_channels × output_height × output_width)
+        // grad_input layout: same as input
+        assert_eq!(
+            input.len(),
+            batch_size * self.input_size(),
+            "Conv2DLayer backward: input shape mismatch. \
+             Expected (batch={}, H={}, W={}, C_in={}) = {} elements, got {}. \
+             This input must match the input used in the corresponding forward pass.",
+            batch_size,
+            self.input_height,
+            self.input_width,
+            self.in_channels,
+            batch_size * self.input_size(),
+            input.len()
+        );
+        assert_eq!(
+            grad_output.len(),
+            batch_size * self.output_size(),
+            "Conv2DLayer backward: grad_output shape mismatch. \
+             Expected (batch={}, C_out={}, H_out={}, W_out={}) = {} elements, got {}. \
+             Ensure grad_output has batch_size * out_channels * output_height * output_width elements.",
+            batch_size,
+            self.out_channels,
+            out_h,
+            out_w,
+            batch_size * self.output_size(),
+            grad_output.len()
+        );
+        assert_eq!(
+            grad_input.len(),
+            batch_size * self.input_size(),
+            "Conv2DLayer backward: grad_input shape mismatch. \
+             Expected (batch={}, H={}, W={}, C_in={}) = {} elements, got {}. \
+             Ensure grad_input buffer has batch_size * in_channels * input_height * input_width elements.",
+            batch_size,
+            self.input_height,
+            self.input_width,
+            self.in_channels,
+            batch_size * self.input_size(),
+            grad_input.len()
+        );
+
         let out_spatial = out_h * out_w;
         let in_spatial = self.input_height * self.input_width;
 
@@ -932,5 +1102,107 @@ mod tests {
         // (8 + 2*1 - 3) / 2 + 1 = 4
         assert_eq!(layer.output_height(), 4);
         assert_eq!(layer.output_width(), 4);
+    }
+
+    #[test]
+    fn test_conv2d_new_with_weights_stores_parameters() {
+        let in_channels = 1;
+        let out_channels = 2;
+        let kernel_size = 3;
+        let weight_count = out_channels * in_channels * kernel_size * kernel_size;
+        let weights = vec![0.1f32; weight_count];
+        let biases = vec![0.0f32, 0.5];
+
+        let layer = Conv2DLayer::new_with_weights(
+            in_channels,
+            out_channels,
+            kernel_size,
+            1,
+            1,
+            28,
+            28,
+            weights.clone(),
+            biases.clone(),
+        );
+
+        assert_eq!(layer.in_channels(), in_channels);
+        assert_eq!(layer.out_channels(), out_channels);
+        assert_eq!(layer.kernel_size(), kernel_size);
+        assert_eq!(layer.padding(), 1);
+        assert_eq!(layer.stride(), 1);
+        assert_eq!(layer.weights(), weights.as_slice());
+        assert_eq!(layer.biases(), biases.as_slice());
+    }
+
+    #[test]
+    fn test_conv2d_new_with_weights_gradient_initially_zero() {
+        let in_channels = 1;
+        let out_channels = 2;
+        let kernel_size = 3;
+        let weight_count = out_channels * in_channels * kernel_size * kernel_size;
+        let weights = vec![0.1f32; weight_count];
+        let biases = vec![0.0f32; out_channels];
+
+        let layer = Conv2DLayer::new_with_weights(
+            in_channels,
+            out_channels,
+            kernel_size,
+            1,
+            1,
+            28,
+            28,
+            weights,
+            biases,
+        );
+
+        // Gradient accumulators should start at zero
+        let (weight_norm, bias_norm) = layer.get_gradient_magnitude();
+        assert_eq!(weight_norm, 0.0);
+        assert_eq!(bias_norm, 0.0);
+    }
+
+    #[test]
+    fn test_conv2d_new_with_weights_parameter_count() {
+        let in_channels = 3;
+        let out_channels = 8;
+        let kernel_size = 3;
+        let weight_count = out_channels * in_channels * kernel_size * kernel_size;
+        let weights = vec![0.0f32; weight_count];
+        let biases = vec![0.0f32; out_channels];
+
+        let layer = Conv2DLayer::new_with_weights(
+            in_channels,
+            out_channels,
+            kernel_size,
+            1,
+            1,
+            32,
+            32,
+            weights,
+            biases,
+        );
+
+        // 8 * 3 * 3 * 3 weights + 8 biases = 216 + 8 = 224
+        assert_eq!(layer.parameter_count(), weight_count + out_channels);
+    }
+
+    #[test]
+    #[should_panic(expected = "weights length")]
+    fn test_conv2d_new_with_weights_wrong_weight_length_panics() {
+        // 1 in, 2 out, 3×3 kernel: expects 2*1*3*3 = 18 weights, give 10
+        let weights = vec![0.1f32; 10];
+        let biases = vec![0.0f32; 2];
+        let _layer =
+            Conv2DLayer::new_with_weights(1, 2, 3, 1, 1, 28, 28, weights, biases);
+    }
+
+    #[test]
+    #[should_panic(expected = "biases length")]
+    fn test_conv2d_new_with_weights_wrong_bias_length_panics() {
+        // 1 in, 2 out, 3×3 kernel: expects 2 biases, give 5
+        let weights = vec![0.1f32; 2 * 1 * 3 * 3];
+        let biases = vec![0.0f32; 5];
+        let _layer =
+            Conv2DLayer::new_with_weights(1, 2, 3, 1, 1, 28, 28, weights, biases);
     }
 }

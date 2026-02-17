@@ -8,8 +8,12 @@
 
 use rust_neural_networks::architecture::{build_model, load_architecture};
 use rust_neural_networks::layers::batchnorm::BatchNormLayer;
+use rust_neural_networks::layers::conv2d::Conv2DLayer;
+use rust_neural_networks::layers::dense::DenseLayer;
+use rust_neural_networks::layers::dropout::DropoutLayer;
 use rust_neural_networks::layers::Layer;
 use rust_neural_networks::utils::rng::SimpleRng;
+use std::io::{Cursor, Read, Write};
 
 // ============================================================================
 // BatchNorm Mode Switching Tests
@@ -218,6 +222,633 @@ fn test_cifar10_deep_cnn_batchnorm_integration() {
         batch_size * 10,
         "Final output should have shape [batch_size, 10]"
     );
+}
+
+// ============================================================================
+// Serialization Helpers
+// ============================================================================
+
+/// Serialize a list of layers to binary format, mirroring cifar10_cnn save_model.
+///
+/// Binary format:
+/// - u32: number of layers
+/// - Per layer: type_id (u8) followed by layer-specific data:
+///   - Dense (0): in_size (u32), out_size (u32), weights (f32*), biases (f32*)
+///   - Conv2D (1): in_ch/out_ch/kernel (u32), padding (i32), stride/height/width (u32),
+///                 weights (f32*), biases (f32*)
+///   - BatchNorm (2): size (u32), gamma (f32*), beta (f32*), running_mean (f32*), running_var (f32*)
+///   - Dropout (3): size (u32), drop_rate (f32)
+fn serialize_layers(layers: &[Box<dyn Layer>], writer: &mut impl Write) {
+    let num_layers = layers.len() as u32;
+    writer.write_all(&num_layers.to_le_bytes()).unwrap();
+
+    for layer in layers {
+        let any_layer = layer.as_any();
+
+        if let Some(dense) = any_layer.downcast_ref::<DenseLayer>() {
+            writer.write_all(&[0u8]).unwrap();
+            writer
+                .write_all(&(dense.input_size() as u32).to_le_bytes())
+                .unwrap();
+            writer
+                .write_all(&(dense.output_size() as u32).to_le_bytes())
+                .unwrap();
+            for &w in dense.weights() {
+                writer.write_all(&w.to_le_bytes()).unwrap();
+            }
+            for &b in dense.biases() {
+                writer.write_all(&b.to_le_bytes()).unwrap();
+            }
+        } else if let Some(conv) = any_layer.downcast_ref::<Conv2DLayer>() {
+            writer.write_all(&[1u8]).unwrap();
+            writer
+                .write_all(&(conv.in_channels() as u32).to_le_bytes())
+                .unwrap();
+            writer
+                .write_all(&(conv.out_channels() as u32).to_le_bytes())
+                .unwrap();
+            writer
+                .write_all(&(conv.kernel_size() as u32).to_le_bytes())
+                .unwrap();
+            writer
+                .write_all(&(conv.padding() as i32).to_le_bytes())
+                .unwrap();
+            writer
+                .write_all(&(conv.stride() as u32).to_le_bytes())
+                .unwrap();
+            writer
+                .write_all(&(conv.input_height() as u32).to_le_bytes())
+                .unwrap();
+            writer
+                .write_all(&(conv.input_width() as u32).to_le_bytes())
+                .unwrap();
+            for &w in conv.weights() {
+                writer.write_all(&w.to_le_bytes()).unwrap();
+            }
+            for &b in conv.biases() {
+                writer.write_all(&b.to_le_bytes()).unwrap();
+            }
+        } else if let Some(bn) = any_layer.downcast_ref::<BatchNormLayer>() {
+            writer.write_all(&[2u8]).unwrap();
+            writer
+                .write_all(&(bn.output_size() as u32).to_le_bytes())
+                .unwrap();
+            for &g in bn.gamma() {
+                writer.write_all(&g.to_le_bytes()).unwrap();
+            }
+            for &b in bn.beta() {
+                writer.write_all(&b.to_le_bytes()).unwrap();
+            }
+            for &m in &bn.running_mean() {
+                writer.write_all(&m.to_le_bytes()).unwrap();
+            }
+            for &v in &bn.running_var() {
+                writer.write_all(&v.to_le_bytes()).unwrap();
+            }
+        } else if let Some(dropout) = any_layer.downcast_ref::<DropoutLayer>() {
+            writer.write_all(&[3u8]).unwrap();
+            writer
+                .write_all(&(dropout.output_size() as u32).to_le_bytes())
+                .unwrap();
+            writer
+                .write_all(&dropout.drop_rate().to_le_bytes())
+                .unwrap();
+        } else {
+            panic!("Unknown layer type encountered in test serialization");
+        }
+    }
+}
+
+/// Deserialize layers from binary format, mirroring cifar10_cnn load_model.
+fn deserialize_layers(reader: &mut impl Read) -> Vec<Box<dyn Layer>> {
+    let mut buf4 = [0u8; 4];
+    reader.read_exact(&mut buf4).unwrap();
+    let num_layers = u32::from_le_bytes(buf4) as usize;
+
+    let mut layers: Vec<Box<dyn Layer>> = Vec::with_capacity(num_layers);
+    let mut rng = SimpleRng::new(42);
+
+    for _ in 0..num_layers {
+        let mut type_buf = [0u8; 1];
+        reader.read_exact(&mut type_buf).unwrap();
+        match type_buf[0] {
+            0 => {
+                // Dense
+                reader.read_exact(&mut buf4).unwrap();
+                let in_size = u32::from_le_bytes(buf4) as usize;
+                reader.read_exact(&mut buf4).unwrap();
+                let out_size = u32::from_le_bytes(buf4) as usize;
+                let mut weights = vec![0.0f32; in_size * out_size];
+                for w in &mut weights {
+                    reader.read_exact(&mut buf4).unwrap();
+                    *w = f32::from_le_bytes(buf4);
+                }
+                let mut biases = vec![0.0f32; out_size];
+                for b in &mut biases {
+                    reader.read_exact(&mut buf4).unwrap();
+                    *b = f32::from_le_bytes(buf4);
+                }
+                layers.push(Box::new(DenseLayer::new_with_weights(
+                    in_size, out_size, weights, biases,
+                )));
+            }
+            1 => {
+                // Conv2D
+                reader.read_exact(&mut buf4).unwrap();
+                let in_channels = u32::from_le_bytes(buf4) as usize;
+                reader.read_exact(&mut buf4).unwrap();
+                let out_channels = u32::from_le_bytes(buf4) as usize;
+                reader.read_exact(&mut buf4).unwrap();
+                let kernel_size = u32::from_le_bytes(buf4) as usize;
+                reader.read_exact(&mut buf4).unwrap();
+                let padding = i32::from_le_bytes(buf4) as isize;
+                reader.read_exact(&mut buf4).unwrap();
+                let stride = u32::from_le_bytes(buf4) as usize;
+                reader.read_exact(&mut buf4).unwrap();
+                let input_height = u32::from_le_bytes(buf4) as usize;
+                reader.read_exact(&mut buf4).unwrap();
+                let input_width = u32::from_le_bytes(buf4) as usize;
+                let weight_count = out_channels * in_channels * kernel_size * kernel_size;
+                let mut weights = vec![0.0f32; weight_count];
+                for w in &mut weights {
+                    reader.read_exact(&mut buf4).unwrap();
+                    *w = f32::from_le_bytes(buf4);
+                }
+                let mut biases = vec![0.0f32; out_channels];
+                for b in &mut biases {
+                    reader.read_exact(&mut buf4).unwrap();
+                    *b = f32::from_le_bytes(buf4);
+                }
+                layers.push(Box::new(Conv2DLayer::new_with_weights(
+                    in_channels,
+                    out_channels,
+                    kernel_size,
+                    padding,
+                    stride,
+                    input_height,
+                    input_width,
+                    weights,
+                    biases,
+                )));
+            }
+            2 => {
+                // BatchNorm
+                reader.read_exact(&mut buf4).unwrap();
+                let size = u32::from_le_bytes(buf4) as usize;
+                let mut gamma = vec![0.0f32; size];
+                for g in &mut gamma {
+                    reader.read_exact(&mut buf4).unwrap();
+                    *g = f32::from_le_bytes(buf4);
+                }
+                let mut beta = vec![0.0f32; size];
+                for b in &mut beta {
+                    reader.read_exact(&mut buf4).unwrap();
+                    *b = f32::from_le_bytes(buf4);
+                }
+                let mut running_mean = vec![0.0f32; size];
+                for m in &mut running_mean {
+                    reader.read_exact(&mut buf4).unwrap();
+                    *m = f32::from_le_bytes(buf4);
+                }
+                let mut running_var = vec![0.0f32; size];
+                for v in &mut running_var {
+                    reader.read_exact(&mut buf4).unwrap();
+                    *v = f32::from_le_bytes(buf4);
+                }
+                layers.push(Box::new(BatchNormLayer::new_with_params(
+                    size,
+                    1e-5,
+                    0.1,
+                    gamma,
+                    beta,
+                    running_mean,
+                    running_var,
+                )));
+            }
+            3 => {
+                // Dropout
+                reader.read_exact(&mut buf4).unwrap();
+                let size = u32::from_le_bytes(buf4) as usize;
+                reader.read_exact(&mut buf4).unwrap();
+                let drop_rate = f32::from_le_bytes(buf4);
+                layers.push(Box::new(DropoutLayer::new(size, drop_rate, &mut rng)));
+            }
+            t => panic!(
+                "Unknown layer type {} encountered in test deserialization",
+                t
+            ),
+        }
+    }
+
+    layers
+}
+
+// ============================================================================
+// Model Serialization Roundtrip Tests
+// ============================================================================
+
+/// Test model serialization roundtrip for a baseline 2-layer dense model.
+///
+/// This test verifies:
+/// 1. A Dense+Dense model serializes correctly to binary
+/// 2. The binary can be deserialized back into the same layer types
+/// 3. Layer count, types, parameter counts, and weights match exactly
+#[test]
+fn test_save_load_baseline_model() {
+    let mut rng = SimpleRng::new(42);
+
+    // Build a 2-layer dense model with known sizes
+    let dense1 = DenseLayer::new(32, 16, &mut rng);
+    let dense2 = DenseLayer::new(16, 10, &mut rng);
+
+    let original_weights_layer1 = dense1.weights().to_vec();
+    let original_biases_layer1 = dense1.biases().to_vec();
+    let original_param_count_0 = dense1.parameter_count();
+    let original_param_count_1 = dense2.parameter_count();
+
+    let layers: Vec<Box<dyn Layer>> = vec![Box::new(dense1), Box::new(dense2)];
+
+    // Serialize to in-memory buffer
+    let mut data: Vec<u8> = Vec::new();
+    serialize_layers(&layers, &mut data);
+
+    assert!(!data.is_empty(), "Serialized data should not be empty");
+
+    // Deserialize from buffer
+    let mut cursor = Cursor::new(&data);
+    let loaded_layers = deserialize_layers(&mut cursor);
+
+    // Verify layer count
+    assert_eq!(
+        loaded_layers.len(),
+        2,
+        "Should reconstruct exactly 2 layers"
+    );
+
+    // Verify both layers are DenseLayer after roundtrip
+    assert!(
+        loaded_layers[0]
+            .as_any()
+            .downcast_ref::<DenseLayer>()
+            .is_some(),
+        "Layer 0 should be DenseLayer after roundtrip"
+    );
+    assert!(
+        loaded_layers[1]
+            .as_any()
+            .downcast_ref::<DenseLayer>()
+            .is_some(),
+        "Layer 1 should be DenseLayer after roundtrip"
+    );
+
+    // Verify parameter counts match
+    assert_eq!(
+        loaded_layers[0].parameter_count(),
+        original_param_count_0,
+        "Layer 0 parameter count should match after roundtrip"
+    );
+    assert_eq!(
+        loaded_layers[1].parameter_count(),
+        original_param_count_1,
+        "Layer 1 parameter count should match after roundtrip"
+    );
+
+    // Verify weights and biases match exactly for layer 0
+    let loaded_dense1 = loaded_layers[0]
+        .as_any()
+        .downcast_ref::<DenseLayer>()
+        .unwrap();
+    assert_eq!(
+        loaded_dense1.weights(),
+        original_weights_layer1.as_slice(),
+        "Layer 0 weights should match exactly after roundtrip"
+    );
+    assert_eq!(
+        loaded_dense1.biases(),
+        original_biases_layer1.as_slice(),
+        "Layer 0 biases should match exactly after roundtrip"
+    );
+
+    // Verify input/output sizes
+    assert_eq!(
+        loaded_layers[0].input_size(),
+        32,
+        "Layer 0 input_size should be 32"
+    );
+    assert_eq!(
+        loaded_layers[0].output_size(),
+        16,
+        "Layer 0 output_size should be 16"
+    );
+    assert_eq!(
+        loaded_layers[1].input_size(),
+        16,
+        "Layer 1 input_size should be 16"
+    );
+    assert_eq!(
+        loaded_layers[1].output_size(),
+        10,
+        "Layer 1 output_size should be 10"
+    );
+}
+
+/// Test serialization roundtrip for a mixed-layer architecture (Conv2D, BatchNorm,
+/// Dropout, Dense), verifying all four layer types survive the binary format.
+///
+/// This test verifies:
+/// 1. Each layer type serializes its parameters correctly
+/// 2. Each layer type deserializes back to the correct type
+/// 3. All configuration parameters (in_channels, kernel_size, drop_rate, etc.) are preserved
+#[test]
+fn test_save_load_mixed_architecture() {
+    let mut rng = SimpleRng::new(123);
+
+    // Conv2D: 3 in-channels, 8 out-channels, 3x3 kernel, padding=1, stride=1, 8x8 input
+    let conv = Conv2DLayer::new(3, 8, 3, 1isize, 1, 8, 8, &mut rng);
+    // BatchNorm: 8*8*8 = 512 features
+    let bn = BatchNormLayer::new(512, 1e-5, 0.9);
+    // Dropout: 512 features, 30% drop rate
+    let dropout = DropoutLayer::new(512, 0.3, &mut rng);
+    // Dense: 512 -> 10
+    let dense = DenseLayer::new(512, 10, &mut rng);
+
+    let original_conv_weights = conv.weights().to_vec();
+    let original_bn_gamma = bn.gamma().to_vec();
+    let original_dense_weights = dense.weights().to_vec();
+
+    let layers: Vec<Box<dyn Layer>> = vec![
+        Box::new(conv),
+        Box::new(bn),
+        Box::new(dropout),
+        Box::new(dense),
+    ];
+
+    // Serialize to in-memory buffer
+    let mut data: Vec<u8> = Vec::new();
+    serialize_layers(&layers, &mut data);
+
+    // Deserialize from buffer
+    let mut cursor = Cursor::new(&data);
+    let loaded_layers = deserialize_layers(&mut cursor);
+
+    // Verify layer count
+    assert_eq!(
+        loaded_layers.len(),
+        4,
+        "Should reconstruct exactly 4 layers"
+    );
+
+    // Verify layer 0 is Conv2D with correct parameters
+    let loaded_conv = loaded_layers[0]
+        .as_any()
+        .downcast_ref::<Conv2DLayer>()
+        .expect("Layer 0 should be Conv2DLayer after roundtrip");
+    assert_eq!(
+        loaded_conv.in_channels(),
+        3,
+        "Conv2D in_channels should be 3"
+    );
+    assert_eq!(
+        loaded_conv.out_channels(),
+        8,
+        "Conv2D out_channels should be 8"
+    );
+    assert_eq!(
+        loaded_conv.kernel_size(),
+        3,
+        "Conv2D kernel_size should be 3"
+    );
+    assert_eq!(loaded_conv.padding(), 1isize, "Conv2D padding should be 1");
+    assert_eq!(loaded_conv.stride(), 1, "Conv2D stride should be 1");
+    assert_eq!(
+        loaded_conv.input_height(),
+        8,
+        "Conv2D input_height should be 8"
+    );
+    assert_eq!(
+        loaded_conv.input_width(),
+        8,
+        "Conv2D input_width should be 8"
+    );
+    assert_eq!(
+        loaded_conv.weights(),
+        original_conv_weights.as_slice(),
+        "Conv2D weights should match exactly after roundtrip"
+    );
+
+    // Verify layer 1 is BatchNorm with correct parameters
+    let loaded_bn = loaded_layers[1]
+        .as_any()
+        .downcast_ref::<BatchNormLayer>()
+        .expect("Layer 1 should be BatchNormLayer after roundtrip");
+    assert_eq!(
+        loaded_bn.output_size(),
+        512,
+        "BatchNorm size should be 512"
+    );
+    assert_eq!(
+        loaded_bn.gamma(),
+        original_bn_gamma.as_slice(),
+        "BatchNorm gamma should match exactly after roundtrip"
+    );
+
+    // Verify layer 2 is Dropout
+    assert!(
+        loaded_layers[2]
+            .as_any()
+            .downcast_ref::<DropoutLayer>()
+            .is_some(),
+        "Layer 2 should be DropoutLayer after roundtrip"
+    );
+
+    // Verify layer 3 is Dense with correct weights
+    let loaded_dense = loaded_layers[3]
+        .as_any()
+        .downcast_ref::<DenseLayer>()
+        .expect("Layer 3 should be DenseLayer after roundtrip");
+    assert_eq!(
+        loaded_dense.weights(),
+        original_dense_weights.as_slice(),
+        "Dense weights should match exactly after roundtrip"
+    );
+}
+
+/// Test that Dropout drop_rate is preserved exactly through a serialization roundtrip.
+///
+/// This test verifies the fix for the previously broken Dropout serialization where
+/// drop_rate was not being saved, meaning reconstructed layers would have incorrect
+/// regularization strength.
+#[test]
+fn test_save_load_dropout_drop_rate() {
+    let mut rng = SimpleRng::new(42);
+
+    // Create dropout layers with distinctive drop rates
+    let dropout_30 = DropoutLayer::new(128, 0.3, &mut rng);
+    let dropout_50 = DropoutLayer::new(256, 0.5, &mut rng);
+    let dropout_70 = DropoutLayer::new(512, 0.7, &mut rng);
+
+    let layers: Vec<Box<dyn Layer>> = vec![
+        Box::new(dropout_30),
+        Box::new(dropout_50),
+        Box::new(dropout_70),
+    ];
+
+    // Serialize to in-memory buffer
+    let mut data: Vec<u8> = Vec::new();
+    serialize_layers(&layers, &mut data);
+
+    // Deserialize from buffer
+    let mut cursor = Cursor::new(&data);
+    let loaded_layers = deserialize_layers(&mut cursor);
+
+    assert_eq!(
+        loaded_layers.len(),
+        3,
+        "Should reconstruct exactly 3 dropout layers"
+    );
+
+    // Verify each dropout layer has its drop_rate preserved
+    let loaded_d1 = loaded_layers[0]
+        .as_any()
+        .downcast_ref::<DropoutLayer>()
+        .expect("Layer 0 should be DropoutLayer");
+    assert!(
+        (loaded_d1.drop_rate() - 0.3).abs() < 1e-6,
+        "Dropout drop_rate 0.3 should be preserved, got {}",
+        loaded_d1.drop_rate()
+    );
+    assert_eq!(
+        loaded_layers[0].output_size(),
+        128,
+        "Dropout size 128 should be preserved"
+    );
+
+    let loaded_d2 = loaded_layers[1]
+        .as_any()
+        .downcast_ref::<DropoutLayer>()
+        .expect("Layer 1 should be DropoutLayer");
+    assert!(
+        (loaded_d2.drop_rate() - 0.5).abs() < 1e-6,
+        "Dropout drop_rate 0.5 should be preserved, got {}",
+        loaded_d2.drop_rate()
+    );
+    assert_eq!(
+        loaded_layers[1].output_size(),
+        256,
+        "Dropout size 256 should be preserved"
+    );
+
+    let loaded_d3 = loaded_layers[2]
+        .as_any()
+        .downcast_ref::<DropoutLayer>()
+        .expect("Layer 2 should be DropoutLayer");
+    assert!(
+        (loaded_d3.drop_rate() - 0.7).abs() < 1e-6,
+        "Dropout drop_rate 0.7 should be preserved, got {}",
+        loaded_d3.drop_rate()
+    );
+    assert_eq!(
+        loaded_layers[2].output_size(),
+        512,
+        "Dropout size 512 should be preserved"
+    );
+}
+
+/// Test model serialization roundtrip for the deep CNN architecture loaded from config.
+///
+/// This test verifies:
+/// 1. The 17-layer CIFAR-10 deep CNN can be serialized
+/// 2. All layers reconstruct correctly from binary format
+/// 3. Layer count and parameter counts are preserved
+///
+/// The test is skipped gracefully if the config file is not present.
+#[test]
+fn test_save_load_deep_cnn_model() {
+    let config_path = "config/architectures/cifar10_deep_cnn.json";
+    let config = match load_architecture(config_path) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("Skipping test: config file not found: {}", e);
+            return;
+        }
+    };
+
+    let mut rng = SimpleRng::new(42);
+    let layers = build_model(&config, &mut rng).unwrap();
+
+    let original_layer_count = layers.len();
+    let original_param_counts: Vec<usize> = layers.iter().map(|l| l.parameter_count()).collect();
+    let original_input_sizes: Vec<usize> = layers.iter().map(|l| l.input_size()).collect();
+    let original_output_sizes: Vec<usize> = layers.iter().map(|l| l.output_size()).collect();
+
+    assert!(
+        original_layer_count >= 1,
+        "Deep CNN should have at least one layer"
+    );
+
+    // Serialize to in-memory buffer
+    let mut data: Vec<u8> = Vec::new();
+    serialize_layers(&layers, &mut data);
+
+    assert!(!data.is_empty(), "Serialized data should not be empty");
+
+    // Deserialize from buffer
+    let mut cursor = Cursor::new(&data);
+    let loaded_layers = deserialize_layers(&mut cursor);
+
+    // Verify layer count is preserved
+    assert_eq!(
+        loaded_layers.len(),
+        original_layer_count,
+        "Loaded model should have same number of layers ({}) as original",
+        original_layer_count
+    );
+
+    // Verify all layers have correct parameter counts and sizes
+    for i in 0..original_layer_count {
+        assert_eq!(
+            loaded_layers[i].parameter_count(),
+            original_param_counts[i],
+            "Layer {} parameter count should match after roundtrip: expected {}, got {}",
+            i,
+            original_param_counts[i],
+            loaded_layers[i].parameter_count()
+        );
+        assert_eq!(
+            loaded_layers[i].input_size(),
+            original_input_sizes[i],
+            "Layer {} input_size should match after roundtrip",
+            i
+        );
+        assert_eq!(
+            loaded_layers[i].output_size(),
+            original_output_sizes[i],
+            "Layer {} output_size should match after roundtrip",
+            i
+        );
+    }
+
+    // Verify loaded model can run a forward pass without errors
+    let batch_size = 2;
+    let input_size = 3 * 32 * 32; // CIFAR-10 input
+    let input = vec![0.5f32; input_size * batch_size];
+
+    let mut current_output = input;
+    for (i, layer) in loaded_layers.iter().enumerate() {
+        let out_size = layer.output_size();
+        let mut next_output = vec![0.0f32; out_size * batch_size];
+        layer.forward(&current_output, &mut next_output, batch_size);
+        for (j, &val) in next_output.iter().enumerate() {
+            assert!(
+                val.is_finite(),
+                "Loaded layer {} produced non-finite value at index {}: {}",
+                i,
+                j,
+                val
+            );
+        }
+        current_output = next_output;
+    }
 }
 
 /// Test that BatchNorm layers in the architecture can be switched to inference mode.

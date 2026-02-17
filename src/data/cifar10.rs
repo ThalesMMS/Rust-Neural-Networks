@@ -9,6 +9,7 @@
 //! - 1 byte: label (0-9)
 //! - 3072 bytes: image data (1024 red + 1024 green + 1024 blue pixels, row-major order)
 
+use crate::utils::error_messages::cifar10_data_not_found_message;
 use std::fs;
 
 /// CIFAR-10 image dimensions
@@ -62,7 +63,16 @@ const CIFAR10_CLASS_NAMES: [&str; 10] = [
 /// assert_eq!(images.len(), 10000 * 32 * 32 * 3);
 /// ```
 pub fn read_cifar10_batch(filename: &str) -> std::io::Result<(Vec<f32>, Vec<u8>)> {
-    let data = fs::read(filename)?;
+    let data = fs::read(filename).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                cifar10_data_not_found_message(filename),
+            )
+        } else {
+            e
+        }
+    })?;
 
     // Validate file size
     let expected_size = CIFAR10_BATCH_SIZE * CIFAR10_RECORD_SIZE;
@@ -223,6 +233,25 @@ mod tests {
         assert_eq!(names.len(), 10);
         assert_eq!(names[0], "airplane");
         assert_eq!(names[9], "truck");
+    }
+
+    #[test]
+    fn test_read_cifar10_batch_not_found() {
+        let result = read_cifar10_batch("data/__nonexistent_cifar10_batch_test__.bin");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+        let msg = err.to_string();
+        assert!(
+            msg.contains("CIFAR-10"),
+            "Expected CIFAR-10 in error message, got: {}",
+            msg
+        );
+        assert!(
+            msg.contains("docs/"),
+            "Expected docs/ in error message, got: {}",
+            msg
+        );
     }
 
     #[test]

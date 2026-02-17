@@ -20,12 +20,22 @@ This directory organizes backpropagation documentation by layer type and operati
 - **[Dense (Fully Connected) Layer](dense_layer.md)** - Matrix multiplication, bias addition, and their gradients
 - **[Convolutional Layer](conv2d_layer.md)** - Convolution operations and gradient computation
 - **[Attention Mechanism](attention_mechanism.md)** - Multi-head attention, softmax attention, and gradient computation
+- **[LSTM Layer](lstm_layer.md)** - Long Short-Term Memory cell backpropagation through time
+- **[Transformer Block](transformer_block.md)** - Self-attention, feed-forward, and residual connection gradients
+- **[Dropout Layer](dropout_layer.md)** - Inverted dropout mask and gradient passthrough
 - **Pooling Layer** - Max pooling and average pooling backpropagation
+
+### Normalization Layers
+- **[Batch Normalization](batchnorm_layer.md)** - Per-channel mean/variance normalization and gradients
+- **[Layer Normalization](layernorm_layer.md)** - Per-sample normalization and gradients
+
+### Recurrent Networks
+- **[RNN Backpropagation Through Time](rnn_bptt.md)** - Unrolled gradient computation for recurrent networks
 
 ### Operations
 - **Activation Functions** - Gradients for ReLU, sigmoid, tanh, etc. (see `docs/activation_functions.md`)
 - **Loss Functions** - Cross-entropy, MSE, and their derivatives
-- **Normalization** - Batch normalization and layer normalization gradients
+- **Normalization** - Batch normalization ([batchnorm_layer.md](batchnorm_layer.md)) and layer normalization ([layernorm_layer.md](layernorm_layer.md)) gradients
 
 ## Mathematical Notation
 
@@ -152,4 +162,10 @@ When adding new backpropagation documentation:
 - [Dense Layer Backpropagation](dense_layer.md) - Fully connected layer gradients
 - [Conv2D Layer Backpropagation](conv2d_layer.md) - Convolutional layer gradients
 - [Attention Mechanism Backpropagation](attention_mechanism.md) - Attention layer gradients
+- [Batch Normalization Backpropagation](batchnorm_layer.md) - Batch normalization gradients
+- [Layer Normalization Backpropagation](layernorm_layer.md) - Layer normalization gradients
+- [Dropout Layer Backpropagation](dropout_layer.md) - Dropout gradient passthrough
+- [LSTM Layer Backpropagation](lstm_layer.md) - LSTM cell gradients
+- [Transformer Block Backpropagation](transformer_block.md) - Transformer block gradients
+- [RNN Backpropagation Through Time](rnn_bptt.md) - Recurrent network gradient computation
 - [Layer Trait](../../src/layers/trait.rs) - Core layer interface

@@ -1019,20 +1019,20 @@ fn main() {
     println!("Loading MNIST...");
     let mut train_images =
         read_mnist_images("./data/train-images.idx3-ubyte").unwrap_or_else(|e| {
-            eprintln!("Error loading training images: {}", e);
+            eprintln!("{e}");
             process::exit(1);
         });
     let mut train_labels =
         read_mnist_labels("./data/train-labels.idx1-ubyte").unwrap_or_else(|e| {
-            eprintln!("Error loading training labels: {}", e);
+            eprintln!("{e}");
             process::exit(1);
         });
     let test_images = read_mnist_images("./data/t10k-images.idx3-ubyte").unwrap_or_else(|e| {
-        eprintln!("Error loading test images: {}", e);
+        eprintln!("{e}");
         process::exit(1);
     });
     let test_labels = read_mnist_labels("./data/t10k-labels.idx1-ubyte").unwrap_or_else(|e| {
-        eprintln!("Error loading test labels: {}", e);
+        eprintln!("{e}");
         process::exit(1);
     });
 

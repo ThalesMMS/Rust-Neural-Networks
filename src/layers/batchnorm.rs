@@ -138,6 +138,108 @@ impl BatchNormLayer {
         }
     }
 
+    /// Creates a new batch normalization layer with pre-loaded parameters.
+    ///
+    /// Used when loading a saved model from disk. Accepts all learnable parameters
+    /// and running statistics directly, skipping the default initialization.
+    ///
+    /// # Arguments
+    ///
+    /// * `size` - Number of input/output features
+    /// * `epsilon` - Small constant for numerical stability (typical: 1e-5)
+    /// * `momentum` - Momentum for running statistics EMA (typical: 0.9 or 0.99)
+    /// * `gamma` - Learnable scale parameters (length must equal `size`)
+    /// * `beta` - Learnable shift parameters (length must equal `size`)
+    /// * `running_mean` - Accumulated running mean from training (length must equal `size`)
+    /// * `running_var` - Accumulated running variance from training (length must equal `size`)
+    ///
+    /// # Panics
+    ///
+    /// Panics if any of the provided vectors have a length that does not match `size`,
+    /// or if `epsilon` is not positive, or if `momentum` is outside `[0.0, 1.0]`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rust_neural_networks::layers::batchnorm::BatchNormLayer;
+    /// let gamma = vec![1.5f32, 2.0, 0.5];
+    /// let beta = vec![0.1f32, -0.2, 0.3];
+    /// let running_mean = vec![0.5f32, 1.0, -0.5];
+    /// let running_var = vec![1.0f32, 0.8, 1.2];
+    /// let layer = BatchNormLayer::new_with_params(3, 1e-5, 0.9, gamma, beta, running_mean, running_var);
+    /// assert_eq!(layer.input_size(), 3);
+    /// assert_eq!(layer.gamma()[0], 1.5);
+    /// assert_eq!(layer.beta()[1], -0.2);
+    /// assert_eq!(layer.running_mean()[2], -0.5);
+    /// ```
+    pub fn new_with_params(
+        size: usize,
+        epsilon: f32,
+        momentum: f32,
+        gamma: Vec<f32>,
+        beta: Vec<f32>,
+        running_mean: Vec<f32>,
+        running_var: Vec<f32>,
+    ) -> Self {
+        assert!(epsilon > 0.0, "epsilon must be positive");
+        assert!(
+            (0.0..=1.0).contains(&momentum),
+            "momentum must be in range [0.0, 1.0]"
+        );
+        assert_eq!(
+            gamma.len(),
+            size,
+            "gamma length {} does not match size = {}",
+            gamma.len(),
+            size
+        );
+        assert_eq!(
+            beta.len(),
+            size,
+            "beta length {} does not match size = {}",
+            beta.len(),
+            size
+        );
+        assert_eq!(
+            running_mean.len(),
+            size,
+            "running_mean length {} does not match size = {}",
+            running_mean.len(),
+            size
+        );
+        assert_eq!(
+            running_var.len(),
+            size,
+            "running_var length {} does not match size = {}",
+            running_var.len(),
+            size
+        );
+
+        Self {
+            size,
+            epsilon,
+            momentum,
+            training: false,
+
+            gamma,
+            beta,
+
+            // Zero-initialize gradients
+            grad_gamma: GradientAccumulator::new(size),
+            grad_beta: GradientAccumulator::new(size),
+
+            // Use provided running statistics
+            running_mean: RefCell::new(running_mean),
+            running_var: RefCell::new(running_var),
+
+            // Initialize caches (will be resized during forward pass)
+            cached_mean: RefCell::new(Vec::new()),
+            cached_var: RefCell::new(Vec::new()),
+            cached_normalized: RefCell::new(Vec::new()),
+            cached_std: RefCell::new(Vec::new()),
+        }
+    }
+
     /// Set whether the layer is in training mode.
     ///
     /// When `training` is true, the layer computes batch statistics and updates running
@@ -1160,6 +1262,100 @@ mod tests {
             (variance - 1.0).abs() < 1e-4,
             "Variance should be ~1, got {}",
             variance
+        );
+    }
+
+    #[test]
+    fn test_batchnorm_new_with_params_stores_parameters() {
+        let size = 3;
+        let gamma = vec![1.5f32, 2.0, 0.5];
+        let beta = vec![0.1f32, -0.2, 0.3];
+        let running_mean = vec![0.5f32, 1.0, -0.5];
+        let running_var = vec![1.0f32, 0.8, 1.2];
+
+        let layer = BatchNormLayer::new_with_params(
+            size,
+            1e-5,
+            0.9,
+            gamma.clone(),
+            beta.clone(),
+            running_mean.clone(),
+            running_var.clone(),
+        );
+
+        assert_eq!(layer.input_size(), size);
+        assert_eq!(layer.output_size(), size);
+        assert_eq!(layer.gamma(), gamma.as_slice());
+        assert_eq!(layer.beta(), beta.as_slice());
+        assert_eq!(layer.running_mean(), running_mean);
+        assert_eq!(layer.running_var(), running_var);
+    }
+
+    #[test]
+    fn test_batchnorm_new_with_params_starts_in_inference_mode() {
+        let size = 4;
+        let layer = BatchNormLayer::new_with_params(
+            size,
+            1e-5,
+            0.9,
+            vec![1.0f32; size],
+            vec![0.0f32; size],
+            vec![0.0f32; size],
+            vec![1.0f32; size],
+        );
+
+        // new_with_params should initialize in inference (non-training) mode
+        assert!(!layer.is_training());
+    }
+
+    #[test]
+    fn test_batchnorm_new_with_params_correct_parameters() {
+        let size = 3;
+        let epsilon = 1e-4f32;
+        let momentum = 0.95f32;
+        let layer = BatchNormLayer::new_with_params(
+            size,
+            epsilon,
+            momentum,
+            vec![2.0f32; size],
+            vec![1.0f32; size],
+            vec![0.5f32; size],
+            vec![0.25f32; size],
+        );
+
+        // Verify hyperparameters are stored correctly
+        assert_eq!(layer.epsilon(), epsilon);
+        assert_eq!(layer.momentum(), momentum);
+        assert_eq!(layer.parameter_count(), size * 2); // gamma + beta
+    }
+
+    #[test]
+    #[should_panic(expected = "gamma length")]
+    fn test_batchnorm_new_with_params_wrong_gamma_length_panics() {
+        // size=3 but gamma has 2 elements
+        let _layer = BatchNormLayer::new_with_params(
+            3,
+            1e-5,
+            0.9,
+            vec![1.0f32; 2],
+            vec![0.0f32; 3],
+            vec![0.0f32; 3],
+            vec![1.0f32; 3],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "beta length")]
+    fn test_batchnorm_new_with_params_wrong_beta_length_panics() {
+        // size=3 but beta has 2 elements
+        let _layer = BatchNormLayer::new_with_params(
+            3,
+            1e-5,
+            0.9,
+            vec![1.0f32; 3],
+            vec![0.0f32; 2],
+            vec![0.0f32; 3],
+            vec![1.0f32; 3],
         );
     }
 }

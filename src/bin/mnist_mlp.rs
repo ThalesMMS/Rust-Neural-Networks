@@ -890,22 +890,22 @@ fn main() {
     let load_start = Instant::now();
     let mut train_images =
         read_mnist_images("./data/train-images.idx3-ubyte").unwrap_or_else(|e| {
-            eprintln!("Could not read training images: {}", e);
+            eprintln!("{e}");
             process::exit(1);
         });
     let mut train_labels =
         read_mnist_labels("./data/train-labels.idx1-ubyte").unwrap_or_else(|e| {
-            eprintln!("Could not read training labels: {}", e);
+            eprintln!("{e}");
             process::exit(1);
         });
 
     println!("Loading test data...");
     let test_images = read_mnist_images("./data/t10k-images.idx3-ubyte").unwrap_or_else(|e| {
-        eprintln!("Could not read test images: {}", e);
+        eprintln!("{e}");
         process::exit(1);
     });
     let test_labels = read_mnist_labels("./data/t10k-labels.idx1-ubyte").unwrap_or_else(|e| {
-        eprintln!("Could not read test labels: {}", e);
+        eprintln!("{e}");
         process::exit(1);
     });
     let load_time = load_start.elapsed().as_secs_f64();

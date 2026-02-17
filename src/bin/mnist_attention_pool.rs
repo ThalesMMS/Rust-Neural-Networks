@@ -140,7 +140,6 @@ const EARLY_STOPPING_MIN_DELTA: f32 = 0.001; // Minimum change to be considered 
 // Default config path
 const DEFAULT_CONFIG_PATH: &str = "config/training/mnist_attention_default.json";
 
-
 // Copy a subset of images/labels into contiguous batch buffers with optional augmentation.
 /// Copies a contiguous mini-batch of examples and their labels into preallocated output buffers.
 ///
@@ -249,7 +248,6 @@ fn gather_batch(
         }
     }
 }
-
 
 struct AttnModel {
     // Patch projection: token = patch * W + b.
@@ -1536,20 +1534,22 @@ fn main() {
     println!();
 
     println!("Loading MNIST data...");
-    let mut train_images = read_mnist_images("./data/train-images.idx3-ubyte").unwrap_or_else(|e| {
-        eprintln!("Could not read train images: {}", e);
-        process::exit(1);
-    });
-    let mut train_labels = read_mnist_labels("./data/train-labels.idx1-ubyte").unwrap_or_else(|e| {
-        eprintln!("Could not read train labels: {}", e);
-        process::exit(1);
-    });
+    let mut train_images =
+        read_mnist_images("./data/train-images.idx3-ubyte").unwrap_or_else(|e| {
+            eprintln!("{e}");
+            process::exit(1);
+        });
+    let mut train_labels =
+        read_mnist_labels("./data/train-labels.idx1-ubyte").unwrap_or_else(|e| {
+            eprintln!("{e}");
+            process::exit(1);
+        });
     let test_images = read_mnist_images("./data/t10k-images.idx3-ubyte").unwrap_or_else(|e| {
-        eprintln!("Could not read test images: {}", e);
+        eprintln!("{e}");
         process::exit(1);
     });
     let test_labels = read_mnist_labels("./data/t10k-labels.idx1-ubyte").unwrap_or_else(|e| {
-        eprintln!("Could not read test labels: {}", e);
+        eprintln!("{e}");
         process::exit(1);
     });
 
@@ -1784,4 +1784,3 @@ fn main() {
     println!("Training log saved to: ./logs/training_loss_attention.txt");
     println!("Final test accuracy: {:.2}%", final_acc);
 }
-

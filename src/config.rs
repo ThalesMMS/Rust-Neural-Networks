@@ -159,13 +159,83 @@ pub struct TrainingConfig {
 /// assert_eq!(cfg.scheduler_type, "step_decay");
 /// ```
 pub fn load_config(path: &str) -> Result<TrainingConfig, Box<dyn Error>> {
-    let contents = fs::read_to_string(path)?;
-    let config: TrainingConfig = serde_json::from_str(&contents)?;
+    let contents = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!(
+                    "Config file not found: {}. Default configs are in config/training/. \
+                    Example: cargo run --bin mnist_mlp -- config/training/mnist_mlp_default.json",
+                    path
+                ),
+            )));
+        }
+        Err(e) => return Err(Box::new(e)),
+    };
+
+    let config: TrainingConfig = match serde_json::from_str(&contents) {
+        Ok(c) => c,
+        Err(e) => {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "Failed to parse JSON config at {}: {}. \
+                    Check for missing quotes, trailing commas, or incorrect field names. \
+                    Valid fields: learning_rate, epochs, batch_size, scheduler_type, \
+                    activation_function, optimizer_type, and more.",
+                    path, e
+                ),
+            )));
+        }
+    };
+
     validate_config(&config)?;
     Ok(config)
 }
 
 fn validate_config(config: &TrainingConfig) -> Result<(), Box<dyn Error>> {
+    // Validate scheduler-specific required fields
+    match config.scheduler_type.as_str() {
+        "step_decay" => {
+            if config.step_size.is_none() || config.gamma.is_none() {
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "Scheduler '{}' requires both step_size and gamma. \
+                        Example: {{ \"step_size\": 5, \"gamma\": 0.5 }}",
+                        config.scheduler_type
+                    ),
+                )));
+            }
+        }
+        "exponential" => {
+            if config.decay_rate.is_none() {
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "Scheduler '{}' requires decay_rate. \
+                        Example: {{ \"decay_rate\": 0.95 }}",
+                        config.scheduler_type
+                    ),
+                )));
+            }
+        }
+        "cosine_annealing" => {
+            if config.min_lr.is_none() || config.T_max.is_none() {
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "Scheduler '{}' requires both min_lr and T_max. \
+                        Example: {{ \"min_lr\": 0.0001, \"T_max\": 10 }}",
+                        config.scheduler_type
+                    ),
+                )));
+            }
+        }
+        _ => {} // Unknown/custom scheduler types have no required fields
+    }
+
     if let Some(gamma) = config.gamma {
         if gamma < 0.0 {
             return Err(Box::new(std::io::Error::new(
