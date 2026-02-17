@@ -17,8 +17,10 @@ use std::process;
 use std::time::Instant;
 
 use rust_neural_networks::architecture::{build_model, load_architecture};
-use rust_neural_networks::config::load_config;
+use rust_neural_networks::config::{load_config, TrainingConfig};
 use rust_neural_networks::data::cifar10::{read_cifar10_batch, read_cifar10_batches};
+use rust_neural_networks::optimizers::{Adam, AdamW, Optimizer, SGD};
+use rust_neural_networks::optimizers::rmsprop::RMSprop;
 pub use rust_neural_networks::layers::{
     batchnorm::BatchNormLayer, dropout::DropoutLayer, Conv2DLayer, DenseLayer, Layer,
 };
@@ -689,6 +691,49 @@ fn scheduler_from_args(
     create_scheduler_from_config(learning_rate, epochs, config_path)
 }
 
+/// Creates an optimizer based on the training configuration.
+///
+/// Reads `optimizer_type` from the config (defaulting to "adamw") and constructs
+/// the appropriate optimizer with hyperparameters from the config or sensible defaults.
+///
+/// # Arguments
+///
+/// * `config` - Training configuration containing optimizer settings
+/// * `lr` - Initial learning rate for the optimizer
+///
+/// # Returns
+///
+/// A boxed optimizer implementing the `Optimizer` trait.
+///
+/// # Supported optimizer types
+///
+/// - `"sgd"`: Stochastic Gradient Descent
+/// - `"adam"`: Adam optimizer
+/// - `"adamw"`: AdamW (Adam with decoupled weight decay)
+/// - `"rmsprop"`: RMSprop optimizer
+/// - Unknown types default to AdamW with a warning.
+fn create_optimizer(config: &TrainingConfig, lr: f32) -> Box<dyn Optimizer> {
+    let optimizer_type = config.optimizer_type.as_deref().unwrap_or("adamw");
+    let beta1 = config.adam_beta1.unwrap_or(0.9);
+    let beta2 = config.adam_beta2.unwrap_or(0.999);
+    let epsilon = config.adam_epsilon.unwrap_or(1e-8);
+    let weight_decay = config.adamw_weight_decay.unwrap_or(0.01);
+
+    match optimizer_type {
+        "sgd" => Box::new(SGD::new(lr)),
+        "adam" => Box::new(Adam::new(lr, beta1, beta2, epsilon)),
+        "adamw" => Box::new(AdamW::new(lr, beta1, beta2, epsilon, weight_decay)),
+        "rmsprop" => Box::new(RMSprop::new(lr, 0.9, epsilon)),
+        _ => {
+            eprintln!(
+                "Unknown optimizer type: '{}', defaulting to AdamW",
+                optimizer_type
+            );
+            Box::new(AdamW::new(lr, beta1, beta2, epsilon, weight_decay))
+        }
+    }
+}
+
 /// Parse command-line arguments to get config file paths.
 /// Returns a tuple of (training_config_path, architecture_config_path).
 /// Supports --config for training config and --arch for architecture config.
@@ -873,6 +918,16 @@ fn main() {
 
     let mut model = init_cnn(&mut rng, arch_path.as_deref());
 
+    // Create per-layer optimizers (one per layer to avoid shared optimizer state issues
+    // with different parameter sizes across layers)
+    let mut layer_optimizers: Vec<Box<dyn Optimizer>> = (0..model.layers.len())
+        .map(|_| create_optimizer(&config, learning_rate))
+        .collect();
+
+    // Print optimizer info
+    let optimizer_type = config.optimizer_type.as_deref().unwrap_or("adamw");
+    println!("Optimizer: {}", optimizer_type.to_uppercase());
+
     // Create learning rate scheduler
     let mut scheduler = scheduler_from_args(learning_rate, epochs, Some(&config_path));
 
@@ -919,6 +974,11 @@ fn main() {
         let start_time = Instant::now();
         rng.shuffle_usize(&mut indices);
         let current_lr = scheduler.get_lr();
+
+        // Update learning rate on all per-layer optimizers
+        for opt in layer_optimizers.iter_mut() {
+            opt.set_learning_rate(current_lr);
+        }
 
         // Set BatchNorm and Dropout to training mode
         set_training_mode(&mut model, true);
@@ -1000,9 +1060,9 @@ fn main() {
                 &mut grad_buffer2,
             );
 
-            // Update parameters for all layers
-            for layer in &mut model.layers {
-                layer.update_parameters(current_lr);
+            // Update parameters for all layers using per-layer optimizers
+            for (layer, opt) in model.layers.iter_mut().zip(layer_optimizers.iter_mut()) {
+                layer.update_with_optimizer(opt.as_mut());
             }
 
             // Print progress every 100 batches
