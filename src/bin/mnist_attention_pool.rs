@@ -82,20 +82,22 @@ use std::env;
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::process;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use rust_neural_networks::config::load_config;
+use rust_neural_networks::data::mnist::{read_mnist_images, read_mnist_labels};
+use rust_neural_networks::utils::activations::softmax_rows;
 use rust_neural_networks::utils::lr_scheduler::{
     ConstantLR, CosineAnnealing, ExponentialDecay, LRScheduler, StepDecay,
 };
+use rust_neural_networks::utils::rng::SimpleRng;
 
 // MNIST constants (images are flat 28x28 in row-major order).
 const IMG_H: usize = 28;
 const IMG_W: usize = 28;
+const IMG_CHANNELS: usize = 1; // Grayscale
 const NUM_INPUTS: usize = IMG_H * IMG_W; // 784
 const NUM_CLASSES: usize = 10;
-const TRAIN_SAMPLES: usize = 60_000;
-const TEST_SAMPLES: usize = 10_000;
 
 // Patch grid and tokenization.
 const PATCH: usize = 4; // Patch size: 4x4 pixels
@@ -138,138 +140,37 @@ const EARLY_STOPPING_MIN_DELTA: f32 = 0.001; // Minimum change to be considered 
 // Default config path
 const DEFAULT_CONFIG_PATH: &str = "config/training/mnist_attention_default.json";
 
-// ============================================================================
-// Internal Abstractions (Inlined for self-contained binary)
-// ============================================================================
 
-// Tiny xorshift RNG for reproducible init without external crates.
-struct SimpleRng {
-    state: u64,
-}
-
-impl SimpleRng {
-    fn new(seed: u64) -> Self {
-        let state = if seed == 0 { 0x9e3779b97f4a7c15 } else { seed };
-        Self { state }
-    }
-
-    #[allow(dead_code)]
-    fn reseed_from_time(&mut self) {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos() as u64;
-        self.state = if nanos == 0 {
-            0x9e3779b97f4a7c15
-        } else {
-            nanos
-        };
-    }
-
-    fn next_u32(&mut self) -> u32 {
-        let mut x = self.state;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.state = x;
-        (x >> 32) as u32
-    }
-
-    fn next_f32(&mut self) -> f32 {
-        (self.next_u32() >> 8) as f32 / (1u32 << 24) as f32
-    }
-
-    fn gen_range_f32(&mut self, low: f32, high: f32) -> f32 {
-        low + (high - low) * self.next_f32()
-    }
-
-    fn gen_usize(&mut self, upper: usize) -> usize {
-        if upper == 0 {
-            0
-        } else {
-            (self.next_u32() as usize) % upper
-        }
-    }
-
-    fn shuffle_usize(&mut self, data: &mut [usize]) {
-        if data.len() <= 1 {
-            return;
-        }
-        for i in (1..data.len()).rev() {
-            let j = self.gen_usize(i + 1);
-            data.swap(i, j);
-        }
-    }
-}
-
-// Read a big-endian u32 and advance the byte offset (IDX format uses BE).
-fn read_be_u32(data: &[u8], offset: &mut usize) -> u32 {
-    let b0 = (data[*offset] as u32) << 24;
-    let b1 = (data[*offset + 1] as u32) << 16;
-    let b2 = (data[*offset + 2] as u32) << 8;
-    let b3 = data[*offset + 3] as u32;
-    *offset += 4;
-    b0 | b1 | b2 | b3
-}
-
-// Read IDX images and normalize to [0,1] floats.
-fn read_mnist_images(filename: &str, num_images: usize) -> Vec<f32> {
-    let data = fs::read(filename).unwrap_or_else(|_| {
-        eprintln!("Could not open file {}", filename);
-        process::exit(1);
-    });
-
-    let mut offset = 0usize;
-    // IDX header: magic, count, rows, cols.
-    let _magic = read_be_u32(&data, &mut offset);
-    let total_images = read_be_u32(&data, &mut offset) as usize;
-    let rows = read_be_u32(&data, &mut offset) as usize;
-    let cols = read_be_u32(&data, &mut offset) as usize;
-
-    if rows != IMG_H || cols != IMG_W {
-        eprintln!("Unexpected MNIST image shape: {}x{}", rows, cols);
-        process::exit(1);
-    }
-
-    let image_size = rows * cols;
-    let actual_count = num_images.min(total_images);
-    let total_bytes = actual_count * image_size;
-
-    if data.len() < offset + total_bytes {
-        eprintln!("MNIST image file is truncated");
-        process::exit(1);
-    }
-
-    // Flatten images as [N * 784] in row-major order.
-    let mut images = vec![0.0f32; total_bytes];
-    let src = &data[offset..offset + total_bytes];
-    for (dst, &px) in images.iter_mut().zip(src.iter()) {
-        *dst = px as f32 / 255.0;
-    }
-    images
-}
-
-// Read IDX labels (0-9).
-fn read_mnist_labels(filename: &str, num_labels: usize) -> Vec<u8> {
-    let data = fs::read(filename).unwrap_or_else(|_| {
-        eprintln!("Could not open file {}", filename);
-        process::exit(1);
-    });
-
-    let mut offset = 0usize;
-    let _magic = read_be_u32(&data, &mut offset);
-    let total_labels = read_be_u32(&data, &mut offset) as usize;
-    let actual_count = num_labels.min(total_labels);
-
-    if data.len() < offset + actual_count {
-        eprintln!("MNIST label file is truncated");
-        process::exit(1);
-    }
-
-    data[offset..offset + actual_count].to_vec()
-}
-
-// Copy a subset of images/labels into contiguous batch buffers.
+// Copy a subset of images/labels into contiguous batch buffers with optional augmentation.
+/// Copies a contiguous mini-batch of examples and their labels into preallocated output buffers.
+///
+/// The function reads `count` examples by mapping `indices[start..start+count]` into `images` and
+/// `labels`, copying each example's NUM_INPUTS floats into `out_inputs` and the corresponding label
+/// into `out_labels` in batch order.
+///
+/// If augmentation parameters are provided, applies data augmentation to each image after copying.
+/// Augmentations are applied in the following order:
+/// 1. Random crop (if `crop_padding` is Some)
+/// 2. Random horizontal flip (if `flip_prob` is Some)
+/// 3. Brightness jitter (if `brightness_jitter` is Some)
+/// 4. Contrast jitter (if `contrast_jitter` is Some)
+///
+/// Note: saturation_jitter is not supported for MNIST (grayscale, 1 channel).
+///
+/// # Parameters
+///
+/// - `images`: flat slice of all images laid out as consecutive blocks of `NUM_INPUTS` floats.
+/// - `labels`: slice of labels corresponding to `images`.
+/// - `indices`: permutation or index list used to select examples from the dataset.
+/// - `start`: starting offset in `indices` for this batch.
+/// - `count`: number of examples to copy into the outputs.
+/// - `out_inputs`: destination buffer for the batch inputs; must have length at least `count * NUM_INPUTS`.
+/// - `out_labels`: destination buffer for the batch labels; must have length at least `count`.
+/// - `flip_prob`: optional probability (0.0-1.0) for random horizontal flip.
+/// - `crop_padding`: optional padding amount for random crop (crops back to IMG_W x IMG_H).
+/// - `brightness_jitter`: optional brightness jitter delta (applied uniformly).
+/// - `contrast_jitter`: optional contrast jitter delta.
+/// - `rng`: optional random number generator for augmentation operations.
 fn gather_batch(
     images: &[f32],
     labels: &[u8],
@@ -278,45 +179,77 @@ fn gather_batch(
     count: usize,
     out_inputs: &mut [f32],
     out_labels: &mut [u8],
+    flip_prob: Option<f32>,
+    crop_padding: Option<usize>,
+    brightness_jitter: Option<f32>,
+    contrast_jitter: Option<f32>,
+    mut rng: Option<&mut SimpleRng>,
 ) {
+    use rust_neural_networks::data::augmentation::{
+        random_brightness, random_contrast, random_crop, random_horizontal_flip,
+    };
+
     for i in 0..count {
         let src_index = indices[start + i];
         let src_start = src_index * NUM_INPUTS;
         let dst_start = i * NUM_INPUTS;
+
+        // Copy base image to output buffer
         out_inputs[dst_start..dst_start + NUM_INPUTS]
             .copy_from_slice(&images[src_start..src_start + NUM_INPUTS]);
         out_labels[i] = labels[src_index];
-    }
-}
 
-// Softmax in-place for a single vector.
-fn softmax_inplace(v: &mut [f32]) {
-    let mut maxv = v[0];
-    for &x in v.iter().skip(1) {
-        if x > maxv {
-            maxv = x;
+        // Apply augmentations if parameters are provided and RNG is available
+        if let Some(ref mut rng_ref) = rng {
+            let image_slice = &mut out_inputs[dst_start..dst_start + NUM_INPUTS];
+
+            // Apply random crop if padding is specified
+            if let Some(padding) = crop_padding {
+                // random_crop returns a new Vec, so we need to copy it back
+                let cropped = random_crop(
+                    image_slice,
+                    IMG_W,
+                    IMG_H,
+                    IMG_CHANNELS,
+                    padding,
+                    IMG_W, // crop back to original width
+                    IMG_H, // crop back to original height
+                    rng_ref,
+                );
+                image_slice.copy_from_slice(&cropped);
+            }
+
+            // Apply random horizontal flip if probability is specified
+            if let Some(prob) = flip_prob {
+                random_horizontal_flip(image_slice, IMG_W, IMG_H, IMG_CHANNELS, prob, rng_ref);
+            }
+
+            // Apply color jitter if specified
+            if let Some(brightness_delta) = brightness_jitter {
+                random_brightness(
+                    image_slice,
+                    IMG_W,
+                    IMG_H,
+                    IMG_CHANNELS,
+                    brightness_delta,
+                    rng_ref,
+                );
+            }
+            if let Some(contrast_delta) = contrast_jitter {
+                random_contrast(
+                    image_slice,
+                    IMG_W,
+                    IMG_H,
+                    IMG_CHANNELS,
+                    contrast_delta,
+                    rng_ref,
+                );
+            }
+            // Note: saturation_jitter is skipped for MNIST (grayscale, 1 channel)
         }
     }
-
-    let mut sum = 0.0f32;
-    for x in v.iter_mut() {
-        *x = (*x - maxv).exp();
-        sum += *x;
-    }
-
-    let inv = 1.0f32 / sum;
-    for x in v.iter_mut() {
-        *x *= inv;
-    }
 }
 
-// Softmax row-wise for a flat [rows * cols] buffer.
-fn softmax_rows_inplace(data: &mut [f32], rows: usize, cols: usize) {
-    for r in 0..rows {
-        let base = r * cols;
-        softmax_inplace(&mut data[base..base + cols]);
-    }
-}
 
 struct AttnModel {
     // Patch projection: token = patch * W + b.
@@ -1264,7 +1197,7 @@ fn forward_inference(
                 buf.attn[row_base + j] = score * inv_sqrt_d;
             }
 
-            softmax_inplace(&mut buf.attn[row_base..row_base + SEQ_LEN]);
+            softmax_rows(&mut buf.attn[row_base..row_base + SEQ_LEN], 1, SEQ_LEN);
 
             let out_base = (b * SEQ_LEN + i) * D_MODEL;
             for j in 0..SEQ_LEN {
@@ -1344,7 +1277,7 @@ fn forward_inference(
         }
     }
 
-    softmax_rows_inplace(&mut buf.probs[..used_logits], batch_count, NUM_CLASSES);
+    softmax_rows(&mut buf.probs[..used_logits], batch_count, NUM_CLASSES);
 }
 
 /// Compute classification accuracy of `model` on the provided images and labels as a percentage.
@@ -1476,6 +1409,11 @@ fn train_model_with_config(
                 batch_count,
                 &mut batch_inputs,
                 &mut batch_labels,
+                None,
+                None,
+                None,
+                None,
+                None,
             );
 
             // Forward pass + loss.
@@ -1598,10 +1536,22 @@ fn main() {
     println!();
 
     println!("Loading MNIST data...");
-    let mut train_images = read_mnist_images("./data/train-images.idx3-ubyte", TRAIN_SAMPLES);
-    let mut train_labels = read_mnist_labels("./data/train-labels.idx1-ubyte", TRAIN_SAMPLES);
-    let test_images = read_mnist_images("./data/t10k-images.idx3-ubyte", TEST_SAMPLES);
-    let test_labels = read_mnist_labels("./data/t10k-labels.idx1-ubyte", TEST_SAMPLES);
+    let mut train_images = read_mnist_images("./data/train-images.idx3-ubyte").unwrap_or_else(|e| {
+        eprintln!("Could not read train images: {}", e);
+        process::exit(1);
+    });
+    let mut train_labels = read_mnist_labels("./data/train-labels.idx1-ubyte").unwrap_or_else(|e| {
+        eprintln!("Could not read train labels: {}", e);
+        process::exit(1);
+    });
+    let test_images = read_mnist_images("./data/t10k-images.idx3-ubyte").unwrap_or_else(|e| {
+        eprintln!("Could not read test images: {}", e);
+        process::exit(1);
+    });
+    let test_labels = read_mnist_labels("./data/t10k-labels.idx1-ubyte").unwrap_or_else(|e| {
+        eprintln!("Could not read test labels: {}", e);
+        process::exit(1);
+    });
 
     // Split training data into train and validation sets
     let total_train_samples = train_images.len() / NUM_INPUTS;
@@ -1635,16 +1585,61 @@ fn main() {
     let mut rng = SimpleRng::new(42);
     let mut model = init_model(&mut rng);
 
+    // Augmentation RNG (shared library's SimpleRng for use with gather_batch)
+    let mut aug_rng = SimpleRng::new(2);
+    aug_rng.reseed_from_time();
+
     // Parse CLI arguments
     let args: Vec<String> = env::args().collect();
     let config_path = if args.len() > 1 && args[1] == "--config" && args.len() > 2 {
-        args[2].as_str()
+        args[2].clone()
     } else {
-        DEFAULT_CONFIG_PATH
+        DEFAULT_CONFIG_PATH.to_string()
     };
 
     println!("Loading config from: {}", config_path);
-    let mut scheduler = build_scheduler(Some(config_path));
+
+    // Load config to extract hyperparameters and augmentation settings
+    let config = match load_config(&config_path) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("Error loading config from '{}': {}", config_path, e);
+            eprintln!("Please ensure the config file exists and is valid JSON.");
+            process::exit(1);
+        }
+    };
+
+    // Extract augmentation parameters from config
+    let enable_augmentation = config.enable_augmentation.unwrap_or(false);
+    let horizontal_flip_prob = config.horizontal_flip_prob;
+    let random_crop_padding = config.random_crop_padding;
+    let brightness_jitter = config.brightness_jitter;
+    let contrast_jitter = config.contrast_jitter;
+
+    println!(
+        "  Data augmentation: {}",
+        if enable_augmentation {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
+    if enable_augmentation {
+        if let Some(prob) = horizontal_flip_prob {
+            println!("    Horizontal flip probability: {}", prob);
+        }
+        if let Some(padding) = random_crop_padding {
+            println!("    Random crop padding: {}", padding);
+        }
+        if let Some(delta) = brightness_jitter {
+            println!("    Brightness jitter: {}", delta);
+        }
+        if let Some(delta) = contrast_jitter {
+            println!("    Contrast jitter: {}", delta);
+        }
+    }
+
+    let mut scheduler = build_scheduler(Some(&config_path));
 
     println!("  Initial learning rate: {}", scheduler.get_lr());
 
@@ -1676,6 +1671,8 @@ fn main() {
         for batch_start in (0..actual_train_samples).step_by(BATCH_SIZE) {
             let batch_count = (actual_train_samples - batch_start).min(BATCH_SIZE);
 
+            // Gather a random mini-batch into contiguous buffers.
+            // Apply augmentation only during training if enabled.
             gather_batch(
                 &train_images,
                 &train_labels,
@@ -1684,6 +1681,31 @@ fn main() {
                 batch_count,
                 &mut batch_inputs,
                 &mut batch_labels,
+                if enable_augmentation {
+                    horizontal_flip_prob
+                } else {
+                    None
+                },
+                if enable_augmentation {
+                    random_crop_padding
+                } else {
+                    None
+                },
+                if enable_augmentation {
+                    brightness_jitter
+                } else {
+                    None
+                },
+                if enable_augmentation {
+                    contrast_jitter
+                } else {
+                    None
+                },
+                if enable_augmentation {
+                    Some(&mut aug_rng)
+                } else {
+                    None
+                },
             );
 
             // Forward pass + loss.
@@ -1763,77 +1785,3 @@ fn main() {
     println!("Final test accuracy: {:.2}%", final_acc);
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_simple_rng_new() {
-        let rng1 = SimpleRng::new(42);
-        assert_eq!(rng1.state, 42);
-
-        let rng2 = SimpleRng::new(0);
-        assert_eq!(rng2.state, 0x9e3779b97f4a7c15);
-    }
-
-    #[test]
-    fn test_simple_rng_reproducibility() {
-        let mut rng1 = SimpleRng::new(123);
-        let mut rng2 = SimpleRng::new(123);
-
-        for _ in 0..10 {
-            assert_eq!(rng1.next_u32(), rng2.next_u32());
-        }
-    }
-
-    #[test]
-    fn test_simple_rng_next_f32() {
-        let mut rng = SimpleRng::new(42);
-        for _ in 0..100 {
-            let val = rng.next_f32();
-            assert!((0.0..1.0).contains(&val));
-        }
-    }
-
-    #[test]
-    fn test_simple_rng_gen_range_f32() {
-        let mut rng = SimpleRng::new(42);
-        for _ in 0..100 {
-            let val = rng.gen_range_f32(-1.0, 1.0);
-            assert!((-1.0..1.0).contains(&val));
-        }
-    }
-
-    #[test]
-    fn test_simple_rng_gen_usize() {
-        let mut rng = SimpleRng::new(42);
-        for _ in 0..100 {
-            let val = rng.gen_usize(10);
-            assert!(val < 10);
-        }
-
-        assert_eq!(rng.gen_usize(0), 0);
-    }
-
-    #[test]
-    fn test_simple_rng_shuffle() {
-        let mut rng = SimpleRng::new(42);
-        let mut data = vec![0, 1, 2, 3, 4];
-        let original = data.clone();
-
-        rng.shuffle_usize(&mut data);
-
-        assert_eq!(data.len(), original.len());
-        for &val in &original {
-            assert!(data.contains(&val));
-        }
-    }
-
-    #[test]
-    fn test_simple_rng_reseed_from_time() {
-        let mut rng = SimpleRng::new(42);
-        let original_state = rng.state;
-        rng.reseed_from_time();
-        assert_ne!(rng.state, original_state);
-    }
-}

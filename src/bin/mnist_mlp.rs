@@ -1,388 +1,31 @@
-use std::cell::RefCell;
 use std::env;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::process;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use rust_neural_networks::config::load_config;
+use rust_neural_networks::data::mnist::{read_mnist_images, read_mnist_labels};
+use rust_neural_networks::layers::{DenseLayer, Layer};
+use rust_neural_networks::optimizers::{Adam, Optimizer, SGD};
+use rust_neural_networks::utils::activations::{relu_inplace, softmax_rows};
 use rust_neural_networks::utils::lr_scheduler::{create_scheduler_from_config, LRScheduler};
+use rust_neural_networks::utils::rng::SimpleRng;
 
 // MLP with minibatches for MNIST (Rust port for study).
-// Uses manual loops for layer operations (self-contained, educational).
-const NUM_INPUTS: usize = 784;
+// Uses shared library layers and utilities.
+const IMG_H: usize = 28;
+const IMG_W: usize = 28;
+const IMG_CHANNELS: usize = 1; // Grayscale
+const NUM_INPUTS: usize = IMG_H * IMG_W; // 784
 const NUM_HIDDEN: usize = 512;
 const NUM_OUTPUTS: usize = 10;
-const TRAIN_SAMPLES: usize = 60000;
-const TEST_SAMPLES: usize = 10000;
 
 // Default config path
 const DEFAULT_CONFIG_PATH: &str = "config/training/mnist_mlp_default.json";
 
 // Optimizer selection: "sgd" or "adam"
 const OPTIMIZER_TYPE: &str = "adam";
-
-// ============================================================================
-// Internal Abstractions (Inlined for self-contained binary)
-// ============================================================================
-
-/// Core trait for neural network layers.
-pub trait Layer {
-    fn forward(&self, input: &[f32], output: &mut [f32], batch_size: usize);
-    fn backward(
-        &self,
-        input: &[f32],
-        grad_output: &[f32],
-        grad_input: &mut [f32],
-        batch_size: usize,
-    );
-    fn update_parameters(&mut self, learning_rate: f32);
-    fn update_with_optimizer(&mut self, optimizer: &mut dyn Optimizer);
-    fn input_size(&self) -> usize;
-    fn output_size(&self) -> usize;
-}
-
-/// Optimizer trait for parameter updates.
-pub trait Optimizer {
-    fn update(&mut self, parameters: &mut [f32], gradients: &[f32]);
-    fn reset(&mut self);
-    fn learning_rate(&self) -> f32;
-    fn set_learning_rate(&mut self, lr: f32);
-}
-
-/// Stochastic Gradient Descent optimizer.
-#[allow(clippy::upper_case_acronyms)]
-pub struct SGD {
-    learning_rate: f32,
-}
-
-impl SGD {
-    pub fn new(learning_rate: f32) -> Self {
-        Self { learning_rate }
-    }
-}
-
-impl Optimizer for SGD {
-    fn update(&mut self, parameters: &mut [f32], gradients: &[f32]) {
-        for (param, grad) in parameters.iter_mut().zip(gradients.iter()) {
-            *param -= self.learning_rate * grad;
-        }
-    }
-
-    fn reset(&mut self) {
-        // No state to reset
-    }
-
-    fn learning_rate(&self) -> f32 {
-        self.learning_rate
-    }
-
-    fn set_learning_rate(&mut self, lr: f32) {
-        self.learning_rate = lr;
-    }
-}
-
-/// Adam optimizer with momentum and adaptive learning rates.
-pub struct Adam {
-    learning_rate: f32,
-    beta1: f32,
-    beta2: f32,
-    epsilon: f32,
-    m: Vec<f32>,
-    v: Vec<f32>,
-    t: usize,
-}
-
-impl Adam {
-    pub fn new(learning_rate: f32, beta1: f32, beta2: f32, epsilon: f32) -> Self {
-        Self {
-            learning_rate,
-            beta1,
-            beta2,
-            epsilon,
-            m: Vec::new(),
-            v: Vec::new(),
-            t: 0,
-        }
-    }
-}
-
-impl Optimizer for Adam {
-    fn update(&mut self, parameters: &mut [f32], gradients: &[f32]) {
-        if self.m.is_empty() {
-            self.m = vec![0.0; parameters.len()];
-            self.v = vec![0.0; parameters.len()];
-        }
-
-        if self.m.len() != parameters.len() {
-            self.m.resize(parameters.len(), 0.0);
-            self.v.resize(parameters.len(), 0.0);
-        }
-
-        self.t += 1;
-
-        let bias_correction1 = 1.0 - self.beta1.powi(self.t as i32);
-        let bias_correction2 = 1.0 - self.beta2.powi(self.t as i32);
-
-        for i in 0..parameters.len() {
-            self.m[i] = self.beta1 * self.m[i] + (1.0 - self.beta1) * gradients[i];
-            self.v[i] = self.beta2 * self.v[i] + (1.0 - self.beta2) * gradients[i] * gradients[i];
-
-            let m_hat = self.m[i] / bias_correction1;
-            let v_hat = self.v[i] / bias_correction2;
-
-            parameters[i] -= self.learning_rate * m_hat / (v_hat.sqrt() + self.epsilon);
-        }
-    }
-
-    fn reset(&mut self) {
-        self.m.clear();
-        self.v.clear();
-        self.t = 0;
-    }
-
-    fn learning_rate(&self) -> f32 {
-        self.learning_rate
-    }
-
-    fn set_learning_rate(&mut self, lr: f32) {
-        self.learning_rate = lr;
-    }
-}
-
-/// Simple random number generator.
-pub struct SimpleRng {
-    state: u64,
-}
-
-impl SimpleRng {
-    pub fn new(seed: u64) -> Self {
-        let state = if seed == 0 { 0x9e3779b97f4a7c15 } else { seed };
-        Self { state }
-    }
-
-    pub fn reseed_from_time(&mut self) {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos() as u64;
-        self.state = if nanos == 0 {
-            0x9e3779b97f4a7c15
-        } else {
-            nanos
-        };
-    }
-
-    pub fn next_u32(&mut self) -> u32 {
-        let mut x = self.state;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.state = x;
-        (x >> 32) as u32
-    }
-
-    pub fn next_f32(&mut self) -> f32 {
-        self.next_u32() as f32 / (u32::MAX as f32 + 1.0)
-    }
-
-    pub fn gen_range_f32(&mut self, low: f32, high: f32) -> f32 {
-        low + (high - low) * self.next_f32()
-    }
-
-    pub fn gen_usize(&mut self, upper: usize) -> usize {
-        if upper == 0 {
-            0
-        } else {
-            (self.next_u32() as usize) % upper
-        }
-    }
-}
-
-/// ReLU activation function applied in-place.
-pub fn relu_inplace(data: &mut [f32]) {
-    for value in data.iter_mut() {
-        if *value < 0.0 {
-            *value = 0.0;
-        }
-    }
-}
-
-/// Softmax activation function applied row-wise.
-pub fn softmax_rows(outputs: &mut [f32], rows: usize, cols: usize) {
-    if cols == 0 {
-        return;
-    }
-    assert_eq!(
-        outputs.len(),
-        rows * cols,
-        "outputs length mismatch in softmax_rows"
-    );
-
-    for row in outputs.chunks_exact_mut(cols).take(rows) {
-        let mut max_value = row[0];
-        for &value in row.iter().skip(1) {
-            if value > max_value {
-                max_value = value;
-            }
-        }
-
-        let mut sum = 0.0f32;
-        for value in row.iter_mut() {
-            *value = (*value - max_value).exp();
-            sum += *value;
-        }
-
-        let inv_sum = 1.0f32 / sum;
-        for value in row.iter_mut() {
-            *value *= inv_sum;
-        }
-    }
-}
-
-/// Fully connected layer (manual implementation, no BLAS).
-pub struct DenseLayer {
-    input_size: usize,
-    output_size: usize,
-    weights: Vec<f32>,
-    biases: Vec<f32>,
-    grad_weights: RefCell<Vec<f32>>,
-    grad_biases: RefCell<Vec<f32>>,
-}
-
-impl DenseLayer {
-    pub fn new(input_size: usize, output_size: usize, rng: &mut SimpleRng) -> Self {
-        let mut weights = vec![0.0; input_size * output_size];
-        let limit = (6.0 / (input_size + output_size) as f32).sqrt();
-        for w in &mut weights {
-            *w = rng.gen_range_f32(-limit, limit);
-        }
-
-        Self {
-            input_size,
-            output_size,
-            weights,
-            biases: vec![0.0; output_size],
-            grad_weights: RefCell::new(vec![0.0; input_size * output_size]),
-            grad_biases: RefCell::new(vec![0.0; output_size]),
-        }
-    }
-
-    pub fn weights(&self) -> &[f32] {
-        &self.weights
-    }
-
-    pub fn biases(&self) -> &[f32] {
-        &self.biases
-    }
-
-    /// Returns the L2 norm (magnitude) of weight and bias gradients.
-    ///
-    /// Useful for monitoring gradient flow during training and detecting vanishing/exploding gradients.
-    pub fn get_gradient_magnitude(&self) -> (f32, f32) {
-        // Compute L2 norm of weight gradients: sqrt(sum(g_i^2))
-        let grad_weights = self.grad_weights.borrow();
-        let weight_norm: f32 = grad_weights.iter().map(|g| g * g).sum::<f32>().sqrt();
-
-        // Compute L2 norm of bias gradients: sqrt(sum(g_i^2))
-        let grad_biases = self.grad_biases.borrow();
-        let bias_norm: f32 = grad_biases.iter().map(|g| g * g).sum::<f32>().sqrt();
-
-        (weight_norm, bias_norm)
-    }
-}
-
-impl Layer for DenseLayer {
-    fn forward(&self, input: &[f32], output: &mut [f32], batch_size: usize) {
-        for b in 0..batch_size {
-            let in_offset = b * self.input_size;
-            let out_offset = b * self.output_size;
-
-            for j in 0..self.output_size {
-                let mut sum = self.biases[j];
-                for i in 0..self.input_size {
-                    sum += input[in_offset + i] * self.weights[i * self.output_size + j];
-                }
-                output[out_offset + j] = sum;
-            }
-        }
-    }
-
-    fn backward(
-        &self,
-        input: &[f32],
-        grad_output: &[f32],
-        grad_input: &mut [f32],
-        batch_size: usize,
-    ) {
-        let scale = 1.0 / batch_size as f32;
-        let mut grad_w = self.grad_weights.borrow_mut();
-        let mut grad_b = self.grad_biases.borrow_mut();
-
-        // Zero out grad_input first
-        for v in grad_input.iter_mut() {
-            *v = 0.0;
-        }
-
-        for b in 0..batch_size {
-            let in_offset = b * self.input_size;
-            let out_offset = b * self.output_size;
-
-            for j in 0..self.output_size {
-                let g = grad_output[out_offset + j];
-                grad_b[j] += g * scale;
-
-                for i in 0..self.input_size {
-                    grad_w[i * self.output_size + j] += input[in_offset + i] * g * scale;
-                    grad_input[in_offset + i] += g * self.weights[i * self.output_size + j] * scale;
-                }
-            }
-        }
-    }
-
-    fn update_parameters(&mut self, learning_rate: f32) {
-        let mut grad_w = self.grad_weights.borrow_mut();
-        let mut grad_b = self.grad_biases.borrow_mut();
-
-        for (w, g) in self.weights.iter_mut().zip(grad_w.iter()) {
-            *w -= learning_rate * g;
-        }
-        for (b, g) in self.biases.iter_mut().zip(grad_b.iter()) {
-            *b -= learning_rate * g;
-        }
-
-        // Reset gradients
-        for g in grad_w.iter_mut() {
-            *g = 0.0;
-        }
-        for g in grad_b.iter_mut() {
-            *g = 0.0;
-        }
-    }
-
-    fn update_with_optimizer(&mut self, optimizer: &mut dyn Optimizer) {
-        let mut grad_w = self.grad_weights.borrow_mut();
-        let mut grad_b = self.grad_biases.borrow_mut();
-
-        optimizer.update(&mut self.weights, &grad_w);
-        optimizer.update(&mut self.biases, &grad_b);
-
-        // Reset gradients
-        for g in grad_w.iter_mut() {
-            *g = 0.0;
-        }
-        for g in grad_b.iter_mut() {
-            *g = 0.0;
-        }
-    }
-
-    fn input_size(&self) -> usize {
-        self.input_size
-    }
-    fn output_size(&self) -> usize {
-        self.output_size
-    }
-}
 
 // ============================================================================
 // Main Logic
@@ -430,6 +73,16 @@ pub struct TrainHyperparams {
     pub early_stopping_patience: usize,
     /// Minimum improvement in validation loss to count as progress.
     pub early_stopping_min_delta: f32,
+    /// Whether data augmentation is enabled during training.
+    pub enable_augmentation: bool,
+    /// Probability of applying random horizontal flip (None to disable).
+    pub horizontal_flip_prob: Option<f32>,
+    /// Padding for random crop augmentation in pixels (None to disable).
+    pub random_crop_padding: Option<usize>,
+    /// Brightness jitter delta for color augmentation (None to disable).
+    pub brightness_jitter: Option<f32>,
+    /// Contrast jitter delta for color augmentation (None to disable).
+    pub contrast_jitter: Option<f32>,
 }
 
 // Network with one hidden layer and one output layer.
@@ -526,25 +179,58 @@ fn compute_delta_and_loss(
     total_loss
 }
 
-/// Copies a minibatch of images and labels selected by index into the provided output buffers.
+// Copy a subset of images/labels into contiguous batch buffers with optional augmentation.
+/// Copies a contiguous mini-batch of examples and their labels into preallocated output buffers.
 ///
-/// Copies `count` samples whose indices are taken from `indices[start..start + count]`.
-/// Each image is NUM_INPUTS consecutive values in `images` and is copied into `out_inputs` at consecutive positions (batch-major).
-/// Corresponding labels are copied into `out_labels` in order.
+/// The function reads `count` examples by mapping `indices[start..start+count]` into `images` and
+/// `labels`, copying each example's NUM_INPUTS floats into `out_inputs` and the corresponding label
+/// into `out_labels` in batch order.
 ///
-/// The caller must ensure `out_inputs` has length at least `count * NUM_INPUTS`, `out_labels` has length at least `count`,
-/// and that `indices[start..start + count]` contains valid indices into `images` and `labels`.
+/// If augmentation parameters are provided, applies data augmentation to each image after copying.
+/// Augmentations are applied in the following order:
+/// 1. Random crop (if `crop_padding` is Some)
+/// 2. Random horizontal flip (if `flip_prob` is Some)
+/// 3. Brightness jitter (if `brightness_jitter` is Some)
+/// 4. Contrast jitter (if `contrast_jitter` is Some)
+///
+/// Note: saturation_jitter is not supported for MNIST (grayscale, 1 channel).
+///
+/// # Parameters
+///
+/// - `images`: flat slice of all images laid out as consecutive blocks of `NUM_INPUTS` floats.
+/// - `labels`: slice of labels corresponding to `images`.
+/// - `indices`: permutation or index list used to select examples from the dataset.
+/// - `start`: starting offset in `indices` for this batch.
+/// - `count`: number of examples to copy into the outputs.
+/// - `out_inputs`: destination buffer for the batch inputs; must have length at least `count * NUM_INPUTS`.
+/// - `out_labels`: destination buffer for the batch labels; must have length at least `count`.
+/// - `flip_prob`: optional probability (0.0-1.0) for random horizontal flip.
+/// - `crop_padding`: optional padding amount for random crop (crops back to IMG_W x IMG_H).
+/// - `brightness_jitter`: optional brightness jitter delta (applied uniformly).
+/// - `contrast_jitter`: optional contrast jitter delta.
+/// - `rng`: optional random number generator for augmentation operations.
 ///
 /// # Examples
 ///
 /// ```
-/// let images = vec![0f32; NUM_INPUTS * 2];
-/// let labels = vec![1u8, 2u8];
-/// let indices = vec![1usize, 0usize];
-/// let mut out_inputs = vec![0f32; NUM_INPUTS * 2];
-/// let mut out_labels = vec![0u8; 2];
-/// gather_batch(&images, &labels, &indices, 0, 2, &mut out_inputs, &mut out_labels);
-/// assert_eq!(out_labels, vec![2, 1]);
+/// // prepare a tiny dataset with NUM_INPUTS per example
+/// let mut images = vec![0.0f32; NUM_INPUTS * 3];
+/// // fill example 1 and 2 with distinguishable values
+/// for i in 0..NUM_INPUTS { images[i] = 1.0; images[NUM_INPUTS * 2 + i] = 3.0; }
+/// let labels = vec![0u8, 1u8, 2u8];
+/// let indices = vec![2usize, 0, 1];
+///
+/// let mut batch_inputs = vec![0.0f32; NUM_INPUTS * 2];
+/// let mut batch_labels = vec![0u8; 2];
+///
+/// // gather two examples starting from indices[0] => picks examples 2 and 0
+/// gather_batch(&images, &labels, &indices, 0, 2, &mut batch_inputs, &mut batch_labels,
+///              None, None, None, None, None);
+///
+/// // verify the labels and a couple of input values
+/// assert_eq!(batch_labels, vec![2u8, 0u8]);
+/// assert_eq!(batch_inputs[0], 3.0);
+/// assert_eq!(batch_inputs[NUM_INPUTS], 1.0);
 /// ```
 fn gather_batch(
     images: &[f32],
@@ -554,16 +240,74 @@ fn gather_batch(
     count: usize,
     out_inputs: &mut [f32],
     out_labels: &mut [u8],
+    flip_prob: Option<f32>,
+    crop_padding: Option<usize>,
+    brightness_jitter: Option<f32>,
+    contrast_jitter: Option<f32>,
+    mut rng: Option<&mut SimpleRng>,
 ) {
-    let input_stride = NUM_INPUTS;
+    use rust_neural_networks::data::augmentation::{
+        random_brightness, random_contrast, random_crop, random_horizontal_flip,
+    };
+
     for i in 0..count {
         let src_index = indices[start + i];
-        let src_start = src_index * input_stride;
-        let dst_start = i * input_stride;
-        let src_slice = &images[src_start..src_start + input_stride];
-        let dst_slice = &mut out_inputs[dst_start..dst_start + input_stride];
-        dst_slice.copy_from_slice(src_slice);
+        let src_start = src_index * NUM_INPUTS;
+        let dst_start = i * NUM_INPUTS;
+
+        // Copy base image to output buffer
+        out_inputs[dst_start..dst_start + NUM_INPUTS]
+            .copy_from_slice(&images[src_start..src_start + NUM_INPUTS]);
         out_labels[i] = labels[src_index];
+
+        // Apply augmentations if parameters are provided and RNG is available
+        if let Some(ref mut rng_ref) = rng {
+            let image_slice = &mut out_inputs[dst_start..dst_start + NUM_INPUTS];
+
+            // Apply random crop if padding is specified
+            if let Some(padding) = crop_padding {
+                // random_crop returns a new Vec, so we need to copy it back
+                let cropped = random_crop(
+                    image_slice,
+                    IMG_W,
+                    IMG_H,
+                    IMG_CHANNELS,
+                    padding,
+                    IMG_W, // crop back to original width
+                    IMG_H, // crop back to original height
+                    rng_ref,
+                );
+                image_slice.copy_from_slice(&cropped);
+            }
+
+            // Apply random horizontal flip if probability is specified
+            if let Some(prob) = flip_prob {
+                random_horizontal_flip(image_slice, IMG_W, IMG_H, IMG_CHANNELS, prob, rng_ref);
+            }
+
+            // Apply color jitter if specified
+            if let Some(brightness_delta) = brightness_jitter {
+                random_brightness(
+                    image_slice,
+                    IMG_W,
+                    IMG_H,
+                    IMG_CHANNELS,
+                    brightness_delta,
+                    rng_ref,
+                );
+            }
+            if let Some(contrast_delta) = contrast_jitter {
+                random_contrast(
+                    image_slice,
+                    IMG_W,
+                    IMG_H,
+                    IMG_CHANNELS,
+                    contrast_delta,
+                    rng_ref,
+                );
+            }
+            // Note: saturation_jitter is skipped for MNIST (grayscale, 1 channel)
+        }
     }
 }
 
@@ -593,6 +337,7 @@ fn train(
     rng: &mut SimpleRng,
     scheduler: &mut dyn LRScheduler,
     params: &TrainHyperparams,
+    aug_rng: &mut SimpleRng,
 ) {
     // Attempt to create logs dir if not exists
     std::fs::create_dir_all("./logs").ok();
@@ -686,6 +431,8 @@ fn train(
         for batch_start in (0..train_data.num_samples).step_by(params.batch_size) {
             let batch_count = (train_data.num_samples - batch_start).min(params.batch_size);
 
+            // Gather a random mini-batch into contiguous buffers.
+            // Apply augmentation only during training if enabled.
             gather_batch(
                 train_data.images,
                 train_data.labels,
@@ -694,6 +441,31 @@ fn train(
                 batch_count,
                 &mut batch_inputs,
                 &mut batch_labels,
+                if params.enable_augmentation {
+                    params.horizontal_flip_prob
+                } else {
+                    None
+                },
+                if params.enable_augmentation {
+                    params.random_crop_padding
+                } else {
+                    None
+                },
+                if params.enable_augmentation {
+                    params.brightness_jitter
+                } else {
+                    None
+                },
+                if params.enable_augmentation {
+                    params.contrast_jitter
+                } else {
+                    None
+                },
+                if params.enable_augmentation {
+                    Some(aug_rng)
+                } else {
+                    None
+                },
             );
 
             // Forward: hidden layer.
@@ -1010,65 +782,6 @@ fn save_model(nn: &NeuralNetwork, filename: &str) {
     println!("Model saved to {}", filename);
 }
 
-fn read_be_u32(data: &[u8], offset: &mut usize) -> u32 {
-    let b0 = (data[*offset] as u32) << 24;
-    let b1 = (data[*offset + 1] as u32) << 16;
-    let b2 = (data[*offset + 2] as u32) << 8;
-    let b3 = data[*offset + 3] as u32;
-    *offset += 4;
-    b0 | b1 | b2 | b3
-}
-
-// Read IDX images and normalize to [0, 1].
-fn read_mnist_images(filename: &str, num_images: usize) -> Vec<f32> {
-    let data = std::fs::read(filename).unwrap_or_else(|_| {
-        eprintln!("Could not open file {}", filename);
-        process::exit(1);
-    });
-
-    let mut offset = 0usize;
-    let _magic_number = read_be_u32(&data, &mut offset);
-    let total_images = read_be_u32(&data, &mut offset) as usize;
-    let rows = read_be_u32(&data, &mut offset) as usize;
-    let cols = read_be_u32(&data, &mut offset) as usize;
-    let image_size = rows * cols;
-    let actual_count = num_images.min(total_images);
-    let total_bytes = actual_count * image_size;
-
-    if data.len() < offset + total_bytes {
-        eprintln!("MNIST image file is truncated");
-        process::exit(1);
-    }
-
-    let mut images = vec![0.0f32; total_bytes];
-    let src = &data[offset..offset + total_bytes];
-    for (dst, &pixel) in images.iter_mut().zip(src.iter()) {
-        *dst = pixel as f32 / 255.0;
-    }
-
-    images
-}
-
-// Read IDX labels (0-9).
-fn read_mnist_labels(filename: &str, num_labels: usize) -> Vec<u8> {
-    let data = std::fs::read(filename).unwrap_or_else(|_| {
-        eprintln!("Could not open file {}", filename);
-        process::exit(1);
-    });
-
-    let mut offset = 0usize;
-    let _magic_number = read_be_u32(&data, &mut offset);
-    let total_labels = read_be_u32(&data, &mut offset) as usize;
-    let actual_count = num_labels.min(total_labels);
-
-    if data.len() < offset + actual_count {
-        eprintln!("MNIST label file is truncated");
-        process::exit(1);
-    }
-
-    data[offset..offset + actual_count].to_vec()
-}
-
 fn scheduler_from_args(
     learning_rate: f32,
     epochs: usize,
@@ -1127,6 +840,13 @@ fn main() {
     let early_stopping_patience = config.early_stopping_patience.unwrap_or(3);
     let early_stopping_min_delta = config.early_stopping_min_delta.unwrap_or(0.001);
 
+    // Extract augmentation parameters from config
+    let enable_augmentation = config.enable_augmentation.unwrap_or(false);
+    let horizontal_flip_prob = config.horizontal_flip_prob;
+    let random_crop_padding = config.random_crop_padding;
+    let brightness_jitter = config.brightness_jitter;
+    let contrast_jitter = config.contrast_jitter;
+
     // Print loaded configuration
     println!("\nConfiguration:");
     println!("  Learning rate: {}", learning_rate);
@@ -1139,6 +859,28 @@ fn main() {
     if let Some(ref activation) = config.activation_function {
         println!("  Activation function: {}", activation);
     }
+    println!(
+        "  Data augmentation: {}",
+        if enable_augmentation {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
+    if enable_augmentation {
+        if let Some(prob) = horizontal_flip_prob {
+            println!("    Horizontal flip probability: {}", prob);
+        }
+        if let Some(padding) = random_crop_padding {
+            println!("    Random crop padding: {}", padding);
+        }
+        if let Some(delta) = brightness_jitter {
+            println!("    Brightness jitter: {}", delta);
+        }
+        if let Some(delta) = contrast_jitter {
+            println!("    Contrast jitter: {}", delta);
+        }
+    }
     println!();
 
     // Create learning rate scheduler
@@ -1146,12 +888,26 @@ fn main() {
 
     println!("Loading training data...");
     let load_start = Instant::now();
-    let mut train_images = read_mnist_images("./data/train-images.idx3-ubyte", TRAIN_SAMPLES);
-    let mut train_labels = read_mnist_labels("./data/train-labels.idx1-ubyte", TRAIN_SAMPLES);
+    let mut train_images =
+        read_mnist_images("./data/train-images.idx3-ubyte").unwrap_or_else(|e| {
+            eprintln!("Could not read training images: {}", e);
+            process::exit(1);
+        });
+    let mut train_labels =
+        read_mnist_labels("./data/train-labels.idx1-ubyte").unwrap_or_else(|e| {
+            eprintln!("Could not read training labels: {}", e);
+            process::exit(1);
+        });
 
     println!("Loading test data...");
-    let test_images = read_mnist_images("./data/t10k-images.idx3-ubyte", TEST_SAMPLES);
-    let test_labels = read_mnist_labels("./data/t10k-labels.idx1-ubyte", TEST_SAMPLES);
+    let test_images = read_mnist_images("./data/t10k-images.idx3-ubyte").unwrap_or_else(|e| {
+        eprintln!("Could not read test images: {}", e);
+        process::exit(1);
+    });
+    let test_labels = read_mnist_labels("./data/t10k-labels.idx1-ubyte").unwrap_or_else(|e| {
+        eprintln!("Could not read test labels: {}", e);
+        process::exit(1);
+    });
     let load_time = load_start.elapsed().as_secs_f64();
     println!("Data loading time: {:.2} seconds", load_time);
 
@@ -1166,14 +922,20 @@ fn main() {
     let val_images = train_images.split_off(split_point_images);
     let val_labels = train_labels.split_off(split_point_labels);
 
+    let test_samples = test_images.len() / NUM_INPUTS;
+
     println!(
         "Data split: {} training samples, {} validation samples, {} test samples",
-        actual_train_samples, validation_samples, TEST_SAMPLES
+        actual_train_samples, validation_samples, test_samples
     );
 
     println!("Initializing neural network...");
     let mut rng = SimpleRng::new(1);
     let mut nn = initialize_network(&mut rng);
+
+    // Augmentation RNG (reseeded from time for randomness)
+    let mut aug_rng = SimpleRng::new(2);
+    aug_rng.reseed_from_time();
 
     println!("Training neural network...");
     let train_start = Instant::now();
@@ -1193,6 +955,11 @@ fn main() {
         batch_size,
         early_stopping_patience,
         early_stopping_min_delta,
+        enable_augmentation,
+        horizontal_flip_prob,
+        random_crop_padding,
+        brightness_jitter,
+        contrast_jitter,
     };
     train(
         &mut nn,
@@ -1201,13 +968,13 @@ fn main() {
         &mut rng,
         scheduler.as_mut(),
         &hyperparams,
+        &mut aug_rng,
     );
     let train_time = train_start.elapsed().as_secs_f64();
     println!("Total training time: {:.2} seconds", train_time);
 
     println!("Testing neural network...");
     let test_start = Instant::now();
-    let test_samples = test_images.len() / NUM_INPUTS;
     test(&nn, &test_images, &test_labels, test_samples, batch_size);
     let test_time = test_start.elapsed().as_secs_f64();
     println!("Testing time: {:.2} seconds", test_time);

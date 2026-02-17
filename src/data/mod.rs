@@ -4,3 +4,4 @@
 
 pub mod augmentation;
 pub mod cifar10;
+pub mod mnist;

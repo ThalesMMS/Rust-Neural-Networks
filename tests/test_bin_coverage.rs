@@ -10,7 +10,7 @@ fn write_temp_config(contents: &str) -> NamedTempFile {
 
 #[allow(dead_code)]
 mod mnist_mlp_bin {
-    include!("../mnist_mlp.rs");
+    include!("../src/bin/mnist_mlp.rs");
 
     #[cfg(test)]
     mod coverage_tests {
@@ -95,7 +95,13 @@ mod mnist_mlp_bin {
                 batch_size,
                 early_stopping_patience,
                 early_stopping_min_delta,
+                enable_augmentation: false,
+                horizontal_flip_prob: None,
+                random_crop_padding: None,
+                brightness_jitter: None,
+                contrast_jitter: None,
             };
+            let mut aug_rng = SimpleRng::new(42);
             train(
                 &mut nn,
                 &train_data,
@@ -103,6 +109,7 @@ mod mnist_mlp_bin {
                 &mut rng,
                 &mut scheduler,
                 &params,
+                &mut aug_rng,
             );
 
             assert!(Path::new("logs/training_loss_adam.txt").exists());
@@ -113,7 +120,7 @@ mod mnist_mlp_bin {
 
 #[allow(dead_code)]
 mod mnist_cnn_bin {
-    include!("../mnist_cnn.rs");
+    include!("../src/bin/mnist_cnn.rs");
 
     #[cfg(test)]
     mod coverage_tests {
@@ -151,7 +158,7 @@ mod mnist_cnn_bin {
 
 #[allow(dead_code)]
 mod mlp_simple_bin {
-    include!("../mlp_simple.rs");
+    include!("../src/bin/mlp_simple.rs");
 
     #[cfg(test)]
     mod coverage_tests {
@@ -189,7 +196,7 @@ mod mlp_simple_bin {
 
 #[allow(dead_code)]
 mod cifar10_cnn_bin {
-    include!("../cifar10_cnn.rs");
+    include!("../src/bin/cifar10_cnn.rs");
 
     #[cfg(test)]
     mod coverage_tests {
@@ -227,7 +234,7 @@ mod cifar10_cnn_bin {
 
 #[allow(dead_code)]
 mod mnist_attention_pool_bin {
-    include!("../mnist_attention_pool.rs");
+    include!("../src/bin/mnist_attention_pool.rs");
 
     #[cfg(test)]
     mod coverage_tests {

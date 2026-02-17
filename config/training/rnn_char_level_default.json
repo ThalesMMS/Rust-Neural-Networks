@@ -1,0 +1,12 @@
+{
+  "scheduler_type": "step_decay",
+  "step_size": 10,
+  "gamma": 0.5,
+  "activation_function": "tanh",
+  "learning_rate": 0.001,
+  "epochs": 100,
+  "batch_size": 1,
+  "validation_split": 0.1,
+  "early_stopping_patience": 5,
+  "early_stopping_min_delta": 0.001
+}

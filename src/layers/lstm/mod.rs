@@ -191,6 +191,10 @@ pub struct LstmLayer {
     cached_output_gate: RefCell<Vec<f32>>, // o_t after sigmoid
     cached_cell_state: RefCell<Vec<f32>>, // c_t after update
     cached_cell_tanh: RefCell<Vec<f32>>, // tanh(c_t)
+
+    // BPTT state gradients (computed during backward pass, used by backward_bptt)
+    grad_h_prev: RefCell<Vec<f32>>, // hidden_size - gradient w.r.t. h_{t-1}
+    grad_c_prev: RefCell<Vec<f32>>, // hidden_size - gradient w.r.t. c_{t-1}
 }
 
 impl LstmLayer {
@@ -294,6 +298,8 @@ impl LstmLayer {
             cached_output_gate: RefCell::new(vec![0.0f32; hidden_size]),
             cached_cell_state: RefCell::new(vec![0.0f32; hidden_size]),
             cached_cell_tanh: RefCell::new(vec![0.0f32; hidden_size]),
+            grad_h_prev: RefCell::new(vec![0.0f32; hidden_size]),
+            grad_c_prev: RefCell::new(vec![0.0f32; hidden_size]),
         }
     }
 
@@ -469,6 +475,82 @@ impl LstmLayer {
         );
         let mut cell = self.cell_state.borrow_mut();
         cell.copy_from_slice(state);
+    }
+
+    /// Backward pass with BPTT state gradient propagation.
+    ///
+    /// Performs the full LSTM backward pass for one time step while incorporating
+    /// incoming state gradients (`dh_next`, `dc_next`) that flow backwards from the
+    /// *next* time step during Backpropagation Through Time (BPTT).
+    ///
+    /// The incoming state gradients are **added** to the gradient of `h_t` and `c_t`
+    /// before continuing to backpropagate through the gates.  For the last (most
+    /// recent) time step these should be zero vectors; for earlier time steps they
+    /// should be the `dh_prev` / `dc_prev` returned by the call for the time step
+    /// immediately after.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Input at this time step (batch_size × input_size)
+    /// * `grad_output` - Gradient of loss w.r.t. the output at this time step
+    ///   (batch_size × output_size)
+    /// * `grad_input` - Output buffer: gradient w.r.t. the input (batch_size × input_size)
+    /// * `dh_next` - Incoming hidden-state gradient from the next time step (hidden_size).
+    ///   Pass a zero vector for the last time step.
+    /// * `dc_next` - Incoming cell-state gradient from the next time step (hidden_size).
+    ///   Pass a zero vector for the last time step.
+    /// * `batch_size` - Number of samples in the batch
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(dh_prev, dc_prev)` where
+    /// - `dh_prev` (hidden_size) is the gradient to pass as `dh_next` for the
+    ///   previous time step.
+    /// - `dc_prev` (hidden_size) is the gradient to pass as `dc_next` for the
+    ///   previous time step.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use rust_neural_networks::layers::{LstmLayer, Layer};
+    /// use rust_neural_networks::utils::rng::SimpleRng;
+    ///
+    /// let mut rng = SimpleRng::new(42);
+    /// let layer = LstmLayer::new(4, 8, 4, &mut rng);
+    ///
+    /// let seq_len = 3;
+    /// let inputs: Vec<Vec<f32>> = (0..seq_len).map(|_| vec![0.5; 4]).collect();
+    /// let mut outputs: Vec<Vec<f32>> = (0..seq_len).map(|_| vec![0.0; 4]).collect();
+    ///
+    /// // Forward pass through all time steps
+    /// layer.reset_state();
+    /// for t in 0..seq_len {
+    ///     layer.forward(&inputs[t], &mut outputs[t], 1);
+    /// }
+    ///
+    /// // Backward pass in reverse order with state gradient propagation
+    /// let mut dh = vec![0.0f32; 8]; // zero for the last time step
+    /// let mut dc = vec![0.0f32; 8];
+    /// for t in (0..seq_len).rev() {
+    ///     let grad_out = vec![1.0; 4];
+    ///     let mut grad_in = vec![0.0; 4];
+    ///     (dh, dc) = layer.backward_bptt(&inputs[t], &grad_out, &mut grad_in, &dh, &dc, 1);
+    /// }
+    /// ```
+    pub fn backward_bptt(
+        &self,
+        input: &[f32],
+        grad_output: &[f32],
+        grad_input: &mut [f32],
+        dh_next: &[f32],
+        dc_next: &[f32],
+        batch_size: usize,
+    ) -> (Vec<f32>, Vec<f32>) {
+        self.backward_bptt_impl(input, grad_output, grad_input, dh_next, dc_next, batch_size);
+        (
+            self.grad_h_prev.borrow().clone(),
+            self.grad_c_prev.borrow().clone(),
+        )
     }
 }
 

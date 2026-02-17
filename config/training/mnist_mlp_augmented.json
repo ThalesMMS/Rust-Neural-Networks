@@ -4,10 +4,14 @@
   "gamma": 0.5,
   "activation_function": "relu",
   "learning_rate": 0.01,
-  "epochs": 3,
-  "batch_size": 32,
+  "epochs": 10,
+  "batch_size": 64,
   "validation_split": 0.1,
   "early_stopping_patience": 3,
   "early_stopping_min_delta": 0.001,
-  "enable_augmentation": false
+  "enable_augmentation": true,
+  "horizontal_flip_prob": 0.5,
+  "random_crop_padding": 2,
+  "brightness_jitter": 0.1,
+  "contrast_jitter": 0.1
 }

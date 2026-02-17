@@ -247,18 +247,14 @@ fn main() {
             total_loss += sequence_loss;
 
             // Backward pass through sequence (BPTT)
-            // Collect all output gradients for clipping
+            // Collect output gradients in forward order
             let seq_len = outputs.len();
-            let mut all_grad_outputs = Vec::new();
-
-            for t in (0..seq_len).rev() {
-                let output = &outputs[t];
-                let target_idx = targets[t];
-
-                let probs = softmax(output);
-                let grad_output = cross_entropy_gradient(&probs, target_idx);
-                all_grad_outputs.push(grad_output);
-            }
+            let mut all_grad_outputs: Vec<Vec<f32>> = (0..seq_len)
+                .map(|t| {
+                    let probs = softmax(&outputs[t]);
+                    cross_entropy_gradient(&probs, targets[t])
+                })
+                .collect();
 
             // Flatten all gradients for clipping
             let mut flat_grads: Vec<f32> = all_grad_outputs.iter().flatten().copied().collect();
@@ -271,20 +267,29 @@ fn main() {
                 all_grad_outputs[t].copy_from_slice(grad_chunk);
             }
 
-            // Apply backward pass with clipped gradients
-            for (t, grad_output) in all_grad_outputs.iter().enumerate().rev() {
-                let actual_t = seq_len - 1 - t;
-                let current_char = text_chars[start_idx + actual_t];
+            // Apply BPTT backward pass in reverse order with dh/dc state propagation
+            let mut dh_next = vec![0.0f32; HIDDEN_SIZE];
+            let mut dc_next = vec![0.0f32; HIDDEN_SIZE];
+
+            for t in (0..seq_len).rev() {
+                let current_char = text_chars[start_idx + t];
                 let input = vocab.char_to_onehot(current_char);
                 let mut grad_input = vec![0.0; vocab.vocab_size];
 
-                lstm.backward(&input, grad_output, &mut grad_input, BATCH_SIZE);
+                let (new_dh, new_dc) = lstm.backward_bptt(
+                    &input,
+                    &all_grad_outputs[t],
+                    &mut grad_input,
+                    &dh_next,
+                    &dc_next,
+                    BATCH_SIZE,
+                );
+                dh_next = new_dh;
+                dc_next = new_dc;
             }
 
             // Track maximum gradient norm for monitoring
-            if grad_norm > GRADIENT_CLIP_NORM * 2.0 && seq_idx == 0 {
-                // Only print warning for first sequence to avoid spam
-            }
+            let _ = grad_norm;
 
             // Update parameters after BPTT
             lstm.update_parameters(LEARNING_RATE);

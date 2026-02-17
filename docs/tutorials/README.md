@@ -43,7 +43,15 @@ This directory organizes tutorials by increasing complexity, from basic feedforw
   - **Time:** 90-120 minutes | **Prerequisites:** Tutorial 02, convolution operation
 
 ### Expert Level
-- **Tutorial 04: CIFAR-10 CNN** (Coming Soon) - Build an RGB image classifier
+- **[Tutorial 04: RNN/LSTM Character-Level Model](04_rnn_lstm_char_level.md)** - Build a recurrent character-level language model
+  - LSTM gates: forget, input, cell, and output gate mechanics
+  - Backpropagation Through Time (BPTT) derivation and implementation
+  - Gradient clipping to prevent exploding gradients
+  - Character vocabulary encoding and text generation
+  - Expected output: Model generates coherent-looking text sequences after training
+  - **Time:** 120-150 minutes | **Prerequisites:** Tutorial 02, sequence modeling concepts
+
+- **Tutorial 05: CIFAR-10 CNN** (Coming Soon) - Build an RGB image classifier
   - Multi-channel input handling (RGB vs grayscale)
   - Deeper networks and filter progression
   - Color feature extraction
@@ -118,6 +126,7 @@ Each tutorial follows a consistent structure:
 **Each tutorial builds on previous concepts:**
 - XOR → MNIST: Scaling to real data, multi-class classification
 - MNIST MLP → MNIST CNN: Adding spatial structure, convolutions
+- MNIST CNN → RNN/LSTM: Shifting from spatial to sequential data
 - MNIST → CIFAR-10: Color images, deeper networks, harder problem
 
 ## Mathematical Notation
@@ -156,6 +165,7 @@ These tutorials follow the project's standard mathematical notation (see [Mathem
 - `mnist_mlp.rs` - MNIST feedforward (784→512→10)
 - `mnist_cnn.rs` - MNIST convolutional (Conv→Pool→Dense)
 - `cifar10_cnn.rs` - CIFAR-10 CNN (RGB 3×32×32)
+- `rnn_char_level.rs` - Character-level language model (LSTM + BPTT)
 
 **Shared library** (`rust_neural_networks` crate):
 - `src/layers/trait.rs` - `Layer` trait interface
@@ -271,7 +281,8 @@ When creating new tutorials:
 1. [Tutorial 01: XOR MLP](01_xor_mlp.md) → Understanding the basics
 2. [Tutorial 02: MNIST MLP](02_mnist_mlp.md) → Scaling to real data
 3. [Tutorial 03: MNIST CNN](03_mnist_cnn.md) → Adding spatial structure
-4. Tutorial 04: CIFAR-10 CNN (Coming Soon) → Color images and deeper networks
+4. [Tutorial 04: RNN/LSTM Character-Level Model](04_rnn_lstm_char_level.md) → Sequences and recurrent networks
+5. Tutorial 05: CIFAR-10 CNN (Coming Soon) → Color images and deeper networks
 
 **Need help?**
 - Review [backpropagation documentation](../backpropagation/README.md) for mathematical details

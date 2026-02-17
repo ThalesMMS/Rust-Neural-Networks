@@ -26,38 +26,6 @@ openblas-src = { version = "0.10", features = ["static", "cblas"] }
 [target.'cfg(target_os = "windows")'.dependencies]
 openblas-src = { version = "0.10", features = ["system", "cblas"] }
 
-[[bin]]
-name = "mnist_mlp"
-path = "mnist_mlp.rs"
-
-[[bin]]
-name = "mlp_simple"
-path = "mlp_simple.rs"
-
-[[bin]]
-name = "mnist_cnn"
-path = "mnist_cnn.rs"
-
-[[bin]]
-name = "mnist_attention_pool"
-path = "mnist_attention_pool.rs"
-
-[[bin]]
-name = "cifar10_cnn"
-path = "cifar10_cnn.rs"
-
-[[bin]]
-name = "rnn_char_level"
-path = "rnn_char_level.rs"
-
-[[bin]]
-name = "hyperparameter_sweep"
-path = "hyperparameter_sweep.rs"
-
-[[bin]]
-name = "transformer_mnist"
-path = "transformer_mnist.rs"
-
 [dev-dependencies]
 approx = "0.5"
 tempfile = "3.24.0"
