@@ -11,3 +11,14 @@ data/cifar-10-batches-bin/data_batch_4.bin
 data/cifar-10-batches-bin/data_batch_5.bin
 data/cifar-10-batches-bin/test_batch.bin
 transformer_mnist_model.bin
+
+# Auto Claude data directory
+.auto-claude/
+
+# Auto Claude generated files
+.auto-claude-security.json
+.auto-claude-status
+.claude_settings.json
+.worktrees/
+.security-key
+logs/security/
