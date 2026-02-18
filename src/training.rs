@@ -325,6 +325,29 @@ pub fn parse_config_path(args: &[String], default_path: &str) -> String {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// parse_step_flag
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Checks whether the `--step` flag is present in command-line arguments.
+///
+/// Returns `true` if any argument is exactly `"--step"`.
+///
+/// # Examples
+///
+/// ```
+/// use rust_neural_networks::training::parse_step_flag;
+///
+/// let args = vec!["binary".to_string(), "--step".to_string()];
+/// assert!(parse_step_flag(&args));
+///
+/// let args_empty: Vec<String> = vec!["binary".to_string()];
+/// assert!(!parse_step_flag(&args_empty));
+/// ```
+pub fn parse_step_flag(args: &[String]) -> bool {
+    args.iter().any(|a| a == "--step")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // print_training_config
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -415,8 +438,8 @@ pub fn print_training_config(
 /// - `cols`   – number of classes per sample.
 /// - `delta`  – mutable output buffer for gradients; must be length ≥ `rows * cols`.
 /// - `scale`  – multiplicative scale applied to every gradient value.
-///              Use `1.0` for unscaled gradients (mnist_mlp style) or `1.0 / batch_size`
-///              for pre-normalised gradients (mnist_cnn style).
+///   Use `1.0` for unscaled gradients (mnist_mlp style) or `1.0 / batch_size`
+///   for pre-normalised gradients (mnist_cnn style).
 ///
 /// # Returns
 ///
@@ -608,6 +631,7 @@ pub fn evaluate_batch_accuracy(
 /// assert_eq!(out_inputs[0], 9.0); // first pixel of image 2
 /// assert_eq!(out_inputs[4], 1.0); // first pixel of image 0
 /// ```
+#[allow(clippy::too_many_arguments)]
 pub fn gather_batch(
     images: &[f32],
     labels: &[u8],
@@ -871,6 +895,29 @@ mod tests {
         // --config with no following argument should fall back to default
         let args = vec!["binary".to_string(), "--config".to_string()];
         assert_eq!(parse_config_path(&args, "default.json"), "default.json");
+    }
+
+    // ── parse_step_flag ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_step_flag_present() {
+        let args = vec![
+            "binary".to_string(),
+            "--config".to_string(),
+            "my.json".to_string(),
+            "--step".to_string(),
+        ];
+        assert!(parse_step_flag(&args));
+    }
+
+    #[test]
+    fn test_parse_step_flag_absent() {
+        let args = vec![
+            "binary".to_string(),
+            "--config".to_string(),
+            "my.json".to_string(),
+        ];
+        assert!(!parse_step_flag(&args));
     }
 
     // ── gather_batch ──────────────────────────────────────────────────────────

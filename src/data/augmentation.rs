@@ -132,6 +132,7 @@ pub fn random_horizontal_flip(
 /// let cropped = random_crop(&image, width, height, channels, 4, 32, 32, &mut rng);
 /// assert_eq!(cropped.len(), 32 * 32 * 3);
 /// ```
+#[allow(clippy::too_many_arguments)]
 pub fn random_crop(
     image: &[f32],
     width: usize,
@@ -180,9 +181,8 @@ pub fn random_crop(
             let dst_col = col + padding;
             let dst_idx = (dst_row * padded_width + dst_col) * channels;
 
-            for c in 0..channels {
-                padded[dst_idx + c] = image[src_idx + c];
-            }
+            padded[dst_idx..dst_idx + channels]
+                .copy_from_slice(&image[src_idx..src_idx + channels]);
         }
     }
 
@@ -209,9 +209,8 @@ pub fn random_crop(
             let src_idx = (src_row * padded_width + src_col) * channels;
             let dst_idx = (row * crop_width + col) * channels;
 
-            for c in 0..channels {
-                cropped[dst_idx + c] = padded[src_idx + c];
-            }
+            cropped[dst_idx..dst_idx + channels]
+                .copy_from_slice(&padded[src_idx..src_idx + channels]);
         }
     }
 
@@ -813,8 +812,8 @@ mod tests {
 
         // Create image with varying values
         let mut image = vec![0.0f32; width * height * channels];
-        for i in 0..image.len() {
-            image[i] = (i % 10) as f32 / 10.0;
+        for (i, pixel) in image.iter_mut().enumerate() {
+            *pixel = (i % 10) as f32 / 10.0;
         }
 
         let original = image.clone();
@@ -839,8 +838,8 @@ mod tests {
         let channels = 3;
 
         let mut image = vec![0.0f32; width * height * channels];
-        for i in 0..image.len() {
-            image[i] = (i % 20) as f32 / 20.0;
+        for (i, pixel) in image.iter_mut().enumerate() {
+            *pixel = (i % 20) as f32 / 20.0;
         }
 
         let original_mean: f32 = image.iter().sum::<f32>() / image.len() as f32;

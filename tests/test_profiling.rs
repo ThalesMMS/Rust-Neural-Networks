@@ -751,7 +751,7 @@ mod flops_and_memory_tests {
         let mut rng = SimpleRng::new(3);
         let layer = DenseLayer::new(2, 4, &mut rng);
         let batch_size = 1;
-        assert_eq!(layer.flops_forward(batch_size), 2 * 1 * 2 * 4);
+        assert_eq!(layer.flops_forward(batch_size), 2 * 2 * 4);
     }
 
     // ---- DenseLayer parameter memory ----
@@ -805,7 +805,7 @@ mod flops_and_memory_tests {
         let batch_size = 4;
         let out_h = layer.output_height();
         let out_w = layer.output_width();
-        let expected = 2 * batch_size as u64 * 1 * 3 * 3 * 8 * out_h as u64 * out_w as u64;
+        let expected = 2 * batch_size as u64 * 3 * 3 * 8 * out_h as u64 * out_w as u64;
         assert_eq!(
             layer.flops_forward(batch_size),
             expected,

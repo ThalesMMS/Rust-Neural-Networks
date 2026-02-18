@@ -64,8 +64,8 @@ fn random_labels(n: usize, rng: &mut SimpleRng) -> Vec<u8> {
 fn ce_grad_inplace(probs: &mut [f32], labels: &[u8], batch_size: usize) -> f32 {
     let mut loss = 0.0f32;
     let inv_n = 1.0 / batch_size as f32;
-    for i in 0..batch_size {
-        let label = labels[i] as usize;
+    for (i, &lab) in labels[..batch_size].iter().enumerate() {
+        let label = lab as usize;
         let row_start = i * NUM_OUTPUTS;
         let p = probs[row_start + label].max(1e-9);
         loss -= p.ln();

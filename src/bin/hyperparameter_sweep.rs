@@ -20,7 +20,7 @@ struct RunResult {
     val_loss: f32,
     val_accuracy: f32,
     training_time: f32,
-    learning_rate: f32,
+    _learning_rate: f32,
     // Config parameters for reference
     config_lr: f32,
     config_batch_size: usize,
@@ -229,7 +229,7 @@ fn main() {
                             val_loss,
                             val_accuracy,
                             training_time,
-                            learning_rate: lr,
+                            _learning_rate: lr,
                             config_lr: config.learning_rate.unwrap_or(0.01),
                             config_batch_size: config.batch_size.unwrap_or(64),
                             config_epochs: config.epochs.unwrap_or(10),

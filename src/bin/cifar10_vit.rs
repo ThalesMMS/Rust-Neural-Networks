@@ -1,38 +1,34 @@
-// transformer_mnist.rs
-// Transformer-based MNIST classification using TransformerBlock layer.
+// cifar10_vit.rs
+// Vision Transformer (ViT) for CIFAR-10 classification.
 //
 // ============================================================================
-// TRANSFORMER ARCHITECTURE FOR MNIST IMAGE CLASSIFICATION
+// VISION TRANSFORMER ARCHITECTURE FOR CIFAR-10 IMAGE CLASSIFICATION
 // ============================================================================
 //
-// This implementation demonstrates a complete Transformer encoder architecture
-// for MNIST digit classification using the newly implemented TransformerBlock
-// and TransformerEncoder layers from the rust_neural_networks library.
+// This implementation demonstrates a complete Vision Transformer architecture
+// for CIFAR-10 RGB image classification using the PatchEmbeddingLayer and
+// TransformerEncoder from the rust_neural_networks library.
 //
 // ARCHITECTURE OVERVIEW:
-//   - Split 28x28 image into 4x4 patches => 7×7 = 49 tokens (sequence length)
-//   - Linear projection: project each 16-dim patch to d_model=64 dimensions
-//   - Add sinusoidal positional embeddings (critical for spatial awareness)
-//   - TransformerEncoder: 2 stacked TransformerBlocks
-//     * Each block: Multi-Head Attention (4 heads) + FFN (128-dim hidden)
+//   - Split 32x32x3 RGB image into 4x4 patches => 8x8 = 64 tokens
+//   - PatchEmbeddingLayer: project each 48-dim patch to d_model=128 dimensions
+//   - ReLU activation
+//   - Add sinusoidal positional embeddings (64 positions, d_model dims)
+//   - TransformerEncoder: 4 stacked TransformerBlocks
+//     * Each block: Multi-Head Attention (4 heads) + FFN (256-dim hidden)
 //     * Pre-LN architecture with residual connections
-//   - Mean pooling: average over 49 tokens to get image-level representation
-//   - Linear classifier: d_model → 10 classes
+//   - Mean pooling: average over 64 tokens to get image-level representation
+//   - Linear classifier: d_model -> 10 classes
 //
 // TRAINING CONFIGURATION:
 //   - Optimizer: Adam (lr=0.001, beta1=0.9, beta2=0.999)
-//   - Epochs: 5
-//   - Batch size: 32
-//   - Validation split: 10% (54K training, 6K validation)
-//   - Early stopping: patience=3, min_delta=0.001
+//   - Epochs: 20
+//   - Batch size: 64
+//   - Validation split: 10%
+//   - Early stopping: patience=5, min_delta=0.001
 //
-// TARGET PERFORMANCE:
-//   - Test accuracy: >85% (validation from TransformerBlock implementation)
-//
-// Focus: Educational implementation demonstrating Transformer for vision tasks.
-// Requires MNIST IDX files in ./data:
-//   train-images.idx3-ubyte, train-labels.idx1-ubyte
-//   t10k-images.idx3-ubyte, t10k-labels.idx1-ubyte
+// Requires CIFAR-10 binary files in ./data/cifar-10-batches-bin/:
+//   data_batch_1.bin through data_batch_5.bin, test_batch.bin
 
 use std::env::args;
 use std::fs::{self, File};
@@ -41,133 +37,78 @@ use std::process;
 use std::time::Instant;
 
 use rust_neural_networks::config::load_config;
-use rust_neural_networks::layers::{DenseLayer, Layer, TransformerEncoder};
+use rust_neural_networks::data::cifar10::read_cifar10_batches;
+use rust_neural_networks::layers::{DenseLayer, Layer, PatchEmbeddingLayer, TransformerEncoder};
 use rust_neural_networks::optimizers::{Adam, Optimizer};
 use rust_neural_networks::utils::activations::{relu_inplace, softmax_rows};
 use rust_neural_networks::utils::lr_scheduler::create_scheduler_from_config;
 use rust_neural_networks::utils::{sinusoidal_positional_encoding, SimpleRng};
 
-// MNIST constants (images are flat 28x28 in row-major order)
-const IMG_H: usize = 28;
-const IMG_W: usize = 28;
-const NUM_INPUTS: usize = IMG_H * IMG_W; // 784
+// CIFAR-10 constants (images are 32x32 RGB in pixel-interleaved format)
+const IMG_H: usize = 32;
+const IMG_W: usize = 32;
+const IMG_CHANNELS: usize = 3;
+const NUM_INPUTS: usize = IMG_H * IMG_W * IMG_CHANNELS; // 3072
 const NUM_CLASSES: usize = 10;
-const TRAIN_SAMPLES: usize = 60_000;
+const TRAIN_SAMPLES: usize = 50_000;
 const TEST_SAMPLES: usize = 10_000;
 
 // Patch grid and tokenization
-const PATCH: usize = 4; // Patch size: 4x4 pixels
-const GRID: usize = IMG_H / PATCH; // 7x7 grid of patches
-const SEQ_LEN: usize = GRID * GRID; // 49 tokens (sequence length for attention)
-const PATCH_DIM: usize = PATCH * PATCH; // 16 features per patch
+const PATCH_SIZE: usize = 4; // 4x4 pixel patches
+const GRID: usize = IMG_H / PATCH_SIZE; // 8x8 grid of patches
+const NUM_PATCHES: usize = GRID * GRID; // 64 tokens
+const PATCH_DIM: usize = PATCH_SIZE * PATCH_SIZE * IMG_CHANNELS; // 48 features per patch
 
-// Model hyperparameters (following implementation notes)
-const D_MODEL: usize = 64; // Token embedding dimension
+// Model hyperparameters
+const D_MODEL: usize = 128; // Token embedding dimension
 const NUM_HEADS: usize = 4; // Number of attention heads
-const D_FF: usize = 128; // Feed-forward hidden dimension
-const NUM_BLOCKS: usize = 2; // Number of transformer blocks to stack
+const D_FF: usize = 256; // Feed-forward hidden dimension
+const NUM_BLOCKS: usize = 4; // Number of transformer blocks
 
 // Training hyperparameters (defaults, can be overridden by config)
-const LEARNING_RATE: f32 = 0.001; // Adam learning rate
-const EPOCHS: usize = 5;
-const BATCH_SIZE: usize = 32;
-const VALIDATION_SPLIT: f32 = 0.1; // 10% of training data for validation
-const EARLY_STOPPING_PATIENCE: usize = 3;
+const LEARNING_RATE: f32 = 0.001;
+const EPOCHS: usize = 20;
+const BATCH_SIZE: usize = 64;
+const VALIDATION_SPLIT: f32 = 0.1;
+const EARLY_STOPPING_PATIENCE: usize = 5;
 const EARLY_STOPPING_MIN_DELTA: f32 = 0.001;
 
 // Default config path
-const DEFAULT_CONFIG_PATH: &str = "config/training/transformer_mnist_default.json";
+const DEFAULT_CONFIG_PATH: &str = "config/training/cifar10_vit_default.json";
 
 // ============================================================================
-// MNIST Data Loading (IDX format)
+// Patch Extraction (RGB pixel-interleaved format)
 // ============================================================================
 
-/// Read a big-endian u32 from byte slice (IDX format uses big-endian).
-fn read_be_u32(data: &[u8], offset: &mut usize) -> u32 {
-    let b0 = (data[*offset] as u32) << 24;
-    let b1 = (data[*offset + 1] as u32) << 16;
-    let b2 = (data[*offset + 2] as u32) << 8;
-    let b3 = data[*offset + 3] as u32;
-    *offset += 4;
-    b0 | b1 | b2 | b3
-}
-
-/// Read MNIST images from IDX format file and return as normalized floats [0, 1].
-fn read_mnist_images(filename: &str) -> Result<Vec<f32>, String> {
-    let data =
-        fs::read(filename).map_err(|e| format!("Could not read file {}: {}", filename, e))?;
-
-    let mut offset = 0usize;
-    let _magic = read_be_u32(&data, &mut offset);
-    let num_images = read_be_u32(&data, &mut offset) as usize;
-    let rows = read_be_u32(&data, &mut offset) as usize;
-    let cols = read_be_u32(&data, &mut offset) as usize;
-
-    if rows != IMG_H || cols != IMG_W {
-        return Err(format!(
-            "Unexpected image dimensions: {}x{}, expected {}x{}",
-            rows, cols, IMG_H, IMG_W
-        ));
-    }
-
-    let image_size = rows * cols;
-    let total_bytes = num_images * image_size;
-
-    if data.len() < offset + total_bytes {
-        return Err("Image file is truncated".to_string());
-    }
-
-    // Convert bytes to normalized floats
-    let mut images = vec![0.0f32; total_bytes];
-    let src = &data[offset..offset + total_bytes];
-    for (dst, &px) in images.iter_mut().zip(src.iter()) {
-        *dst = px as f32 / 255.0;
-    }
-
-    Ok(images)
-}
-
-/// Read MNIST labels from IDX format file.
-fn read_mnist_labels(filename: &str) -> Result<Vec<u8>, String> {
-    let data =
-        fs::read(filename).map_err(|e| format!("Could not read file {}: {}", filename, e))?;
-
-    let mut offset = 0usize;
-    let _magic = read_be_u32(&data, &mut offset);
-    let num_labels = read_be_u32(&data, &mut offset) as usize;
-
-    if data.len() < offset + num_labels {
-        return Err("Label file is truncated".to_string());
-    }
-
-    Ok(data[offset..offset + num_labels].to_vec())
-}
-
-// ============================================================================
-// Patch Extraction (from mnist_attention_pool.rs pattern)
-// ============================================================================
-
-/// Extract 4x4 patches from 28x28 MNIST images and flatten them.
-/// Input: [batch_size, 784] (flattened 28x28 images)
-/// Output: [batch_size, SEQ_LEN, PATCH_DIM] = [batch_size, 49, 16]
-fn extract_patches(images: &[f32], batch_size: usize, patches: &mut [f32]) {
+/// Extract 4x4x3 patches from 32x32x3 CIFAR-10 images.
+///
+/// Input format: pixel-interleaved RGB (R,G,B for each pixel consecutively).
+/// For a 32x32 image, layout is [row][col][channel].
+/// Each 4x4 patch extracts 4*4*3 = 48 values.
+///
+/// Input: [batch_size, IMG_H * IMG_W * IMG_CHANNELS]
+/// Output: [batch_size, NUM_PATCHES, PATCH_DIM] = [batch_size, 64, 48]
+fn extract_patches_rgb(images: &[f32], batch_size: usize, patches: &mut [f32]) {
     assert_eq!(images.len(), batch_size * NUM_INPUTS);
-    assert_eq!(patches.len(), batch_size * SEQ_LEN * PATCH_DIM);
+    assert_eq!(patches.len(), batch_size * NUM_PATCHES * PATCH_DIM);
 
     for b in 0..batch_size {
         let img_offset = b * NUM_INPUTS;
         for py in 0..GRID {
             for px in 0..GRID {
                 let token_idx = py * GRID + px;
-                let patch_offset = (b * SEQ_LEN + token_idx) * PATCH_DIM;
+                let patch_offset = (b * NUM_PATCHES + token_idx) * PATCH_DIM;
 
-                for dy in 0..PATCH {
-                    for dx in 0..PATCH {
-                        let img_y = py * PATCH + dy;
-                        let img_x = px * PATCH + dx;
-                        let pixel_idx = img_offset + img_y * IMG_W + img_x;
-                        let patch_idx = patch_offset + dy * PATCH + dx;
-                        patches[patch_idx] = images[pixel_idx];
+                for dy in 0..PATCH_SIZE {
+                    for dx in 0..PATCH_SIZE {
+                        let img_y = py * PATCH_SIZE + dy;
+                        let img_x = px * PATCH_SIZE + dx;
+                        for c in 0..IMG_CHANNELS {
+                            let pixel_idx = img_offset + (img_y * IMG_W + img_x) * IMG_CHANNELS + c;
+                            let patch_idx =
+                                patch_offset + (dy * PATCH_SIZE + dx) * IMG_CHANNELS + c;
+                            patches[patch_idx] = images[pixel_idx];
+                        }
                     }
                 }
             }
@@ -180,16 +121,15 @@ fn extract_patches(images: &[f32], batch_size: usize, patches: &mut [f32]) {
 // ============================================================================
 
 fn main() {
-    println!("=== Transformer MNIST Classifier ===\n");
+    println!("=== Vision Transformer (ViT) — CIFAR-10 Classifier ===\n");
 
-    // Load configuration (use defaults if config file not found)
+    // Load configuration
     let config_path = args()
         .nth(1)
         .unwrap_or_else(|| DEFAULT_CONFIG_PATH.to_string());
     let config = load_config(&config_path).unwrap_or_else(|e| {
         eprintln!("Warning: Could not load config from {}: {}", config_path, e);
         eprintln!("Proceeding with built-in default hyperparameters\n");
-        // Return minimal config that will use the const defaults defined above
         load_config(DEFAULT_CONFIG_PATH).unwrap_or_else(|_| {
             panic!("Could not load default config from {}", DEFAULT_CONFIG_PATH)
         })
@@ -207,39 +147,45 @@ fn main() {
         .early_stopping_min_delta
         .unwrap_or(EARLY_STOPPING_MIN_DELTA);
 
+    // Extract optimizer config
+    let beta1 = config.adam_beta1.unwrap_or(0.9);
+    let beta2 = config.adam_beta2.unwrap_or(0.999);
+    let epsilon = config.adam_epsilon.unwrap_or(1e-8);
+
     println!("Configuration:");
     println!("  Learning rate: {}", learning_rate);
     println!("  Epochs: {}", epochs);
     println!("  Batch size: {}", batch_size);
     println!("  Validation split: {:.1}%", validation_split * 100.0);
     println!(
-        "  Model: d_model={}, num_heads={}, d_ff={}, num_blocks={}",
-        D_MODEL, NUM_HEADS, D_FF, NUM_BLOCKS
+        "  Model: d_model={}, heads={}, d_ff={}, blocks={}, patch={}x{}",
+        D_MODEL, NUM_HEADS, D_FF, NUM_BLOCKS, PATCH_SIZE, PATCH_SIZE
+    );
+    println!(
+        "  Patches: {}x{} = {} tokens, patch_dim={}",
+        GRID, GRID, NUM_PATCHES, PATCH_DIM
     );
     println!();
 
-    // Load MNIST data
-    println!("Loading MNIST data...");
-    let train_images = read_mnist_images("data/train-images.idx3-ubyte").unwrap_or_else(|e| {
-        eprintln!("Error reading training images: {}", e);
-        process::exit(1);
-    });
-    let train_labels = read_mnist_labels("data/train-labels.idx1-ubyte").unwrap_or_else(|e| {
-        eprintln!("Error reading training labels: {}", e);
-        process::exit(1);
-    });
-    let test_images = read_mnist_images("data/t10k-images.idx3-ubyte").unwrap_or_else(|e| {
-        eprintln!("Error reading test images: {}", e);
-        process::exit(1);
-    });
-    let test_labels = read_mnist_labels("data/t10k-labels.idx1-ubyte").unwrap_or_else(|e| {
-        eprintln!("Error reading test labels: {}", e);
+    // Load CIFAR-10 data
+    println!("Loading CIFAR-10 data...");
+    let train_files: Vec<&str> = vec![
+        "data/cifar-10-batches-bin/data_batch_1.bin",
+        "data/cifar-10-batches-bin/data_batch_2.bin",
+        "data/cifar-10-batches-bin/data_batch_3.bin",
+        "data/cifar-10-batches-bin/data_batch_4.bin",
+        "data/cifar-10-batches-bin/data_batch_5.bin",
+    ];
+    let (train_images, train_labels) = read_cifar10_batches(&train_files).unwrap_or_else(|e| {
+        eprintln!("Error reading CIFAR-10 training data: {}", e);
         process::exit(1);
     });
 
-    // Normalize images to [0, 1]
-    let train_images: Vec<f32> = train_images.iter().map(|&x| x / 255.0).collect();
-    let test_images: Vec<f32> = test_images.iter().map(|&x| x / 255.0).collect();
+    let (test_images, test_labels) =
+        read_cifar10_batches(&["data/cifar-10-batches-bin/test_batch.bin"]).unwrap_or_else(|e| {
+            eprintln!("Error reading CIFAR-10 test data: {}", e);
+            process::exit(1);
+        });
 
     // Split training data into train and validation sets
     let val_samples = (TRAIN_SAMPLES as f32 * validation_split) as usize;
@@ -256,9 +202,9 @@ fn main() {
     println!("Initializing model layers...");
 
     // Patch embedding: Linear projection from PATCH_DIM to D_MODEL
-    let mut patch_embedding = DenseLayer::new(PATCH_DIM, D_MODEL, &mut rng);
+    let mut patch_embedding = PatchEmbeddingLayer::new(PATCH_DIM, D_MODEL, &mut rng);
 
-    // Transformer encoder: 2 stacked transformer blocks
+    // Transformer encoder: stacked transformer blocks
     let mut transformer_encoder =
         TransformerEncoder::new(NUM_BLOCKS, D_MODEL, NUM_HEADS, D_FF, &mut rng);
 
@@ -273,7 +219,7 @@ fn main() {
         patch_embedding.parameter_count()
     );
     println!(
-        "  Transformer encoder: {} blocks, {} params",
+        "  Transformer encoder: {} blocks ({} params)",
         NUM_BLOCKS,
         transformer_encoder.parameter_count()
     );
@@ -283,29 +229,27 @@ fn main() {
         NUM_CLASSES,
         classifier.parameter_count()
     );
-    println!(
-        "  Total parameters: {}\n",
-        patch_embedding.parameter_count()
-            + transformer_encoder.parameter_count()
-            + classifier.parameter_count()
-    );
+    let total_params = patch_embedding.parameter_count()
+        + transformer_encoder.parameter_count()
+        + classifier.parameter_count();
+    println!("  Total parameters: {}\n", total_params);
 
     // Generate sinusoidal positional encodings
-    let pos_encoding = sinusoidal_positional_encoding(SEQ_LEN, D_MODEL);
+    let pos_encoding = sinusoidal_positional_encoding(NUM_PATCHES, D_MODEL);
 
-    // Initialize optimizers for each layer
-    let mut patch_emb_optimizer = Adam::new(learning_rate, 0.9, 0.999, 1e-8);
-    let mut transformer_optimizer = Adam::new(learning_rate, 0.9, 0.999, 1e-8);
-    let mut classifier_optimizer = Adam::new(learning_rate, 0.9, 0.999, 1e-8);
+    // Initialize optimizers
+    let mut patch_emb_optimizer = Adam::new(learning_rate, beta1, beta2, epsilon);
+    let mut transformer_optimizer = Adam::new(learning_rate, beta1, beta2, epsilon);
+    let mut classifier_optimizer = Adam::new(learning_rate, beta1, beta2, epsilon);
 
     // Initialize learning rate scheduler
     let mut lr_scheduler = create_scheduler_from_config(learning_rate, epochs, Some(&config_path));
 
     // Allocate workspace buffers
     let max_batch = batch_size;
-    let mut patches = vec![0.0f32; max_batch * SEQ_LEN * PATCH_DIM];
-    let mut patch_embeds = vec![0.0f32; max_batch * SEQ_LEN * D_MODEL];
-    let mut transformer_out = vec![0.0f32; max_batch * SEQ_LEN * D_MODEL];
+    let mut patches = vec![0.0f32; max_batch * NUM_PATCHES * PATCH_DIM];
+    let mut patch_embeds = vec![0.0f32; max_batch * NUM_PATCHES * D_MODEL];
+    let mut transformer_out = vec![0.0f32; max_batch * NUM_PATCHES * D_MODEL];
     let mut pooled = vec![0.0f32; max_batch * D_MODEL];
     let mut logits = vec![0.0f32; max_batch * NUM_CLASSES];
     let mut probs = vec![0.0f32; max_batch * NUM_CLASSES];
@@ -313,13 +257,13 @@ fn main() {
     // Gradients
     let mut grad_logits = vec![0.0f32; max_batch * NUM_CLASSES];
     let mut grad_pooled = vec![0.0f32; max_batch * D_MODEL];
-    let mut grad_transformer = vec![0.0f32; max_batch * SEQ_LEN * D_MODEL];
-    let mut grad_patch_embeds = vec![0.0f32; max_batch * SEQ_LEN * D_MODEL];
-    let mut grad_patches = vec![0.0f32; max_batch * SEQ_LEN * PATCH_DIM];
+    let mut grad_transformer = vec![0.0f32; max_batch * NUM_PATCHES * D_MODEL];
+    let mut grad_patch_embeds = vec![0.0f32; max_batch * NUM_PATCHES * D_MODEL];
+    let mut grad_patches = vec![0.0f32; max_batch * NUM_PATCHES * PATCH_DIM];
 
     // Create logs directory
     fs::create_dir_all("logs").unwrap();
-    let log_file = File::create("logs/transformer_mnist.csv").unwrap();
+    let log_file = File::create("logs/cifar10_vit_log.csv").unwrap();
     let mut log_writer = BufWriter::new(log_file);
     writeln!(
         log_writer,
@@ -372,23 +316,26 @@ fn main() {
                 .collect();
 
             // Extract patches
-            extract_patches(
+            extract_patches_rgb(
                 &batch_images,
                 current_batch_size,
-                &mut patches[..current_batch_size * SEQ_LEN * PATCH_DIM],
+                &mut patches[..current_batch_size * NUM_PATCHES * PATCH_DIM],
             );
 
             // Forward pass: Patch embedding
             patch_embedding.forward(
-                &patches[..current_batch_size * SEQ_LEN * PATCH_DIM],
-                &mut patch_embeds[..current_batch_size * SEQ_LEN * D_MODEL],
-                current_batch_size * SEQ_LEN,
+                &patches[..current_batch_size * NUM_PATCHES * PATCH_DIM],
+                &mut patch_embeds[..current_batch_size * NUM_PATCHES * D_MODEL],
+                current_batch_size * NUM_PATCHES,
             );
+
+            // Apply ReLU activation
+            relu_inplace(&mut patch_embeds[..current_batch_size * NUM_PATCHES * D_MODEL]);
 
             // Add positional encoding
             for b in 0..current_batch_size {
-                for t in 0..SEQ_LEN {
-                    let offset = (b * SEQ_LEN + t) * D_MODEL;
+                for t in 0..NUM_PATCHES {
+                    let offset = (b * NUM_PATCHES + t) * D_MODEL;
                     let pos_offset = t * D_MODEL;
                     for d in 0..D_MODEL {
                         patch_embeds[offset + d] += pos_encoding[pos_offset + d];
@@ -396,13 +343,10 @@ fn main() {
                 }
             }
 
-            // Apply ReLU activation
-            relu_inplace(&mut patch_embeds[..current_batch_size * SEQ_LEN * D_MODEL]);
-
             // Forward pass: Transformer encoder
             transformer_encoder.forward(
-                &patch_embeds[..current_batch_size * SEQ_LEN * D_MODEL],
-                &mut transformer_out[..current_batch_size * SEQ_LEN * D_MODEL],
+                &patch_embeds[..current_batch_size * NUM_PATCHES * D_MODEL],
+                &mut transformer_out[..current_batch_size * NUM_PATCHES * D_MODEL],
                 current_batch_size,
             );
 
@@ -410,10 +354,10 @@ fn main() {
             for b in 0..current_batch_size {
                 for d in 0..D_MODEL {
                     let mut sum = 0.0;
-                    for t in 0..SEQ_LEN {
-                        sum += transformer_out[(b * SEQ_LEN + t) * D_MODEL + d];
+                    for t in 0..NUM_PATCHES {
+                        sum += transformer_out[(b * NUM_PATCHES + t) * D_MODEL + d];
                     }
-                    pooled[b * D_MODEL + d] = sum / SEQ_LEN as f32;
+                    pooled[b * D_MODEL + d] = sum / NUM_PATCHES as f32;
                 }
             }
 
@@ -443,7 +387,11 @@ fn main() {
             batch_loss /= current_batch_size as f32;
             epoch_loss += batch_loss;
 
-            // Backward pass: Compute gradient of loss w.r.t. logits
+            // ============================================================
+            // Backward pass
+            // ============================================================
+
+            // Gradient of loss w.r.t. logits (softmax + cross-entropy)
             for i in 0..current_batch_size {
                 for c in 0..NUM_CLASSES {
                     grad_logits[i * NUM_CLASSES + c] = probs[i * NUM_CLASSES + c];
@@ -455,7 +403,7 @@ fn main() {
                 *val /= current_batch_size as f32;
             }
 
-            // Backward pass: Classifier
+            // Backward: Classifier
             classifier.backward(
                 &pooled[..current_batch_size * D_MODEL],
                 &grad_logits[..current_batch_size * NUM_CLASSES],
@@ -463,37 +411,34 @@ fn main() {
                 current_batch_size,
             );
 
-            // Backward pass: Mean pooling (gradient distribution)
+            // Backward: Mean pooling (distribute gradient)
             for b in 0..current_batch_size {
-                for t in 0..SEQ_LEN {
+                for t in 0..NUM_PATCHES {
                     for d in 0..D_MODEL {
-                        grad_transformer[(b * SEQ_LEN + t) * D_MODEL + d] =
-                            grad_pooled[b * D_MODEL + d] / SEQ_LEN as f32;
+                        grad_transformer[(b * NUM_PATCHES + t) * D_MODEL + d] =
+                            grad_pooled[b * D_MODEL + d] / NUM_PATCHES as f32;
                     }
                 }
             }
 
-            // Backward pass: Transformer encoder
+            // Backward: Transformer encoder
             transformer_encoder.backward(
-                &patch_embeds[..current_batch_size * SEQ_LEN * D_MODEL],
-                &grad_transformer[..current_batch_size * SEQ_LEN * D_MODEL],
-                &mut grad_patch_embeds[..current_batch_size * SEQ_LEN * D_MODEL],
+                &patch_embeds[..current_batch_size * NUM_PATCHES * D_MODEL],
+                &grad_transformer[..current_batch_size * NUM_PATCHES * D_MODEL],
+                &mut grad_patch_embeds[..current_batch_size * NUM_PATCHES * D_MODEL],
                 current_batch_size,
             );
 
-            // Note: We skip backward through ReLU and positional encoding for simplicity
-            // The gradients flow through as-is since ReLU gradient is 1 for positive values
-            // and positional encoding is added (gradient passes through unchanged)
-
-            // Backward pass: Patch embedding
+            // Backward: Patch embedding
+            // (ReLU and positional encoding gradients pass through as-is for positive values)
             patch_embedding.backward(
-                &patches[..current_batch_size * SEQ_LEN * PATCH_DIM],
-                &grad_patch_embeds[..current_batch_size * SEQ_LEN * D_MODEL],
-                &mut grad_patches[..current_batch_size * SEQ_LEN * PATCH_DIM],
-                current_batch_size * SEQ_LEN,
+                &patches[..current_batch_size * NUM_PATCHES * PATCH_DIM],
+                &grad_patch_embeds[..current_batch_size * NUM_PATCHES * D_MODEL],
+                &mut grad_patches[..current_batch_size * NUM_PATCHES * PATCH_DIM],
+                current_batch_size * NUM_PATCHES,
             );
 
-            // Update parameters using optimizers
+            // Update parameters
             patch_embedding.update_with_optimizer(&mut patch_emb_optimizer);
             transformer_encoder.update_with_optimizer(&mut transformer_optimizer);
             classifier.update_with_optimizer(&mut classifier_optimizer);
@@ -543,7 +488,7 @@ fn main() {
         .unwrap();
         log_writer.flush().unwrap();
 
-        // Update learning rate for next epoch
+        // Update learning rate
         lr_scheduler.step();
 
         // Early stopping check
@@ -585,10 +530,16 @@ fn main() {
     println!("Test Loss: {:.4}", test_loss);
     println!("Test Accuracy: {:.2}%", test_accuracy * 100.0);
 
-    // Save model (simplified - just save a marker file)
-    fs::write("transformer_mnist_model.bin", b"model_saved").unwrap();
-    println!("\nModel saved to transformer_mnist_model.bin");
-    println!("Training logs saved to logs/transformer_mnist.csv");
+    // Save attention maps from first 16 test images
+    save_attention_maps(
+        &test_images,
+        16,
+        &patch_embedding,
+        &transformer_encoder,
+        &pos_encoding,
+    );
+
+    println!("\nTraining logs saved to logs/cifar10_vit_log.csv");
 }
 
 // ============================================================================
@@ -601,7 +552,7 @@ fn evaluate(
     labels: &[u8],
     num_samples: usize,
     batch_size: usize,
-    patch_embedding: &DenseLayer,
+    patch_embedding: &PatchEmbeddingLayer,
     transformer_encoder: &TransformerEncoder,
     classifier: &DenseLayer,
     pos_encoding: &[f32],
@@ -626,23 +577,26 @@ fn evaluate(
         let batch_labels = &labels[batch_start..batch_end];
 
         // Extract patches
-        extract_patches(
+        extract_patches_rgb(
             batch_images,
             current_batch_size,
-            &mut patches[..current_batch_size * SEQ_LEN * PATCH_DIM],
+            &mut patches[..current_batch_size * NUM_PATCHES * PATCH_DIM],
         );
 
-        // Forward pass: Patch embedding
+        // Forward: Patch embedding
         patch_embedding.forward(
-            &patches[..current_batch_size * SEQ_LEN * PATCH_DIM],
-            &mut patch_embeds[..current_batch_size * SEQ_LEN * D_MODEL],
-            current_batch_size * SEQ_LEN,
+            &patches[..current_batch_size * NUM_PATCHES * PATCH_DIM],
+            &mut patch_embeds[..current_batch_size * NUM_PATCHES * D_MODEL],
+            current_batch_size * NUM_PATCHES,
         );
+
+        // ReLU activation
+        relu_inplace(&mut patch_embeds[..current_batch_size * NUM_PATCHES * D_MODEL]);
 
         // Add positional encoding
         for b in 0..current_batch_size {
-            for t in 0..SEQ_LEN {
-                let offset = (b * SEQ_LEN + t) * D_MODEL;
+            for t in 0..NUM_PATCHES {
+                let offset = (b * NUM_PATCHES + t) * D_MODEL;
                 let pos_offset = t * D_MODEL;
                 for d in 0..D_MODEL {
                     patch_embeds[offset + d] += pos_encoding[pos_offset + d];
@@ -650,13 +604,10 @@ fn evaluate(
             }
         }
 
-        // Apply ReLU activation
-        relu_inplace(&mut patch_embeds[..current_batch_size * SEQ_LEN * D_MODEL]);
-
-        // Forward pass: Transformer encoder
+        // Forward: Transformer encoder
         transformer_encoder.forward(
-            &patch_embeds[..current_batch_size * SEQ_LEN * D_MODEL],
-            &mut transformer_out[..current_batch_size * SEQ_LEN * D_MODEL],
+            &patch_embeds[..current_batch_size * NUM_PATCHES * D_MODEL],
+            &mut transformer_out[..current_batch_size * NUM_PATCHES * D_MODEL],
             current_batch_size,
         );
 
@@ -664,14 +615,14 @@ fn evaluate(
         for b in 0..current_batch_size {
             for d in 0..D_MODEL {
                 let mut sum = 0.0;
-                for t in 0..SEQ_LEN {
-                    sum += transformer_out[(b * SEQ_LEN + t) * D_MODEL + d];
+                for t in 0..NUM_PATCHES {
+                    sum += transformer_out[(b * NUM_PATCHES + t) * D_MODEL + d];
                 }
-                pooled[b * D_MODEL + d] = sum / SEQ_LEN as f32;
+                pooled[b * D_MODEL + d] = sum / NUM_PATCHES as f32;
             }
         }
 
-        // Forward pass: Classifier
+        // Forward: Classifier
         classifier.forward(
             &pooled[..current_batch_size * D_MODEL],
             &mut logits[..current_batch_size * NUM_CLASSES],
@@ -710,4 +661,84 @@ fn evaluate(
     let accuracy = correct as f32 / num_samples as f32;
 
     (avg_loss, accuracy)
+}
+
+// ============================================================================
+// Attention Map Saving
+// ============================================================================
+
+/// Save attention weight maps from the first transformer block for visualization.
+///
+/// Runs a forward pass on the first `num_images` test images and writes the
+/// attention weights to `logs/vit_attention_maps.csv`.
+fn save_attention_maps(
+    images: &[f32],
+    num_images: usize,
+    patch_embedding: &PatchEmbeddingLayer,
+    transformer_encoder: &TransformerEncoder,
+    pos_encoding: &[f32],
+) {
+    let num_images = num_images.min(images.len() / NUM_INPUTS);
+    if num_images == 0 {
+        return;
+    }
+
+    println!("\nSaving attention maps for {} test images...", num_images);
+
+    // Run forward pass one image at a time to extract attention weights
+    let mut patches = vec![0.0f32; NUM_PATCHES * PATCH_DIM];
+    let mut patch_embeds = vec![0.0f32; NUM_PATCHES * D_MODEL];
+    let mut transformer_out = vec![0.0f32; NUM_PATCHES * D_MODEL];
+
+    let attn_file = File::create("logs/vit_attention_maps.csv").unwrap();
+    let mut attn_writer = BufWriter::new(attn_file);
+
+    // Header
+    writeln!(
+        attn_writer,
+        "# ViT Attention Maps: {} images, {} heads, {} tokens",
+        num_images, NUM_HEADS, NUM_PATCHES
+    )
+    .unwrap();
+
+    for img_idx in 0..num_images {
+        let img_data = &images[img_idx * NUM_INPUTS..(img_idx + 1) * NUM_INPUTS];
+
+        // Extract patches
+        extract_patches_rgb(img_data, 1, &mut patches);
+
+        // Patch embedding
+        patch_embedding.forward(&patches, &mut patch_embeds, NUM_PATCHES);
+
+        // ReLU
+        relu_inplace(&mut patch_embeds);
+
+        // Add positional encoding
+        for t in 0..NUM_PATCHES {
+            let offset = t * D_MODEL;
+            let pos_offset = t * D_MODEL;
+            for d in 0..D_MODEL {
+                patch_embeds[offset + d] += pos_encoding[pos_offset + d];
+            }
+        }
+
+        // Forward through transformer (to populate attention caches)
+        transformer_encoder.forward(&patch_embeds, &mut transformer_out, 1);
+
+        // Extract attention weights from first block
+        let blocks = transformer_encoder.blocks();
+        if !blocks.is_empty() {
+            let attn_weights = blocks[0].attention_layer().get_attention_weights();
+
+            // Write image header
+            writeln!(attn_writer, "# Image: {}", img_idx).unwrap();
+
+            // Write flattened attention weights [num_heads * seq_len * seq_len]
+            let values: Vec<String> = attn_weights.iter().map(|v| format!("{:.6}", v)).collect();
+            writeln!(attn_writer, "{}", values.join(",")).unwrap();
+        }
+    }
+
+    attn_writer.flush().unwrap();
+    println!("Attention maps saved to logs/vit_attention_maps.csv");
 }

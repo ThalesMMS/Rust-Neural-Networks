@@ -129,7 +129,7 @@ fn test_suggest_threshold_achieves_target() {
     let sparsity = compute_sparsity(&w);
 
     assert!(
-        sparsity >= 0.4 && sparsity <= 0.6,
+        (0.4..=0.6).contains(&sparsity),
         "Expected ~{} sparsity after applying suggested threshold, got {}",
         target_sparsity,
         sparsity

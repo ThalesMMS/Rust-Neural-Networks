@@ -14,6 +14,7 @@
 //! - `data`: Data loading utilities for various datasets
 //! - `sweep`: Hyperparameter sweep configuration structures
 //! - `profiling`: Performance profiling and metrics collection
+//! - `step_debug`: Interactive step-through debugging for training
 //! - `compression`: Model compression techniques (quantization, pruning)
 
 pub mod architecture;
@@ -26,6 +27,7 @@ pub mod data;
 pub mod layers;
 pub mod optimizers;
 pub mod profiling;
+pub mod step_debug;
 pub mod sweep;
 pub mod training;
 pub mod utils;

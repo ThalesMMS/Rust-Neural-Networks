@@ -447,21 +447,11 @@ mod tests {
         let mut grad_input = vec![0.0_f32; 2 * 4];
         layer.backward(&input, &grad_output, &mut grad_input, 2);
 
-        for i in 0..4 {
-            assert!(
-                (grad_input[i] - 1.0).abs() < 1e-6,
-                "s0 pos{}: got {}",
-                i,
-                grad_input[i]
-            );
+        for (i, &val) in grad_input[..4].iter().enumerate() {
+            assert!((val - 1.0).abs() < 1e-6, "s0 pos{}: got {}", i, val);
         }
-        for i in 4..8 {
-            assert!(
-                (grad_input[i] - 2.0).abs() < 1e-6,
-                "s1 pos{}: got {}",
-                i,
-                grad_input[i]
-            );
+        for (i, &val) in grad_input[4..8].iter().enumerate() {
+            assert!((val - 2.0).abs() < 1e-6, "s1 pos{}: got {}", i + 4, val);
         }
     }
 

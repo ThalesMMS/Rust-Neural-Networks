@@ -632,7 +632,7 @@ impl Layer for DenseLayer {
                 self.input_size,
                 grad_output,
                 self.output_size,
-                &mut *grad_w,
+                &mut grad_w,
                 self.output_size,
                 true,
                 false,

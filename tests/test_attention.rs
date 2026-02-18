@@ -488,12 +488,12 @@ fn test_attention_batch_processing() {
     let batch_size = 2;
     let mut input_batch = vec![0.0f32; batch_size * seq_len * d_model];
     // First sample
-    for i in 0..(seq_len * d_model) {
-        input_batch[i] = 0.5;
+    for val in input_batch[..(seq_len * d_model)].iter_mut() {
+        *val = 0.5;
     }
     // Second sample
-    for i in (seq_len * d_model)..(2 * seq_len * d_model) {
-        input_batch[i] = 0.5;
+    for val in input_batch[(seq_len * d_model)..(2 * seq_len * d_model)].iter_mut() {
+        *val = 0.5;
     }
 
     let mut output_batch = vec![0.0f32; batch_size * seq_len * d_model];

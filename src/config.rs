@@ -157,6 +157,9 @@ pub struct TrainingConfig {
     /// Label smoothing factor for GAN training, e.g. 0.9 for one-sided smoothing
     /// (must be in [0.0, 1.0] if specified)
     pub label_smoothing: Option<f32>,
+
+    /// Enable interactive step-through debugging during training (optional, default false)
+    pub step_debug: Option<bool>,
 }
 
 /// Loads a training configuration from a JSON file.

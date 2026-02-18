@@ -345,6 +345,7 @@ impl Layer for LayerNormLayer {
     /// let mut grad_input = vec![0.0f32; 128 * 4];
     /// layer.backward(&input, &grad_output, &mut grad_input, 4);
     /// ```
+    #[allow(clippy::needless_range_loop)]
     fn backward(
         &self,
         _input: &[f32],

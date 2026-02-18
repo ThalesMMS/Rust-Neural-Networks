@@ -73,8 +73,8 @@ mod horizontal_flip_tests {
         let channels = 3;
 
         let mut image = vec![0.0f32; width * height * channels];
-        for i in 0..image.len() {
-            image[i] = (i % 100) as f32 / 100.0;
+        for (i, pixel) in image.iter_mut().enumerate() {
+            *pixel = (i % 100) as f32 / 100.0;
         }
         let original = image.clone();
 
@@ -94,8 +94,8 @@ mod horizontal_flip_tests {
         let channels = 3;
 
         let mut image = vec![0.0f32; width * height * channels];
-        for i in 0..image.len() {
-            image[i] = (i % 50) as f32 / 50.0;
+        for (i, pixel) in image.iter_mut().enumerate() {
+            *pixel = (i % 50) as f32 / 50.0;
         }
         let original = image.clone();
 
@@ -130,8 +130,8 @@ mod horizontal_flip_tests {
         let channels = 3;
 
         let mut image = vec![0.0f32; width * height * channels];
-        for i in 0..image.len() {
-            image[i] = (i % 256) as f32 / 256.0;
+        for (i, pixel) in image.iter_mut().enumerate() {
+            *pixel = (i % 256) as f32 / 256.0;
         }
 
         random_horizontal_flip(&mut image, width, height, channels, 1.0, &mut rng);
@@ -290,8 +290,8 @@ mod random_crop_tests {
         let channels = 3;
 
         let mut image = vec![0.0f32; width * height * channels];
-        for i in 0..image.len() {
-            image[i] = (i % 25) as f32 / 25.0;
+        for (i, pixel) in image.iter_mut().enumerate() {
+            *pixel = (i % 25) as f32 / 25.0;
         }
 
         // Crop entire image with no padding
@@ -311,8 +311,8 @@ mod random_crop_tests {
         let channels = 3;
 
         let mut image = vec![0.0f32; width * height * channels];
-        for i in 0..image.len() {
-            image[i] = (i % 200) as f32 / 200.0;
+        for (i, pixel) in image.iter_mut().enumerate() {
+            *pixel = (i % 200) as f32 / 200.0;
         }
 
         let cropped = random_crop(&image, width, height, channels, 4, 32, 32, &mut rng);
@@ -350,8 +350,8 @@ mod random_crop_tests {
         let channels = 3;
 
         let mut image = vec![0.0f32; width * height * channels];
-        for i in 0..image.len() {
-            image[i] = (i % 100) as f32 / 100.0;
+        for (i, pixel) in image.iter_mut().enumerate() {
+            *pixel = (i % 100) as f32 / 100.0;
         }
 
         let mut rng1 = SimpleRng::new(100);
@@ -451,8 +451,8 @@ mod brightness_tests {
 
         // Start near boundaries
         let mut image = vec![0.0f32; width * height * channels];
-        for i in 0..image.len() {
-            image[i] = if i % 2 == 0 { 0.05 } else { 0.95 };
+        for (i, pixel) in image.iter_mut().enumerate() {
+            *pixel = if i % 2 == 0 { 0.05 } else { 0.95 };
         }
 
         // Large delta could push values outside [0.0, 1.0]
@@ -531,8 +531,8 @@ mod brightness_tests {
         let channels = 3;
 
         let mut image = vec![0.0f32; width * height * channels];
-        for i in 0..image.len() {
-            image[i] = (i % 50) as f32 / 50.0;
+        for (i, pixel) in image.iter_mut().enumerate() {
+            *pixel = (i % 50) as f32 / 50.0;
         }
         let original = image.clone();
 
@@ -566,8 +566,8 @@ mod contrast_tests {
         let channels = 3;
 
         let mut image = vec![0.0f32; width * height * channels];
-        for i in 0..image.len() {
-            image[i] = (i % 20) as f32 / 20.0;
+        for (i, pixel) in image.iter_mut().enumerate() {
+            *pixel = (i % 20) as f32 / 20.0;
         }
         let original = image.clone();
 
@@ -585,8 +585,8 @@ mod contrast_tests {
         let channels = 3;
 
         let mut image = vec![0.0f32; width * height * channels];
-        for i in 0..image.len() {
-            image[i] = (i % 10) as f32 / 10.0;
+        for (i, pixel) in image.iter_mut().enumerate() {
+            *pixel = (i % 10) as f32 / 10.0;
         }
 
         // High contrast factor could push values outside [0.0, 1.0]
@@ -609,8 +609,8 @@ mod contrast_tests {
         let channels = 3;
 
         let mut image = vec![0.0f32; width * height * channels];
-        for i in 0..image.len() {
-            image[i] = (i % 30) as f32 / 30.0;
+        for (i, pixel) in image.iter_mut().enumerate() {
+            *pixel = (i % 30) as f32 / 30.0;
         }
 
         let original_mean: f32 = image.iter().sum::<f32>() / image.len() as f32;
@@ -678,8 +678,8 @@ mod contrast_tests {
         let channels = 3;
 
         let mut image = vec![0.0f32; width * height * channels];
-        for i in 0..image.len() {
-            image[i] = (i % 40) as f32 / 40.0;
+        for (i, pixel) in image.iter_mut().enumerate() {
+            *pixel = (i % 40) as f32 / 40.0;
         }
         let original = image.clone();
 
@@ -808,8 +808,8 @@ mod saturation_tests {
         random_saturation(&mut image, width, height, channels, 0.3, &mut rng);
 
         // After saturation adjustment, values should still be valid
-        for i in 0..3 {
-            assert!((0.0..=1.0).contains(&image[i]));
+        for item in image.iter().take(3) {
+            assert!((0.0..=1.0).contains(item));
         }
     }
 
@@ -933,8 +933,8 @@ mod combined_augmentation_tests {
 
         // Start with varied image
         let mut image = vec![0.0f32; width * height * channels];
-        for i in 0..image.len() {
-            image[i] = (i % 100) as f32 / 100.0;
+        for (i, pixel) in image.iter_mut().enumerate() {
+            *pixel = (i % 100) as f32 / 100.0;
         }
 
         // Apply all augmentations in sequence
@@ -990,8 +990,8 @@ mod combined_augmentation_tests {
         let channels = 3;
 
         let mut image = vec![0.0f32; width * height * channels];
-        for i in 0..image.len() {
-            image[i] = (i % 150) as f32 / 150.0;
+        for (i, pixel) in image.iter_mut().enumerate() {
+            *pixel = (i % 150) as f32 / 150.0;
         }
 
         let mut rng = SimpleRng::new(111);
@@ -1089,8 +1089,8 @@ mod edge_case_tests {
 
         // Test with values at boundaries
         let mut image = vec![0.0f32; width * height * channels];
-        for i in 0..image.len() {
-            image[i] = if i % 2 == 0 { 0.0 } else { 1.0 };
+        for (i, pixel) in image.iter_mut().enumerate() {
+            *pixel = if i % 2 == 0 { 0.0 } else { 1.0 };
         }
 
         random_brightness(&mut image, width, height, channels, 1.0, &mut rng);
@@ -1109,8 +1109,8 @@ mod edge_case_tests {
         let channels = 3;
 
         let mut image = vec![0.0f32; width * height * channels];
-        for i in 0..image.len() {
-            image[i] = if i % 2 == 0 { 0.0 } else { 1.0 };
+        for (i, pixel) in image.iter_mut().enumerate() {
+            *pixel = if i % 2 == 0 { 0.0 } else { 1.0 };
         }
 
         random_contrast(&mut image, width, height, channels, 0.99, &mut rng);

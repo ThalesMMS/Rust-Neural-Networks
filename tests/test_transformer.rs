@@ -5,34 +5,8 @@
 //! integration with the Layer trait.
 
 use rust_neural_networks::layers::{Layer, TransformerBlock, TransformerEncoder};
-use rust_neural_networks::optimizers::{Adam, Optimizer, SGD};
+use rust_neural_networks::optimizers::{Adam, SGD};
 use rust_neural_networks::utils::rng::SimpleRng;
-
-/// Helper function to compute numerical gradient
-fn compute_numerical_gradient(
-    block: &TransformerBlock,
-    input: &[f32],
-    batch_size: usize,
-    param_idx: usize,
-    epsilon: f32,
-) -> f32 {
-    let mut block_plus = Box::new(create_test_block_with_seed(42));
-    let mut block_minus = Box::new(create_test_block_with_seed(42));
-
-    // We can't easily modify individual parameters in the composed block,
-    // so this is a simplified numerical gradient check
-    // For a full implementation, we'd need to expose parameter getters/setters
-
-    // For now, we'll return 0.0 as a placeholder
-    // A full implementation would require refactoring the layer to expose parameters
-    0.0
-}
-
-/// Helper to create a test block with a specific seed
-fn create_test_block_with_seed(seed: u64) -> TransformerBlock {
-    let mut rng = SimpleRng::new(seed);
-    TransformerBlock::new(32, 2, 64, &mut rng)
-}
 
 #[test]
 fn test_transformer_block_creation() {
@@ -160,8 +134,8 @@ fn test_transformer_block_residual_connections() {
 
     // Use varied input instead of constant (layer norm would make constant input all zeros)
     let mut input = vec![0.0f32; batch_size * seq_len * 16];
-    for i in 0..input.len() {
-        input[i] = ((i as f32) * 0.1).sin();
+    for (i, val) in input.iter_mut().enumerate() {
+        *val = ((i as f32) * 0.1).sin();
     }
     let mut output = vec![0.0f32; batch_size * seq_len * 16];
 
@@ -353,12 +327,12 @@ fn test_transformer_block_batch_consistency() {
     let seq_len = 4;
 
     // Single sample forward
-    let input_single = vec![0.5f32; 1 * seq_len * 32];
-    let mut output_single = vec![0.0f32; 1 * seq_len * 32];
+    let input_single = vec![0.5f32; seq_len * 32];
+    let mut output_single = vec![0.0f32; seq_len * 32];
     block.forward(&input_single, &mut output_single, 1);
 
     // Batch of 2 identical samples
-    let mut input_batch = vec![0.5f32; 2 * seq_len * 32];
+    let input_batch = vec![0.5f32; 2 * seq_len * 32];
     let mut output_batch = vec![0.0f32; 2 * seq_len * 32];
     block.forward(&input_batch, &mut output_batch, 2);
 
@@ -381,8 +355,8 @@ fn test_transformer_block_gradient_flow() {
 
     // Use varied input
     let mut input = vec![0.0f32; batch_size * seq_len * 32];
-    for i in 0..input.len() {
-        input[i] = ((i as f32) * 0.05).sin() * 0.5;
+    for (i, val) in input.iter_mut().enumerate() {
+        *val = ((i as f32) * 0.05).sin() * 0.5;
     }
     let mut output = vec![0.0f32; batch_size * seq_len * 32];
 
@@ -710,8 +684,8 @@ fn test_transformer_stack_gradient_flow_through_depth() {
 
     // Use varied input
     let mut input = vec![0.0f32; batch_size * seq_len * 32];
-    for i in 0..input.len() {
-        input[i] = ((i as f32) * 0.05).sin() * 0.5;
+    for (i, val) in input.iter_mut().enumerate() {
+        *val = ((i as f32) * 0.05).sin() * 0.5;
     }
     let mut output = vec![0.0f32; batch_size * seq_len * 32];
 

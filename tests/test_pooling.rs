@@ -387,21 +387,21 @@ fn test_global_avg_pool_backward_batch() {
     layer.backward(&input, &grad_output, &mut grad_input, 2);
 
     // Sample 0: gradient spread over 4 positions -> 4.0 / 4 = 1.0 each
-    for i in 0..4 {
+    for (i, &val) in grad_input[..4].iter().enumerate() {
         assert!(
-            (grad_input[i] - 1.0).abs() < 1e-6,
+            (val - 1.0).abs() < 1e-6,
             "s0 pos{}: expected 1.0, got {}",
             i,
-            grad_input[i]
+            val
         );
     }
     // Sample 1: gradient spread over 4 positions -> 8.0 / 4 = 2.0 each
-    for i in 4..8 {
+    for (i, &val) in grad_input[4..8].iter().enumerate() {
         assert!(
-            (grad_input[i] - 2.0).abs() < 1e-6,
+            (val - 2.0).abs() < 1e-6,
             "s1 pos{}: expected 2.0, got {}",
             i,
-            grad_input[i]
+            val
         );
     }
 }

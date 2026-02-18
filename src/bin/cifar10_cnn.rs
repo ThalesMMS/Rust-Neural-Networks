@@ -526,6 +526,7 @@ fn save_model(model: &Cnn, filename: &str) {
 /// save_model(&model, "cifar10_cnn_model_best.bin");
 /// let loaded = load_model("cifar10_cnn_model_best.bin");
 /// ```
+#[allow(dead_code)]
 fn load_model(filename: &str) -> Cnn {
     use std::io::Read;
 
@@ -774,6 +775,7 @@ fn parse_arch_path(args: &[String]) -> Option<String> {
 /// let args = vec!["prog".to_string(), "--config".to_string(), "c.json".to_string()];
 /// // parse_config_paths(&args) would return ("c.json".to_string(), None)
 /// ```
+#[allow(dead_code)]
 fn parse_config_paths(args: &[String]) -> (String, Option<String>) {
     (
         parse_config_path(args, DEFAULT_CONFIG_PATH),
@@ -1096,7 +1098,7 @@ fn main() {
 
             // Print progress every 100 batches
             let batch_idx = batch_start / batch_size;
-            let total_batches = (train_n + batch_size - 1) / batch_size;
+            let total_batches = train_n.div_ceil(batch_size);
             if batch_idx % 100 == 0 || batch_idx == total_batches - 1 {
                 let progress_pct = (batch_idx as f32 / total_batches as f32) * 100.0;
                 print!(
@@ -1291,7 +1293,7 @@ mod tests {
         };
 
         let batch_size = 2;
-        let input_size = 1 * 4 * 4; // 1 channel, 4x4 image
+        let input_size = 4 * 4; // 1 channel, 4x4 image
         let input = vec![1.0f32; batch_size * input_size];
 
         let num_layers = model.layers.len();
@@ -1402,6 +1404,7 @@ mod tests {
                 g_lr: None,
                 d_lr: None,
                 label_smoothing: None,
+                step_debug: None,
             }
         }
 

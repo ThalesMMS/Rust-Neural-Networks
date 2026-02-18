@@ -235,7 +235,7 @@ fn test_cifar10_deep_cnn_batchnorm_integration() {
 /// - Per layer: type_id (u8) followed by layer-specific data:
 ///   - Dense (0): in_size (u32), out_size (u32), weights (f32*), biases (f32*)
 ///   - Conv2D (1): in_ch/out_ch/kernel (u32), padding (i32), stride/height/width (u32),
-///                 weights (f32*), biases (f32*)
+///     weights (f32*), biases (f32*)
 ///   - BatchNorm (2): size (u32), gamma (f32*), beta (f32*), running_mean (f32*), running_var (f32*)
 ///   - Dropout (3): size (u32), drop_rate (f32)
 fn serialize_layers(layers: &[Box<dyn Layer>], writer: &mut impl Write) {

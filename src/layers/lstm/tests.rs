@@ -484,9 +484,9 @@ fn test_lstm_backward_bptt_sequence_full_pass() {
 
         // Re-run the forward up to time step t to restore cached values
         layer.reset_state();
-        for k in 0..=t {
+        for input in inputs.iter().take(t + 1) {
             let mut dummy_out = vec![0.0f32; output_size];
-            layer.forward(&inputs[k], &mut dummy_out, batch_size);
+            layer.forward(input, &mut dummy_out, batch_size);
         }
 
         (dh, dc) = layer.backward_bptt(&inputs[t], &grad_out, &mut grad_in, &dh, &dc, batch_size);

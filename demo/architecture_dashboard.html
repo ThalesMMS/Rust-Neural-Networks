@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Architecture Comparison Dashboard - Rust Neural Networks</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        /* ========== CSS Reset & Base ========== */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --primary-color: #4A90E2;
+            --primary-hover: #357ABD;
+            --secondary-color: #6c757d;
+            --success-color: #5CB85C;
+            --warning-color: #F0AD4E;
+            --error-color: #D9534F;
+            --background-color: #f5f7fa;
+            --card-background: #ffffff;
+            --text-color: #333333;
+            --text-muted: #6c757d;
+            --border-color: #e0e0e0;
+            --spacing-xs: 0.5rem;
+            --spacing-sm: 1rem;
+            --spacing-md: 1.5rem;
+            --spacing-lg: 2rem;
+            --transition-fast: 0.2s ease;
+
+            /* Model colors */
+            --mlp-color: #4A90E2;
+            --mlp-bg: rgba(74, 144, 226, 0.15);
+            --cnn-color: #5CB85C;
+            --cnn-bg: rgba(92, 184, 92, 0.15);
+            --attention-color: #F0AD4E;
+            --attention-bg: rgba(240, 173, 78, 0.15);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+                Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        /* ========== Layout ========== */
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: var(--spacing-md);
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: var(--spacing-lg);
+            padding: var(--spacing-lg) 0 var(--spacing-md);
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--primary-color);
+            margin-bottom: var(--spacing-xs);
+        }
+
+        .subtitle {
+            font-size: 1.05rem;
+            color: var(--text-muted);
+            max-width: 640px;
+            margin: 0 auto var(--spacing-sm);
+        }
+
+        .header-nav {
+            display: flex;
+            gap: var(--spacing-sm);
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .nav-link {
+            color: var(--primary-color);
+            text-decoration: none;
+            font-size: 0.95rem;
+            padding: 4px 12px;
+            border-radius: 4px;
+            transition: background var(--transition-fast);
+        }
+
+        .nav-link:hover {
+            background: var(--mlp-bg);
+        }
+
+        /* ========== Model Toggle Bar ========== */
+        .toggle-bar {
+            display: flex;
+            justify-content: center;
+            gap: var(--spacing-md);
+            margin-bottom: var(--spacing-lg);
+            flex-wrap: wrap;
+        }
+
+        .toggle-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 2px solid var(--border-color);
+            transition: all var(--transition-fast);
+            user-select: none;
+        }
+
+        .toggle-item:hover { border-color: var(--secondary-color); }
+        .toggle-item.active[data-model="mnist_mlp"] { border-color: var(--mlp-color); background: var(--mlp-bg); }
+        .toggle-item.active[data-model="mnist_cnn"] { border-color: var(--cnn-color); background: var(--cnn-bg); }
+        .toggle-item.active[data-model="mnist_attention"] { border-color: var(--attention-color); background: var(--attention-bg); }
+
+        .toggle-dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            border: 2px solid var(--border-color);
+        }
+
+        .toggle-item.active .toggle-dot { border-color: transparent; }
+        .toggle-item[data-model="mnist_mlp"] .toggle-dot { background: var(--mlp-color); }
+        .toggle-item[data-model="mnist_cnn"] .toggle-dot { background: var(--cnn-color); }
+        .toggle-item[data-model="mnist_attention"] .toggle-dot { background: var(--attention-color); }
+
+        .toggle-label { font-weight: 600; font-size: 0.95rem; }
+
+        /* ========== Dashboard Grid ========== */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--spacing-md);
+        }
+
+        .card {
+            background: var(--card-background);
+            border-radius: 12px;
+            padding: var(--spacing-md);
+            border: 1px solid var(--border-color);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        }
+
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: var(--spacing-sm);
+            color: var(--text-color);
+        }
+
+        .card-full { grid-column: 1 / -1; }
+
+        .chart-wrapper {
+            position: relative;
+            height: 300px;
+        }
+
+        /* ========== Summary Table ========== */
+        .summary-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.95rem;
+        }
+
+        .summary-table th,
+        .summary-table td {
+            padding: 10px 14px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .summary-table th {
+            font-weight: 600;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .summary-table tbody tr { transition: background var(--transition-fast); }
+        .summary-table tbody tr:hover { background: var(--background-color); }
+
+        .model-badge {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        /* ========== Layer Breakdown ========== */
+        .layer-section { margin-bottom: var(--spacing-sm); }
+
+        .layer-section-header {
+            font-weight: 600;
+            font-size: 0.95rem;
+            padding: 8px 0;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .layer-section-header:hover { color: var(--primary-color); }
+
+        .layer-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+            margin-top: 4px;
+        }
+
+        .layer-table th,
+        .layer-table td {
+            padding: 6px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .layer-table th {
+            font-weight: 600;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+        }
+
+        /* ========== No Data Message ========== */
+        .no-data {
+            text-align: center;
+            color: var(--text-muted);
+            padding: var(--spacing-lg);
+            font-style: italic;
+        }
+
+        /* ========== Footer ========== */
+        footer {
+            text-align: center;
+            padding: var(--spacing-lg) 0 var(--spacing-md);
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        footer a { color: var(--primary-color); text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+
+        /* ========== Responsive ========== */
+        @media (max-width: 768px) {
+            .dashboard-grid { grid-template-columns: 1fr; }
+            .card-full { grid-column: 1; }
+            header h1 { font-size: 1.8rem; }
+            .chart-wrapper { height: 250px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Architecture Comparison Dashboard</h1>
+            <p class="subtitle">
+                Compare MLP, CNN, and Attention architectures on MNIST &mdash; accuracy, training speed,
+                parameter efficiency, and computational cost at a glance
+            </p>
+            <nav class="header-nav">
+                <a href="index.html" class="nav-link">&larr; Digit Recognizer</a>
+                <a href="gradient_viz.html" class="nav-link">Gradient Visualizer &rarr;</a>
+            </nav>
+        </header>
+
+        <!-- Model Toggles -->
+        <div class="toggle-bar" id="toggle-bar"></div>
+
+        <!-- Dashboard Grid -->
+        <div class="dashboard-grid">
+            <!-- Summary Table -->
+            <div class="card card-full">
+                <h2 class="card-title">Summary</h2>
+                <table class="summary-table">
+                    <thead>
+                        <tr>
+                            <th>Model</th>
+                            <th>Parameters</th>
+                            <th>FLOPS (batch=1)</th>
+                            <th>Memory</th>
+                            <th>Best Accuracy</th>
+                            <th>Total Training Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="summary-body"></tbody>
+                </table>
+            </div>
+
+            <!-- Accuracy Curves -->
+            <div class="card">
+                <h2 class="card-title">Validation Accuracy</h2>
+                <div class="chart-wrapper">
+                    <canvas id="accuracy-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Loss Curves -->
+            <div class="card">
+                <h2 class="card-title">Training Loss</h2>
+                <div class="chart-wrapper">
+                    <canvas id="loss-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Parameter Count Bar -->
+            <div class="card">
+                <h2 class="card-title">Parameter Count</h2>
+                <div class="chart-wrapper">
+                    <canvas id="params-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- FLOPS Comparison Bar -->
+            <div class="card">
+                <h2 class="card-title">FLOPS Comparison</h2>
+                <div class="chart-wrapper">
+                    <canvas id="flops-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Time per Epoch -->
+            <div class="card">
+                <h2 class="card-title">Average Time per Epoch</h2>
+                <div class="chart-wrapper">
+                    <canvas id="time-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Layer Breakdown -->
+            <div class="card">
+                <h2 class="card-title">Layer Breakdown</h2>
+                <div id="layer-breakdown"></div>
+            </div>
+        </div>
+
+        <footer>
+            <p>
+                Generated from real training data.
+                Part of the <a href="https://github.com/yourusername/rust-neural-networks">Rust Neural Networks</a> project.
+            </p>
+        </footer>
+    </div>
+
+    <script>
+    // ========================================================================
+    // State
+    // ========================================================================
+    let dashboardData = null;
+    const activeModels = new Set();
+    const modelColors = {
+        mnist_mlp:       { color: '#4A90E2', bg: 'rgba(74, 144, 226, 0.15)' },
+        mnist_cnn:       { color: '#5CB85C', bg: 'rgba(92, 184, 92, 0.15)' },
+        mnist_attention: { color: '#F0AD4E', bg: 'rgba(240, 173, 78, 0.15)' },
+    };
+
+    // Chart instances
+    let accuracyChart, lossChart, paramsChart, flopsChart, timeChart;
+
+    // ========================================================================
+    // Data Loading
+    // ========================================================================
+    async function loadData() {
+        try {
+            const resp = await fetch('dashboard_data.json');
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            dashboardData = await resp.json();
+            init();
+        } catch (e) {
+            document.querySelector('.dashboard-grid').innerHTML =
+                `<div class="card card-full"><div class="no-data">
+                    Could not load dashboard_data.json.<br>
+                    Run: <code>cargo run --release --bin generate_dashboard_data</code>
+                </div></div>`;
+        }
+    }
+
+    // ========================================================================
+    // Initialization
+    // ========================================================================
+    function init() {
+        // Enable all models by default
+        dashboardData.models.forEach(m => activeModels.add(m.id));
+        buildToggles();
+        createCharts();
+        updateAll();
+    }
+
+    // ========================================================================
+    // Toggle Bar
+    // ========================================================================
+    function buildToggles() {
+        const bar = document.getElementById('toggle-bar');
+        bar.innerHTML = '';
+        dashboardData.models.forEach(m => {
+            const div = document.createElement('div');
+            div.className = 'toggle-item active';
+            div.dataset.model = m.id;
+            div.innerHTML = `<span class="toggle-dot"></span><span class="toggle-label">${m.name}</span>`;
+            div.addEventListener('click', () => {
+                if (activeModels.has(m.id)) {
+                    activeModels.delete(m.id);
+                    div.classList.remove('active');
+                } else {
+                    activeModels.add(m.id);
+                    div.classList.add('active');
+                }
+                updateAll();
+            });
+            bar.appendChild(div);
+        });
+    }
+
+    // ========================================================================
+    // Helpers
+    // ========================================================================
+    function visibleModels() {
+        return dashboardData.models.filter(m => activeModels.has(m.id));
+    }
+
+    function fmtNum(n) {
+        if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+        if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+        return n.toLocaleString();
+    }
+
+    function fmtBytes(b) {
+        if (b >= 1048576) return (b / 1048576).toFixed(2) + ' MB';
+        if (b >= 1024) return (b / 1024).toFixed(1) + ' KB';
+        return b + ' B';
+    }
+
+    function fmtTime(s) {
+        if (s >= 60) return (s / 60).toFixed(1) + 'm';
+        return s.toFixed(1) + 's';
+    }
+
+    // ========================================================================
+    // Update All
+    // ========================================================================
+    function updateAll() {
+        updateSummaryTable();
+        updateAccuracyChart();
+        updateLossChart();
+        updateBarCharts();
+        updateLayerBreakdown();
+    }
+
+    // ========================================================================
+    // Summary Table
+    // ========================================================================
+    function updateSummaryTable() {
+        const tbody = document.getElementById('summary-body');
+        tbody.innerHTML = '';
+        visibleModels().forEach(m => {
+            const c = modelColors[m.id]?.color || '#888';
+            const bestAcc = m.training ? m.training.best_accuracy.toFixed(2) + '%' : 'N/A';
+            const totalTime = m.training ? fmtTime(m.training.total_time) : 'N/A';
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><span class="model-badge" style="background:${c}"></span>${m.name}</td>
+                <td>${fmtNum(m.architecture.total_params)}</td>
+                <td>${fmtNum(m.architecture.total_flops)}</td>
+                <td>${fmtBytes(m.architecture.memory_bytes)}</td>
+                <td><strong>${bestAcc}</strong></td>
+                <td>${totalTime}</td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+
+    // ========================================================================
+    // Line Charts
+    // ========================================================================
+    const lineChartOpts = (yLabel) => ({
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+            legend: { display: true, position: 'top', labels: { usePointStyle: true, pointStyle: 'circle' } },
+            tooltip: { mode: 'index', intersect: false },
+        },
+        scales: {
+            x: { title: { display: true, text: 'Epoch' }, grid: { color: 'rgba(0,0,0,0.05)' } },
+            y: { title: { display: true, text: yLabel }, grid: { color: 'rgba(0,0,0,0.05)' } },
+        },
+    });
+
+    function createCharts() {
+        accuracyChart = new Chart(document.getElementById('accuracy-chart'), {
+            type: 'line', data: { datasets: [] }, options: lineChartOpts('Accuracy (%)'),
+        });
+        lossChart = new Chart(document.getElementById('loss-chart'), {
+            type: 'line', data: { datasets: [] }, options: lineChartOpts('Loss'),
+        });
+
+        const barOpts = (label) => ({
+            responsive: true,
+            maintainAspectRatio: false,
+            indexAxis: 'y',
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmtNum(ctx.raw)}` } },
+            },
+            scales: {
+                x: { title: { display: true, text: label }, grid: { color: 'rgba(0,0,0,0.05)' } },
+                y: { grid: { display: false } },
+            },
+        });
+
+        paramsChart = new Chart(document.getElementById('params-chart'), {
+            type: 'bar', data: { labels: [], datasets: [] }, options: barOpts('Parameters'),
+        });
+        flopsChart = new Chart(document.getElementById('flops-chart'), {
+            type: 'bar', data: { labels: [], datasets: [] }, options: barOpts('FLOPS'),
+        });
+        timeChart = new Chart(document.getElementById('time-chart'), {
+            type: 'bar', data: { labels: [], datasets: [] },
+            options: {
+                ...barOpts('Seconds'),
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw.toFixed(2)}s` } },
+                },
+            },
+        });
+    }
+
+    function updateAccuracyChart() {
+        const datasets = visibleModels()
+            .filter(m => m.training)
+            .map(m => ({
+                label: m.name,
+                data: m.training.epochs.map(e => ({ x: e.epoch, y: e.val_accuracy })),
+                borderColor: modelColors[m.id]?.color || '#888',
+                backgroundColor: modelColors[m.id]?.bg || 'rgba(0,0,0,0.1)',
+                tension: 0.3,
+                pointRadius: 4,
+                pointHoverRadius: 6,
+                fill: false,
+            }));
+        accuracyChart.data.datasets = datasets;
+        accuracyChart.update();
+    }
+
+    function updateLossChart() {
+        const datasets = [];
+        visibleModels().filter(m => m.training).forEach(m => {
+            const c = modelColors[m.id]?.color || '#888';
+            datasets.push({
+                label: m.name + ' (train)',
+                data: m.training.epochs.map(e => ({ x: e.epoch, y: e.train_loss })),
+                borderColor: c,
+                borderDash: [],
+                tension: 0.3,
+                pointRadius: 3,
+                fill: false,
+            });
+            datasets.push({
+                label: m.name + ' (val)',
+                data: m.training.epochs.map(e => ({ x: e.epoch, y: e.val_loss })),
+                borderColor: c,
+                borderDash: [5, 5],
+                tension: 0.3,
+                pointRadius: 3,
+                fill: false,
+            });
+        });
+        lossChart.data.datasets = datasets;
+        lossChart.update();
+    }
+
+    // ========================================================================
+    // Bar Charts
+    // ========================================================================
+    function updateBarCharts() {
+        const visible = visibleModels();
+        const labels = visible.map(m => m.name);
+        const colors = visible.map(m => modelColors[m.id]?.color || '#888');
+        const bgs = visible.map(m => modelColors[m.id]?.bg || 'rgba(0,0,0,0.1)');
+
+        // Params
+        paramsChart.data.labels = labels;
+        paramsChart.data.datasets = [{
+            label: 'Parameters',
+            data: visible.map(m => m.architecture.total_params),
+            backgroundColor: colors,
+            borderColor: colors,
+            borderWidth: 1,
+        }];
+        paramsChart.update();
+
+        // FLOPS
+        flopsChart.data.labels = labels;
+        flopsChart.data.datasets = [{
+            label: 'FLOPS',
+            data: visible.map(m => m.architecture.total_flops),
+            backgroundColor: colors,
+            borderColor: colors,
+            borderWidth: 1,
+        }];
+        flopsChart.update();
+
+        // Time per epoch
+        timeChart.data.labels = labels;
+        timeChart.data.datasets = [{
+            label: 'Avg Time/Epoch',
+            data: visible.map(m => {
+                if (!m.training || m.training.epochs.length === 0) return 0;
+                const sum = m.training.epochs.reduce((a, e) => a + e.train_time, 0);
+                return sum / m.training.epochs.length;
+            }),
+            backgroundColor: colors,
+            borderColor: colors,
+            borderWidth: 1,
+        }];
+        timeChart.update();
+    }
+
+    // ========================================================================
+    // Layer Breakdown
+    // ========================================================================
+    function updateLayerBreakdown() {
+        const container = document.getElementById('layer-breakdown');
+        container.innerHTML = '';
+        const visible = visibleModels();
+        if (visible.length === 0) {
+            container.innerHTML = '<div class="no-data">Select a model to see layer details.</div>';
+            return;
+        }
+        visible.forEach(m => {
+            const section = document.createElement('div');
+            section.className = 'layer-section';
+            const c = modelColors[m.id]?.color || '#888';
+            section.innerHTML = `
+                <div class="layer-section-header">
+                    <span class="model-badge" style="background:${c}"></span>
+                    ${m.name}
+                </div>
+                <table class="layer-table">
+                    <thead>
+                        <tr><th>Layer</th><th>Type</th><th>Params</th><th>FLOPS</th></tr>
+                    </thead>
+                    <tbody>
+                        ${m.architecture.layers.map(l => `
+                            <tr>
+                                <td>${l.name}</td>
+                                <td>${l.type}</td>
+                                <td>${fmtNum(l.params)}</td>
+                                <td>${fmtNum(l.flops)}</td>
+                            </tr>
+                        `).join('')}
+                        <tr style="font-weight:600; border-top:2px solid var(--border-color)">
+                            <td colspan="2">Total</td>
+                            <td>${fmtNum(m.architecture.total_params)}</td>
+                            <td>${fmtNum(m.architecture.total_flops)}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            `;
+            container.appendChild(section);
+        });
+    }
+
+    // ========================================================================
+    // Boot
+    // ========================================================================
+    document.addEventListener('DOMContentLoaded', loadData);
+    </script>
+</body>
+</html>

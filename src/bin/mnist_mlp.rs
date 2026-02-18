@@ -8,9 +8,11 @@ use rust_neural_networks::config::load_config;
 use rust_neural_networks::data::mnist::{read_mnist_images, read_mnist_labels};
 use rust_neural_networks::layers::{DenseLayer, Layer};
 use rust_neural_networks::optimizers::{Adam, Optimizer, SGD};
+use rust_neural_networks::step_debug::StepDebugger;
 use rust_neural_networks::training::{
     compute_softmax_cross_entropy, evaluate_batch_accuracy, gather_batch, parse_config_path,
-    print_training_config, CsvTrainingLogger, EarlyStopping, EarlyStoppingAction, TrainingMetrics,
+    parse_step_flag, print_training_config, CsvTrainingLogger, EarlyStopping, EarlyStoppingAction,
+    TrainingMetrics,
 };
 use rust_neural_networks::utils::activations::{relu_inplace, softmax_rows};
 use rust_neural_networks::utils::lr_scheduler::{create_scheduler_from_config, LRScheduler};
@@ -149,6 +151,7 @@ fn train(
     scheduler: &mut dyn LRScheduler,
     params: &TrainHyperparams,
     aug_rng: &mut SimpleRng,
+    debugger: &mut StepDebugger,
 ) {
     // Attempt to create logs dir if not exists
     std::fs::create_dir_all("./logs").ok();
@@ -213,6 +216,8 @@ fn train(
         params.early_stopping_min_delta,
     );
 
+    let total_batches = (train_data.num_samples + params.batch_size - 1) / params.batch_size;
+
     for epoch in 0..params.epochs {
         let mut total_loss = 0.0f32;
         let start_time = Instant::now();
@@ -226,6 +231,8 @@ fn train(
         let mut output_bias_grad_sum = 0.0f32;
         let mut batch_count_total = 0usize;
 
+        debugger.on_epoch_start(epoch + 1);
+
         // Fisher-Yates shuffle.
         if train_data.num_samples > 1 {
             for i in (1..train_data.num_samples).rev() {
@@ -236,6 +243,9 @@ fn train(
 
         for batch_start in (0..train_data.num_samples).step_by(params.batch_size) {
             let batch_count = (train_data.num_samples - batch_start).min(params.batch_size);
+            let batch_idx = batch_start / params.batch_size + 1;
+
+            debugger.set_context(epoch + 1, batch_idx, total_batches, batch_count);
 
             // Gather a random mini-batch into contiguous buffers.
             // Apply augmentation only during training if enabled.
@@ -280,18 +290,38 @@ fn train(
 
             // Forward: hidden layer.
             let a1_len = batch_count * NUM_HIDDEN;
+            debugger.before_forward(
+                "hidden_layer",
+                &batch_inputs,
+                batch_count,
+                NUM_INPUTS,
+                NUM_HIDDEN,
+                nn.hidden_layer.parameter_count(),
+            );
             nn.hidden_layer.forward(&batch_inputs, &mut a1, batch_count);
+            debugger.after_forward("hidden_layer", &a1, batch_count, NUM_HIDDEN);
             relu_inplace(&mut a1[..a1_len]);
+            debugger.after_activation("ReLU", &a1[..a1_len], batch_count, NUM_HIDDEN);
 
             // Forward: output layer.
             let a2_len = batch_count * NUM_OUTPUTS;
+            debugger.before_forward(
+                "output_layer",
+                &a1,
+                batch_count,
+                NUM_HIDDEN,
+                NUM_OUTPUTS,
+                nn.output_layer.parameter_count(),
+            );
             nn.output_layer.forward(&a1, &mut a2, batch_count);
+            debugger.after_forward("output_layer", &a2, batch_count, NUM_OUTPUTS);
             assert_eq!(
                 a2[..a2_len].len(),
                 batch_count * NUM_OUTPUTS,
                 "Buffer size mismatch before softmax_rows"
             );
             softmax_rows(&mut a2[..a2_len], batch_count, NUM_OUTPUTS);
+            debugger.after_activation("Softmax", &a2[..a2_len], batch_count, NUM_OUTPUTS);
 
             // Output delta and loss using shared compute_softmax_cross_entropy (scale=1.0).
             let batch_loss = compute_softmax_cross_entropy(
@@ -303,9 +333,23 @@ fn train(
                 1.0,
             );
             total_loss += batch_loss;
+            debugger.after_loss(
+                batch_loss / batch_count as f32,
+                &dz2,
+                batch_count,
+                NUM_OUTPUTS,
+            );
 
             // Backward: output layer.
             nn.output_layer.backward(&a1, &dz2, &mut dz1, batch_count);
+            debugger.after_backward(
+                "output_layer",
+                &dz2,
+                &dz1,
+                batch_count,
+                NUM_OUTPUTS,
+                NUM_HIDDEN,
+            );
 
             // Apply ReLU derivative to hidden layer gradient.
             let dz1_len = batch_count * NUM_HIDDEN;
@@ -314,6 +358,7 @@ fn train(
                     dz1[i] = 0.0;
                 }
             }
+            debugger.after_relu_derivative(&dz1[..dz1_len], batch_count, NUM_HIDDEN);
 
             // Backward: hidden layer.
             let grad_len = batch_count * NUM_INPUTS;
@@ -322,6 +367,14 @@ fn train(
                 &dz1,
                 &mut unused_grad[..grad_len],
                 batch_count,
+            );
+            debugger.after_backward(
+                "hidden_layer",
+                &dz1,
+                &unused_grad[..grad_len],
+                batch_count,
+                NUM_HIDDEN,
+                NUM_INPUTS,
             );
 
             // Log gradient magnitudes before parameter update (accumulate for epoch)
@@ -332,6 +385,14 @@ fn train(
             output_weight_grad_sum += output_w_norm;
             output_bias_grad_sum += output_b_norm;
             batch_count_total += 1;
+
+            debugger.after_update(
+                &[
+                    ("hidden_layer", hidden_w_norm, hidden_b_norm),
+                    ("output_layer", output_w_norm, output_b_norm),
+                ],
+                current_lr,
+            );
 
             // Update parameters using optimizer.
             nn.output_layer.update_with_optimizer(optimizer.as_mut());
@@ -628,6 +689,9 @@ fn main() {
     let brightness_jitter = config.brightness_jitter;
     let contrast_jitter = config.contrast_jitter;
 
+    // Resolve step-through debug mode from CLI flag or config
+    let step_debug_enabled = parse_step_flag(&args) || config.step_debug.unwrap_or(false);
+
     // Print loaded configuration using shared print_training_config
     print_training_config(
         &config,
@@ -693,6 +757,8 @@ fn main() {
     let mut aug_rng = SimpleRng::new(2);
     aug_rng.reseed_from_time();
 
+    let mut debugger = StepDebugger::new(step_debug_enabled);
+
     println!("Training neural network...");
     let train_start = Instant::now();
     let train_data = DataSet {
@@ -725,6 +791,7 @@ fn main() {
         scheduler.as_mut(),
         &hyperparams,
         &mut aug_rng,
+        &mut debugger,
     );
     let train_time = train_start.elapsed().as_secs_f64();
     println!("Total training time: {:.2} seconds", train_time);

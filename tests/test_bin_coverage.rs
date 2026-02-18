@@ -112,6 +112,7 @@ mod mnist_mlp_bin {
                 contrast_jitter: None,
             };
             let mut aug_rng = SimpleRng::new(42);
+            let mut debugger = StepDebugger::new(false);
             train(
                 &mut nn,
                 &train_data,
@@ -120,6 +121,7 @@ mod mnist_mlp_bin {
                 &mut scheduler,
                 &params,
                 &mut aug_rng,
+                &mut debugger,
             );
 
             assert!(Path::new("logs/training_loss_adam.txt").exists());
@@ -169,10 +171,7 @@ mod mnist_cnn_bin {
             let mut rng = SimpleRng::new(42);
             let model = init_cnn(&mut rng);
             // Conv layer: 1 in_ch, CONV_OUT out_ch, KERNEL x KERNEL weights
-            assert_eq!(
-                model.conv_layer.weights().len(),
-                CONV_OUT * 1 * KERNEL * KERNEL
-            );
+            assert_eq!(model.conv_layer.weights().len(), CONV_OUT * KERNEL * KERNEL);
             // FC layer: FC_IN -> NUM_CLASSES
             assert_eq!(model.fc_layer.input_size(), FC_IN);
             assert_eq!(model.fc_layer.output_size(), NUM_CLASSES);
@@ -389,7 +388,7 @@ mod mlp_simple_bin {
             let mut hidden_outputs = vec![0.0f32; NUM_HIDDEN];
             forward_with_sigmoid(&nn.hidden_layer, &inputs, &mut hidden_outputs);
             // Sigmoid output must be in [0, 1]
-            assert!(hidden_outputs.iter().all(|&v| v >= 0.0 && v <= 1.0));
+            assert!(hidden_outputs.iter().all(|&v| (0.0..=1.0).contains(&v)));
         }
 
         #[test]
@@ -504,6 +503,7 @@ mod cifar10_cnn_bin {
                 g_lr: None,
                 d_lr: None,
                 label_smoothing: None,
+                step_debug: None,
             }
         }
 
@@ -630,7 +630,7 @@ mod cifar10_cnn_bin {
 
             // Compute softmax + cross-entropy gradient
             let mut logits = activations.data[last_idx].clone();
-            let labels = vec![0u8; 1]; // true class is 0
+            let labels = [0u8; 1]; // true class is 0
             let mut grad = vec![0.0f32; 2];
             softmax_rows(&mut logits, 1, 2);
             // grad = softmax - one_hot

@@ -111,6 +111,7 @@ impl MultiHeadAttentionLayer {
     /// assert_eq!(layer.num_heads(), 4);
     /// assert_eq!(layer.d_head(), 16);
     /// ```
+    #[allow(clippy::manual_is_multiple_of)]
     pub fn new(d_model: usize, num_heads: usize, rng: &mut SimpleRng) -> Self {
         assert!(
             d_model % num_heads == 0,
@@ -183,6 +184,18 @@ impl MultiHeadAttentionLayer {
     /// Returns the model dimension (d_model).
     pub fn d_model(&self) -> usize {
         self.d_model
+    }
+
+    /// Returns a reference to the cached attention weights from the last forward pass.
+    ///
+    /// The returned weights have shape `[batch_size * num_heads, seq_len, seq_len]`
+    /// (flattened). This is useful for visualization of attention patterns.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called before any forward pass (the cache will be empty).
+    pub fn get_attention_weights(&self) -> std::cell::Ref<'_, Vec<f32>> {
+        self.cached_attn_weights.borrow()
     }
 
     /// Softmax in-place for a single vector.
@@ -261,6 +274,7 @@ impl MultiHeadAttentionLayer {
     /// Q, K, V shape: [batch_size * seq_len, d_model]
     /// Output shape: [batch_size * seq_len, d_model]
     /// Attention weights shape: [batch_size * num_heads, seq_len, seq_len]
+    #[allow(clippy::too_many_arguments)]
     fn compute_attention(
         &self,
         q: &[f32],
@@ -398,6 +412,7 @@ impl Layer for MultiHeadAttentionLayer {
         }
     }
 
+    #[allow(clippy::needless_range_loop)]
     fn backward(
         &self,
         input: &[f32],

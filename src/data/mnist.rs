@@ -421,15 +421,10 @@ mod tests {
     /// Write bytes to a temporary file and return the path.
     fn write_temp_file(data: &[u8]) -> String {
         use std::io::Write;
-        let mut path = std::env::temp_dir();
-        // Use a unique filename per test to avoid collisions
-        let unique = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.subsec_nanos())
-            .unwrap_or(42);
-        path.push(format!("mnist_test_{}.bin", unique));
-        let mut f = std::fs::File::create(&path).expect("could not create temp file");
+        let mut f = tempfile::NamedTempFile::new().expect("could not create temp file");
         f.write_all(data).expect("could not write temp file");
+        // Persist so the file outlives this function; leak the path
+        let (_, path) = f.keep().expect("could not persist temp file");
         path.to_str().expect("path is not valid UTF-8").to_string()
     }
 }

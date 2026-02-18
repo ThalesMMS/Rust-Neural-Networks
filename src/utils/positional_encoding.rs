@@ -204,7 +204,7 @@ mod tests {
 
         // All values should be in range [-1, 1] (sin/cos range)
         for &val in &encoding {
-            assert!(val >= -1.0 && val <= 1.0, "Value {} out of range", val);
+            assert!((-1.0..=1.0).contains(&val), "Value {} out of range", val);
         }
     }
 
@@ -285,7 +285,7 @@ mod tests {
 
         // 3. All values in valid range
         for &val in &encoding {
-            assert!(val >= -1.0 && val <= 1.0);
+            assert!((-1.0..=1.0).contains(&val));
         }
 
         // 4. Different positions should be different

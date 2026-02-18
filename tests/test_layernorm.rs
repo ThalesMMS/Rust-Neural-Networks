@@ -153,7 +153,7 @@ fn test_layernorm_gradient_flow() {
     let layer = LayerNormLayer::new(8, 1e-5);
 
     let batch_size = 4;
-    let input = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0].repeat(batch_size);
+    let input = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0].repeat(batch_size);
     let mut output = vec![0.0f32; 8 * batch_size];
 
     // Forward pass

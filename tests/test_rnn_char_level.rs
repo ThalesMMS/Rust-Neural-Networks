@@ -370,8 +370,11 @@ fn test_char_level_training_all_outputs_finite() {
     for _ in 0..5 {
         lstm.reset_state();
 
-        for t in 0..text_chars.len().saturating_sub(1) {
-            let input = vocab.char_to_onehot(text_chars[t]);
+        for (t, &ch) in text_chars[..text_chars.len().saturating_sub(1)]
+            .iter()
+            .enumerate()
+        {
+            let input = vocab.char_to_onehot(ch);
             let mut output = vec![0.0f32; vocab_size];
             lstm.forward(&input, &mut output, 1);
 

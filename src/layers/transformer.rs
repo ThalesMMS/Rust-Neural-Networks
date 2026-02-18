@@ -114,6 +114,7 @@ impl TransformerBlock {
     /// assert_eq!(block.num_heads(), 8);
     /// assert_eq!(block.d_ff(), 1024);
     /// ```
+    #[allow(clippy::manual_is_multiple_of)]
     pub fn new(d_model: usize, num_heads: usize, d_ff: usize, rng: &mut SimpleRng) -> Self {
         assert!(
             d_model % num_heads == 0,
@@ -163,6 +164,14 @@ impl TransformerBlock {
     /// Returns the feed-forward network hidden dimension.
     pub fn d_ff(&self) -> usize {
         self.d_ff
+    }
+
+    /// Returns a reference to the multi-head attention sub-layer.
+    ///
+    /// This allows accessing attention weights for visualization via
+    /// `block.attention_layer().get_attention_weights()`.
+    pub fn attention_layer(&self) -> &MultiHeadAttentionLayer {
+        &self.attention
     }
 
     /// ReLU activation function applied in-place.
@@ -534,6 +543,13 @@ impl TransformerEncoder {
     pub fn d_model(&self) -> usize {
         self.d_model
     }
+
+    /// Returns a slice of the transformer blocks.
+    ///
+    /// This allows accessing individual blocks for attention weight visualization.
+    pub fn blocks(&self) -> &[TransformerBlock] {
+        &self.blocks
+    }
 }
 
 impl Layer for TransformerEncoder {
@@ -547,6 +563,7 @@ impl Layer for TransformerEncoder {
     /// * `input` - Input data (batch_size × seq_len × d_model, flattened)
     /// * `output` - Output buffer (batch_size × seq_len × d_model, flattened)
     /// * `batch_size` - Number of samples in the batch
+    #[allow(clippy::manual_is_multiple_of)]
     fn forward(&self, input: &[f32], output: &mut [f32], batch_size: usize) {
         if self.blocks.is_empty() {
             output.copy_from_slice(input);
@@ -617,13 +634,8 @@ impl Layer for TransformerEncoder {
         for (i, block) in self.blocks.iter().enumerate().rev() {
             let block_input = &activations[i];
 
-            if (self.num_layers - 1 - i) % 2 == 0 {
-                block.backward(block_input, &grad_buffer1, &mut grad_buffer2, batch_size);
-                std::mem::swap(&mut grad_buffer1, &mut grad_buffer2);
-            } else {
-                block.backward(block_input, &grad_buffer1, &mut grad_buffer2, batch_size);
-                std::mem::swap(&mut grad_buffer1, &mut grad_buffer2);
-            }
+            block.backward(block_input, &grad_buffer1, &mut grad_buffer2, batch_size);
+            std::mem::swap(&mut grad_buffer1, &mut grad_buffer2);
         }
 
         grad_input.copy_from_slice(&grad_buffer1);
@@ -780,7 +792,7 @@ mod tests {
 
         // Output should be different from input due to transformations
         // but residual connections should preserve some signal
-        let input_norm: f32 = input.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let _input_norm: f32 = input.iter().map(|x| x * x).sum::<f32>().sqrt();
         let output_norm: f32 = output.iter().map(|x| x * x).sum::<f32>().sqrt();
 
         // Output magnitude should be non-zero

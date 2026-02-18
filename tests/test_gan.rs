@@ -462,7 +462,7 @@ mod tests {
 
         let expected_l1 = IMG_SIZE * D_HIDDEN1 + D_HIDDEN1;
         let expected_l2 = D_HIDDEN1 * D_HIDDEN2 + D_HIDDEN2;
-        let expected_l3 = D_HIDDEN2 * 1 + 1;
+        let expected_l3 = D_HIDDEN2 + 1;
 
         assert_eq!(l1.parameter_count(), expected_l1);
         assert_eq!(l2.parameter_count(), expected_l2);
@@ -650,7 +650,7 @@ mod tests {
         let mut rng = SimpleRng::new(42);
         let noise = generate_noise(&mut rng, 1000);
         for &v in &noise {
-            assert!(v >= -1.0 && v <= 1.0, "Noise {} outside [-1, 1]", v);
+            assert!((-1.0..=1.0).contains(&v), "Noise {} outside [-1, 1]", v);
         }
     }
 
@@ -768,7 +768,7 @@ mod tests {
     #[test]
     fn test_leaky_relu_backward_batch() {
         // Mirrors the backward-pass loop in Generator and Discriminator
-        let a = vec![-2.0f32, 0.0, 1.0, -0.5, 3.0];
+        let a = [-2.0f32, 0.0, 1.0, -0.5, 3.0];
         let mut grad = vec![1.0f32; a.len()];
         for i in 0..a.len() {
             if a[i] <= 0.0 {
@@ -900,7 +900,7 @@ mod tests {
 
     #[test]
     fn test_image_rescale_full_batch() {
-        let original = vec![0.0f32, 0.25, 0.5, 0.75, 1.0];
+        let original = [0.0f32, 0.25, 0.5, 0.75, 1.0];
         let rescaled: Vec<f32> = original.iter().map(|&p| p * 2.0 - 1.0).collect();
         assert_relative_eq!(rescaled[0], -1.0, epsilon = 1e-6);
         assert_relative_eq!(rescaled[1], -0.5, epsilon = 1e-6);
@@ -933,22 +933,12 @@ mod tests {
     #[test]
     fn test_generator_hidden_sizes_increase() {
         // G_HIDDEN1 < G_HIDDEN2: upsampling path
-        assert!(
-            G_HIDDEN1 < G_HIDDEN2,
-            "Generator hidden sizes should increase: {} < {}",
-            G_HIDDEN1,
-            G_HIDDEN2
-        );
+        const { assert!(G_HIDDEN1 < G_HIDDEN2) };
     }
 
     #[test]
     fn test_discriminator_hidden_sizes_decrease() {
         // D_HIDDEN1 > D_HIDDEN2: downsampling path
-        assert!(
-            D_HIDDEN1 > D_HIDDEN2,
-            "Discriminator hidden sizes should decrease: {} > {}",
-            D_HIDDEN1,
-            D_HIDDEN2
-        );
+        const { assert!(D_HIDDEN1 > D_HIDDEN2) };
     }
 }

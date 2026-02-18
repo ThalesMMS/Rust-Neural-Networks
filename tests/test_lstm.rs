@@ -687,7 +687,7 @@ fn test_lstm_memory_retention() {
 
     // Sequence designed to test memory retention
     // First input provides information, subsequent inputs are noise
-    let sequence = vec![
+    let sequence = [
         vec![1.0f32, 0.0],  // Important signal
         vec![0.0f32, 0.1],  // Noise
         vec![0.0f32, -0.1], // Noise
@@ -1157,13 +1157,13 @@ fn test_bptt_multi_step_gradient_chain() {
     let mut saved_c: Vec<Vec<f32>> = Vec::with_capacity(seq_len);
 
     layer.reset_state();
-    for t in 0..seq_len {
+    for input in &inputs {
         // Save state BEFORE this time step's forward pass
         saved_h.push(layer.get_hidden_state());
         saved_c.push(layer.get_cell_state());
 
         let mut output = vec![0.0f32; output_size];
-        layer.forward(&inputs[t], &mut output, 1);
+        layer.forward(input, &mut output, 1);
     }
 
     // Backward pass in reverse order using backward_bptt.
@@ -1264,11 +1264,11 @@ fn test_bptt_sequence_training_reduces_loss() {
         let mut saved_c: Vec<Vec<f32>> = Vec::with_capacity(seq_len);
 
         layer.reset_state();
-        for t in 0..seq_len {
+        for input in &inputs {
             saved_h.push(layer.get_hidden_state());
             saved_c.push(layer.get_cell_state());
             let mut output = vec![0.0f32; output_size];
-            layer.forward(&inputs[t], &mut output, 1);
+            layer.forward(input, &mut output, 1);
         }
 
         // Backward pass in reverse using backward_bptt

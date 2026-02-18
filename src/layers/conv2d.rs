@@ -1228,7 +1228,7 @@ mod tests {
     #[should_panic(expected = "biases length")]
     fn test_conv2d_new_with_weights_wrong_bias_length_panics() {
         // 1 in, 2 out, 3×3 kernel: expects 2 biases, give 5
-        let weights = vec![0.1f32; 2 * 1 * 3 * 3];
+        let weights = vec![0.1f32; 2 * 3 * 3];
         let biases = vec![0.0f32; 5];
         let _layer = Conv2DLayer::new_with_weights(1, 2, 3, 1, 1, 28, 28, weights, biases);
     }

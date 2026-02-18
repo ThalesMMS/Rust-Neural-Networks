@@ -32,6 +32,7 @@ use std::fs;
 ///
 /// This example would generate 3 × 3 × 2 = 18 different configurations to train.
 #[derive(Debug, Clone, Deserialize)]
+#[allow(non_snake_case)]
 pub struct SweepConfig {
     /// Path to base training configuration file
     /// Parameters from this config are used as defaults, overridden by sweep values
@@ -127,6 +128,7 @@ pub struct SweepConfig {
 /// - Python visualization tools that compare configurations
 /// - Long-term experiment tracking and reproducibility
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(non_snake_case)]
 pub struct SweepResult {
     /// Configuration identifier (1-indexed)
     pub config_id: usize,
