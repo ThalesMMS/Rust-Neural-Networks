@@ -1,0 +1,19 @@
+{
+  "scheduler_type": "cosine_annealing",
+  "min_lr": 1e-6,
+  "T_max": 10,
+  "activation_function": "relu",
+  "optimizer_type": "adamw",
+  "adam_beta1": 0.9,
+  "adam_beta2": 0.999,
+  "adam_epsilon": 1e-8,
+  "adamw_weight_decay": 0.01,
+  "learning_rate": 0.001,
+  "epochs": 10,
+  "batch_size": 128,
+  "validation_split": 0.1,
+  "early_stopping_patience": 3,
+  "early_stopping_min_delta": 0.001,
+  "gpu_backend": "auto",
+  "gpu_device_id": 0
+}

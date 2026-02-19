@@ -7,6 +7,11 @@ use crate::layers::gradient::GradientAccumulator;
 use crate::layers::Layer;
 use crate::utils::rng::SimpleRng;
 
+#[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+use crate::gpu::backend::{GpuBackend, GpuError};
+#[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+use std::sync::Arc;
+
 #[cfg(target_os = "macos")]
 extern crate blas_src;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -46,6 +51,9 @@ pub struct DenseLayer {
     // Gradient accumulators
     grad_weights: GradientAccumulator,
     grad_biases: GradientAccumulator,
+    // Optional GPU backend for accelerated computation
+    #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+    gpu_backend: Option<Arc<dyn GpuBackend>>,
 }
 
 impl DenseLayer {
@@ -57,7 +65,10 @@ impl DenseLayer {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// use rust_neural_networks::layers::DenseLayer;
+    /// use rust_neural_networks::utils::SimpleRng;
+    ///
     /// let mut rng = SimpleRng::new(42);
     /// let layer = DenseLayer::new(128, 64, &mut rng);
     /// assert_eq!(layer.input_size(), 128);
@@ -79,10 +90,97 @@ impl DenseLayer {
             biases: vec![0.0f32; output_size],
             grad_weights: GradientAccumulator::new(input_size * output_size),
             grad_biases: GradientAccumulator::new(output_size),
+            #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+            gpu_backend: None,
         }
     }
 
-    /// Get the input size of the layer.
+    /// Creates a DenseLayer with the provided GPU backend attached.
+    ///
+    /// The backend will be used for accelerated matrix operations during forward and backward
+    /// passes; if a GPU operation fails at runtime the implementation falls back to the CPU BLAS path.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use std::sync::Arc;
+    /// use rust_neural_networks::layers::DenseLayer;
+    /// use rust_neural_networks::utils::SimpleRng;
+    /// let backend = Arc::new(MetalBackend::new().unwrap());
+    /// let mut rng = SimpleRng::new(42);
+    /// let layer = DenseLayer::new_with_gpu(784, 512, &mut rng, backend);
+    /// assert_eq!(layer.input_size(), 784);
+    /// assert_eq!(layer.output_size(), 512);
+    /// ```
+    #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+    pub fn new_with_gpu(
+        input_size: usize,
+        output_size: usize,
+        rng: &mut SimpleRng,
+        gpu_backend: Arc<dyn GpuBackend>,
+    ) -> Self {
+        let mut layer = Self::new(input_size, output_size, rng);
+        layer.gpu_backend = Some(gpu_backend);
+        layer
+    }
+
+    /// Attach or replace the GPU backend for this layer.
+    ///
+    /// When a backend is attached, the layer will attempt GPU-accelerated forward and backward
+    /// paths if a GPU backend is present and the corresponding features are enabled.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use std::sync::Arc;
+    /// use rust_neural_networks::layers::DenseLayer;
+    /// use rust_neural_networks::utils::SimpleRng;
+    /// use rust_neural_networks::gpu::GpuBackend;
+    ///
+    /// let mut rng = SimpleRng::new(0);
+    /// let mut layer = DenseLayer::new(4, 8, &mut rng);
+    /// let backend: Arc<dyn GpuBackend> = /* create backend */;
+    /// layer.set_gpu_backend(backend);
+    /// ```
+    #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+    pub fn set_gpu_backend(&mut self, backend: Arc<dyn GpuBackend>) {
+        self.gpu_backend = Some(backend);
+    }
+
+    /// Indicates whether a GPU backend is attached to this layer.
+    ///
+    /// # Returns
+    ///
+    /// `true` if a GPU backend is attached, `false` otherwise.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// // Construct a DenseLayer (details omitted) and query the backend presence:
+    /// let layer = /* DenseLayer::new(...) */ ;
+    /// assert!(!layer.has_gpu_backend());
+    /// ```
+    #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+    pub fn has_gpu_backend(&self) -> bool {
+        self.gpu_backend.is_some()
+    }
+
+    /// Configured number of input features for the layer.
+    ///
+    /// # Returns
+    ///
+    /// The number of input features configured for this layer.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rust_neural_networks::layers::DenseLayer;
+    /// use rust_neural_networks::utils::SimpleRng;
+    ///
+    /// let mut rng = SimpleRng::new(42);
+    /// let layer = DenseLayer::new(4, 8, &mut rng);
+    /// assert_eq!(layer.input_size(), 4);
+    /// ```
     pub fn input_size(&self) -> usize {
         self.input_size
     }
@@ -250,7 +348,118 @@ impl DenseLayer {
             biases,
             grad_weights: GradientAccumulator::new(input_size * output_size),
             grad_biases: GradientAccumulator::new(output_size),
+            #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+            gpu_backend: None,
         }
+    }
+}
+
+// GPU-accelerated forward and backward implementations
+#[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+impl DenseLayer {
+    /// Perform a GPU-accelerated forward pass computing output = input × weights + biases.
+    ///
+    /// Attempts to run the matrix multiplication and bias addition on the provided GPU backend.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` on successful GPU computation, `Err(GpuError)` if the GPU backend reports an error.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// // Given `layer: &DenseLayer`, `input`, `output`, `batch_size` and `backend` already prepared:
+    /// // layer.forward_gpu(&input, &mut output, batch_size, backend)?;
+    /// ```
+    fn forward_gpu(
+        &self,
+        input: &[f32],
+        output: &mut [f32],
+        batch_size: usize,
+        backend: &dyn GpuBackend,
+    ) -> Result<(), GpuError> {
+        // Step 1: Matrix multiply: output = input × weights
+        // input: (batch_size × input_size), weights: (input_size × output_size)
+        backend.sgemm(
+            batch_size,
+            self.output_size,
+            self.input_size,
+            input,
+            &self.weights,
+            output,
+        )?;
+
+        // Step 2: Add bias to each row
+        backend.add_bias(output, &self.biases, batch_size, self.output_size)?;
+
+        Ok(())
+    }
+
+    /// Compute and accumulate gradients for weights and biases and write input gradients using the GPU backend.
+    ///
+    /// Performs three operations for the provided batch:
+    /// 1. Accumulates weight gradients computed as input^T × grad_output, scaled by 1 / batch_size.
+    /// 2. Accumulates bias gradients computed by summing grad_output across the batch, scaled by 1 / batch_size.
+    /// 3. Writes input gradients computed as grad_output × weights^T into `grad_input`.
+    ///
+    /// Returns `Ok(())` on success, `Err(GpuError)` if the GPU backend reports an error.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Assume `layer` is a DenseLayer with a GPU backend attached.
+    /// let batch_size = 4;
+    /// let input = vec![0.0f32; batch_size * layer.input_size()];
+    /// let grad_output = vec![0.0f32; batch_size * layer.output_size()];
+    /// let mut grad_input = vec![0.0f32; batch_size * layer.input_size()];
+    /// layer.backward_gpu(&input, &grad_output, &mut grad_input, batch_size, backend.as_ref()).unwrap();
+    /// ```
+    fn backward_gpu(
+        &self,
+        input: &[f32],
+        grad_output: &[f32],
+        grad_input: &mut [f32],
+        batch_size: usize,
+        backend: &dyn GpuBackend,
+    ) -> Result<(), GpuError> {
+        let scale = 1.0f32 / batch_size as f32;
+
+        // Step 1: Weight gradients: dW = input^T × grad_output / batch_size
+        let mut grad_w_batch = vec![0.0f32; self.input_size * self.output_size];
+        backend.sgemm_at(
+            self.input_size,
+            self.output_size,
+            batch_size,
+            input,
+            grad_output,
+            &mut grad_w_batch,
+        )?;
+
+        // Step 2: Bias gradients: db = sum_rows(grad_output) / batch_size
+        let mut batch_bias_grad = vec![0.0f32; self.output_size];
+        backend.sum_rows(
+            grad_output,
+            &mut batch_bias_grad,
+            batch_size,
+            self.output_size,
+        )?;
+
+        // Step 3: Input gradients: dX = grad_output × weights^T
+        backend.sgemm_bt(
+            batch_size,
+            self.input_size,
+            self.output_size,
+            grad_output,
+            &self.weights,
+            grad_input,
+        )?;
+
+        // All GPU operations succeeded — now accumulate gradients.
+        // Deferred to avoid partial accumulation if a GPU step fails mid-way.
+        self.grad_weights.accumulate_scaled(&grad_w_batch, scale);
+        self.grad_biases.accumulate_scaled(&batch_bias_grad, scale);
+
+        Ok(())
     }
 }
 
@@ -379,53 +588,23 @@ fn sum_rows(data: &[f32], rows: usize, cols: usize, out: &mut [f32]) {
 // Layer trait implementation
 
 impl Layer for DenseLayer {
-    /// Computes the layer's linear output for a batch: output = input × weights + biases.
+    /// Compute the dense layer's linear output for a batch: y = x * W + b.
     ///
-    /// # Forward Pass Formula
-    ///
-    /// The dense layer performs a linear transformation:
-    /// ```text
-    /// y = xW + b
-    /// ```
-    ///
-    /// where:
-    /// - `x` is the input matrix (batch_size × input_size)
-    /// - `W` is the weight matrix (input_size × output_size)
-    /// - `b` is the bias vector (output_size)
-    /// - `y` is the output matrix (batch_size × output_size)
-    ///
-    /// # Dimension Transformations
-    ///
-    /// **Step 1: Matrix multiplication**
-    /// - Input: (batch_size × input_size)
-    /// - Weights: (input_size × output_size)
-    /// - Result: (batch_size × output_size)
-    /// - Operation: y = x × W
-    ///
-    /// **Step 2: Bias addition**
-    /// - Intermediate result: (batch_size × output_size)
-    /// - Bias vector: (output_size) - broadcasted to each row
-    /// - Final output: (batch_size × output_size)
-    /// - Operation: y = y + b (broadcasted)
-    ///
-    /// # Implementation Details
-    ///
-    /// This method uses BLAS `sgemm` (single-precision general matrix-matrix multiplication)
-    /// for efficient computation on CPU. The bias is added to each row of the output matrix
-    /// via element-wise addition.
+    /// The input slice represents a row-major matrix with shape (batch_size, input_size).
+    /// The output slice is written as a row-major matrix with shape (batch_size, output_size).
+    /// The weight matrix has shape (input_size, output_size) and the bias has length output_size.
     ///
     /// # Examples
     ///
     /// ```
-    /// // Given a DenseLayer `layer` with input_size = 2 and output_size = 3,
-    /// // call `forward` with a single-row batch:
     /// use rust_neural_networks::layers::dense::DenseLayer;
     /// use rust_neural_networks::layers::Layer;
     /// use rust_neural_networks::utils::rng::SimpleRng;
+    ///
     /// let mut rng = SimpleRng::new(0);
     /// let layer = DenseLayer::new(2, 3, &mut rng);
-    /// let input = [0.5f32, -1.0f32]; // 1 × 2
-    /// let mut output = vec![0f32; 3]; // 1 × 3
+    /// let input = [0.5f32, -1.0f32]; // batch_size = 1, input_size = 2
+    /// let mut output = vec![0f32; 3]; // batch_size = 1, output_size = 3
     /// layer.forward(&input, &mut output, 1);
     /// assert_eq!(output.len(), 3);
     /// ```
@@ -478,7 +657,21 @@ impl Layer for DenseLayer {
             self.weights.len()
         );
 
-        // BLAS sgemm computes: output = 1.0 * (input × weights) + 0.0 * output
+        // Try GPU-accelerated path if backend is available
+        #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+        {
+            if let Some(ref backend) = self.gpu_backend {
+                if self
+                    .forward_gpu(input, output, batch_size, backend.as_ref())
+                    .is_ok()
+                {
+                    return;
+                }
+                // GPU failed, fall through to CPU path
+            }
+        }
+
+        // CPU path: BLAS sgemm computes: output = 1.0 * (input × weights) + 0.0 * output
         // Using row-major layout with no transpose
         sgemm_wrapper(
             batch_size,
@@ -497,21 +690,6 @@ impl Layer for DenseLayer {
         );
 
         // Step 2: Add bias vector to each row of the output matrix
-        // Dimension check:
-        //   - output (before bias): (batch_size × output_size)
-        //   - biases: (output_size) - broadcasted to each row
-        //   - output (after bias): (batch_size × output_size)
-        // Operation: y[i,j] = y[i,j] + b[j] for all rows i
-        assert_eq!(
-            output.len(),
-            batch_size * self.output_size,
-            "DenseLayer forward (bias add): output shape mismatch. \
-             Expected ({}, {}) = {} elements, got {}.",
-            batch_size,
-            self.output_size,
-            batch_size * self.output_size,
-            output.len()
-        );
         assert_eq!(
             self.biases.len(),
             self.output_size,
@@ -524,13 +702,12 @@ impl Layer for DenseLayer {
         add_bias(output, batch_size, self.output_size, &self.biases);
     }
 
-    /// Computes and accumulates gradients for this layer given a batch of inputs and output gradients,
-    /// and writes the gradient with respect to the inputs into `grad_input`.
+    /// Accumulates this layer's gradients from a batch and writes the gradient with respect to the inputs into `grad_input`.
     ///
-    /// The method updates the layer's internal gradient accumulators:
-    /// - accumulates weight gradients (input^T × grad_output) averaged by `batch_size`,
-    /// - computes bias gradients as the column-wise sum of `grad_output` averaged by `batch_size`.
-    ///   It also computes `grad_input = grad_output × weights^T`.
+    /// Updates the internal gradient accumulators:
+    /// - accumulates weight gradients averaged by `batch_size`,
+    /// - accumulates bias gradients averaged by `batch_size`,
+    /// and computes `grad_input` corresponding to the provided `grad_output`.
     ///
     /// # Examples
     ///
@@ -545,31 +722,9 @@ impl Layer for DenseLayer {
     /// let input = vec![0.0f32; batch_size * layer.input_size()];
     /// let grad_output = vec![0.0f32; batch_size * layer.output_size()];
     /// let mut grad_input = vec![0.0f32; batch_size * layer.input_size()];
+    ///
     /// layer.backward(&input, &grad_output, &mut grad_input, batch_size);
     /// ```
-    /// # Backward Pass
-    ///
-    /// Computes gradients via the chain rule for backpropagation.
-    ///
-    /// Given gradient w.r.t. output: ∂L/∂y (batch_size × output_size)
-    ///
-    /// **Step 1: Weight gradients**
-    /// - ∂L/∂W = x^T × ∂L/∂y / batch_size
-    /// - Dimension check: (input_size × batch_size) × (batch_size × output_size) → (input_size × output_size)
-    /// - Chain rule: Since y = xW + b, we have ∂y/∂W = x^T (treating x as column vectors)
-    ///
-    /// **Step 2: Bias gradients**
-    /// - ∂L/∂b = Σ(∂L/∂y) / batch_size along batch dimension
-    /// - Dimension check: sum over (batch_size × output_size) → (output_size)
-    /// - Chain rule: Since y = xW + b, we have ∂y/∂b = 1 (for each output neuron)
-    ///
-    /// **Step 3: Input gradients (for backprop to previous layer)**
-    /// - ∂L/∂x = ∂L/∂y × W^T
-    /// - Dimension check: (batch_size × output_size) × (output_size × input_size) → (batch_size × input_size)
-    /// - Chain rule: Since y = xW + b, we have ∂y/∂x = W^T
-    ///
-    /// All gradients are accumulated (added) to existing values to support gradient accumulation
-    /// across mini-batches or shared parameters.
     fn backward(
         &self,
         input: &[f32],
@@ -580,6 +735,21 @@ impl Layer for DenseLayer {
         if batch_size == 0 {
             panic!("batch_size cannot be zero in Dense::backward");
         }
+
+        // Try GPU-accelerated path if backend is available
+        #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+        {
+            if let Some(ref backend) = self.gpu_backend {
+                if self
+                    .backward_gpu(input, grad_output, grad_input, batch_size, backend.as_ref())
+                    .is_ok()
+                {
+                    return;
+                }
+                // GPU failed, fall through to CPU path
+            }
+        }
+
         let scale = 1.0f32 / batch_size as f32;
 
         // ===== Step 1: Weight gradients =====
@@ -696,8 +866,6 @@ impl Layer for DenseLayer {
     /// # Examples
     ///
     /// ```ignore
-    /// # use crate::layers::dense::DenseLayer;
-    /// # use crate::utils::rng::SimpleRng;
     /// use rust_neural_networks::layers::dense::DenseLayer;
     /// use rust_neural_networks::utils::rng::SimpleRng;
     /// let mut rng = SimpleRng::new(0);

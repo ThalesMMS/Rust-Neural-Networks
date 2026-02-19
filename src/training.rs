@@ -28,6 +28,13 @@ use std::io::{BufWriter, Write};
 use crate::config::TrainingConfig;
 use crate::utils::rng::SimpleRng;
 
+#[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+use crate::gpu::GpuBackend;
+#[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+use crate::layers::{conv2d::Conv2DLayer, dense::DenseLayer, Layer};
+#[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+use std::sync::Arc;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // TrainingMetrics
 // ─────────────────────────────────────────────────────────────────────────────
@@ -569,41 +576,12 @@ pub fn evaluate_batch_accuracy(
 // gather_batch
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Copies a mini-batch of images and labels into output buffers, applying optional augmentations.
+/// Copies a mini-batch of images and labels into the provided output buffers and optionally applies
+/// data augmentations to each copied image.
 ///
-/// This function unifies the `gather_batch` functions from all binary targets
-/// (`mnist_mlp`, `mnist_cnn`, `cifar10_cnn`, `mnist_attention_pool`). It is generic
-/// over image dimensions so the same function works for MNIST (1×28×28) and
-/// CIFAR-10 (3×32×32) without modification.
-///
-/// Augmentations are applied in the following order when their parameters are provided:
-/// 1. Random crop (`crop_padding`)
-/// 2. Random horizontal flip (`flip_prob`)
-/// 3. Brightness jitter (`brightness_jitter`)
-/// 4. Contrast jitter (`contrast_jitter`)
-/// 5. Saturation jitter (`saturation_jitter`) – pass `None` for grayscale images
-///
-/// # Parameters
-///
-/// - `images` – flattened dataset buffer; image `i` occupies
-///   `images[i * image_size..(i+1) * image_size]` where
-///   `image_size = img_width * img_height * img_channels`.
-/// - `labels` – class label for each image.
-/// - `indices` – index permutation produced by the epoch shuffle.
-/// - `start` – first entry in `indices` to read.
-/// - `count` – number of samples to gather into the output buffers.
-/// - `out_inputs` – output buffer; must be at least `count * image_size` long.
-/// - `out_labels` – label output buffer; must be at least `count` long.
-/// - `img_width` – image width in pixels.
-/// - `img_height` – image height in pixels.
-/// - `img_channels` – number of channels (1 for grayscale MNIST, 3 for RGB CIFAR-10).
-/// - `flip_prob` – probability (0.0–1.0) of random horizontal flip per image.
-/// - `crop_padding` – pixels of padding added before random cropping back to original size.
-/// - `brightness_jitter` – maximum brightness adjustment delta (±delta).
-/// - `contrast_jitter` – maximum contrast adjustment delta (±delta).
-/// - `saturation_jitter` – maximum saturation adjustment delta (±delta); use `None` for
-///   grayscale images because the operation is a no-op on single-channel data.
-/// - `rng` – optional random number generator; required for any augmentation to take effect.
+/// Augmentations are applied only when a mutable RNG is supplied and their corresponding
+/// parameters are Some. The applied order is: random crop, horizontal flip, brightness jitter,
+/// contrast jitter, then saturation jitter (saturation is meaningful only for multi-channel images).
 ///
 /// # Examples
 ///
@@ -735,6 +713,51 @@ pub fn gather_batch(
             }
         }
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// GPU layer upgrade
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Upgrade eligible layers in-place to use the provided GPU backend.
+///
+/// DenseLayer and Conv2DLayer instances will receive a clone of `backend`; other layer types are left unchanged.
+///
+/// # Returns
+///
+/// The number of layers that were upgraded.
+///
+/// # Examples
+///
+/// ```ignore
+/// use std::sync::Arc;
+/// use rust_neural_networks::training::upgrade_layers_to_gpu;
+///
+/// // `create_gpu_backend` and layer construction are crate-specific; this example is illustrative.
+/// if let Some(backend) = crate::gpu::create_gpu_backend() {
+///     let upgraded = upgrade_layers_to_gpu(&mut layers, Arc::new(backend));
+///     println!("Upgraded {}/{} layers to GPU", upgraded, layers.len());
+/// }
+/// ```
+#[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+pub fn upgrade_layers_to_gpu(layers: &mut [Box<dyn Layer>], backend: Arc<dyn GpuBackend>) -> usize {
+    let mut count = 0;
+    for layer in layers.iter_mut() {
+        let upgraded = if let Some(dense) = layer.as_any_mut().downcast_mut::<DenseLayer>() {
+            dense.set_gpu_backend(Arc::clone(&backend));
+            true
+        } else if let Some(conv) = layer.as_any_mut().downcast_mut::<Conv2DLayer>() {
+            conv.set_gpu_backend(Arc::clone(&backend));
+            true
+        } else {
+            false
+        };
+        if upgraded {
+            count += 1;
+        }
+    }
+    count
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

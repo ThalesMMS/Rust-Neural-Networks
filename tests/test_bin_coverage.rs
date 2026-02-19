@@ -76,6 +76,9 @@ mod mnist_mlp_bin {
             std::env::set_current_dir(temp_dir.path()).expect("failed to set cwd");
 
             let mut rng = SimpleRng::new(1);
+            #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+            let mut nn = initialize_network(&mut rng, &None);
+            #[cfg(not(any(feature = "gpu-metal", feature = "gpu-cuda")))]
             let mut nn = initialize_network(&mut rng);
 
             let images = vec![0.0f32; NUM_INPUTS];
@@ -450,6 +453,28 @@ mod cifar10_cnn_bin {
             assert_eq!(scheduler.get_lr(), lr);
         }
 
+        /// Verifies that a step-decay learning-rate scheduler reduces the learning rate by the configured factor after the configured number of steps.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// // Create a temporary JSON config for a step-decay scheduler with step_size = 2 and gamma = 0.5,
+        /// // then build a scheduler and step it twice to observe the decay.
+        /// let config_json = r#"{
+        ///   "scheduler_type": "step_decay",
+        ///   "step_size": 2,
+        ///   "gamma": 0.5
+        /// }"#;
+        /// let temp = crate::write_temp_config(config_json);
+        /// let learning_rate = 0.01;
+        /// let epochs = 10;
+        /// let config_path = temp.path().to_str().unwrap();
+        /// let mut scheduler = scheduler_from_args(learning_rate, epochs, Some(config_path));
+        /// scheduler.step();
+        /// assert_eq!(scheduler.get_lr(), learning_rate);
+        /// scheduler.step();
+        /// assert!((scheduler.get_lr() - learning_rate * 0.5).abs() < 1e-6);
+        /// ```
         #[test]
         fn test_scheduler_from_args_step_decay() {
             let config_json = r#"{
@@ -468,6 +493,14 @@ mod cifar10_cnn_bin {
             assert!((scheduler.get_lr() - learning_rate * 0.5).abs() < 1e-6);
         }
 
+        /// Create a TrainingConfig populated with default values and set `optimizer_type` when provided.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// let cfg = make_config(Some("adam"));
+        /// assert_eq!(cfg.optimizer_type.as_deref(), Some("adam"));
+        /// ```
         fn make_config(
             optimizer_type: Option<&str>,
         ) -> rust_neural_networks::config::TrainingConfig {
@@ -505,6 +538,8 @@ mod cifar10_cnn_bin {
                 g_lr: None,
                 d_lr: None,
                 label_smoothing: None,
+                gpu_backend: None,
+                gpu_device_id: None,
                 step_debug: None,
             }
         }

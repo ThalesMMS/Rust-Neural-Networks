@@ -158,17 +158,24 @@ pub struct TrainingConfig {
     /// (must be in [0.0, 1.0] if specified)
     pub label_smoothing: Option<f32>,
 
+    // --- GPU acceleration fields ---
+    /// Optional GPU backend selection: "auto", "metal", "cuda", or "cpu".
+    /// When `None`, callers apply their own default (e.g., `unwrap_or("auto")`).
+    pub gpu_backend: Option<String>,
+
+    /// Optional GPU device ID for multi-GPU systems.
+    /// When `None`, callers should default to device 0.
+    pub gpu_device_id: Option<usize>,
+
     /// Enable interactive step-through debugging during training (optional, default false)
     pub step_debug: Option<bool>,
 }
 
 /// Loads a training configuration from a JSON file.
 ///
-/// Reads the file at `path` and deserializes its JSON contents into a `TrainingConfig`.
+/// Attempts to read and deserialize the JSON at `path` into a `TrainingConfig`.
 ///
-/// # Returns
-///
-/// `Ok(TrainingConfig)` on success, or an error if the file cannot be read or the JSON is invalid.
+/// Returns the deserialized `TrainingConfig` on success. Returns an error if the file cannot be read (including not found) or if the JSON is invalid.
 ///
 /// # Examples
 ///
@@ -214,6 +221,59 @@ pub fn load_config(path: &str) -> Result<TrainingConfig, Box<dyn Error>> {
     Ok(config)
 }
 
+/// Validates the semantic correctness of a TrainingConfig instance.
+///
+/// Performs scheduler-specific required-field checks and range/consistency validations
+/// for scheduler, activation, optimizer, training, augmentation, GAN, and GPU settings.
+///
+/// # Errors
+///
+/// Returns an `Err` describing the first validation failure encountered.
+///
+/// # Examples
+///
+/// ```ignore
+/// let cfg = TrainingConfig {
+///     scheduler_type: "step_decay".to_string(),
+///     step_size: Some(5),
+///     gamma: Some(0.5),
+///     decay_rate: None,
+///     min_lr: None,
+///     T_max: None,
+///     activation_function: None,
+///     leaky_relu_alpha: None,
+///     elu_alpha: None,
+///     optimizer_type: Some("adam".to_string()),
+///     adam_beta1: Some(0.9),
+///     adam_beta2: Some(0.999),
+///     adam_epsilon: Some(1e-8),
+///     adamw_weight_decay: None,
+///     rmsprop_decay: None,
+///     rmsprop_epsilon: None,
+///     learning_rate: Some(0.001),
+///     epochs: Some(10),
+///     batch_size: Some(32),
+///     validation_split: Some(0.1),
+///     early_stopping_patience: None,
+///     early_stopping_min_delta: Some(0.0),
+///     enable_profiling: None,
+///     enable_augmentation: None,
+///     horizontal_flip_prob: None,
+///     random_crop_padding: None,
+///     brightness_jitter: None,
+///     contrast_jitter: None,
+///     saturation_jitter: None,
+///     noise_dim: None,
+///     g_lr: None,
+///     d_lr: None,
+///     label_smoothing: None,
+///     gpu_backend: Some("auto".to_string()),
+///     gpu_device_id: None,
+///     step_debug: None,
+/// };
+///
+/// assert!(validate_config(&cfg).is_ok());
+/// ```
 fn validate_config(config: &TrainingConfig) -> Result<(), Box<dyn Error>> {
     // Validate scheduler-specific required fields
     match config.scheduler_type.as_str() {
@@ -503,6 +563,21 @@ fn validate_config(config: &TrainingConfig) -> Result<(), Box<dyn Error>> {
             return Err(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "label_smoothing must be in the range [0.0, 1.0]",
+            )));
+        }
+    }
+
+    // Validate GPU configuration
+    if let Some(ref backend) = config.gpu_backend {
+        let valid_backends = ["auto", "metal", "cuda", "cpu"];
+        if !valid_backends.contains(&backend.as_str()) {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "Invalid gpu_backend '{}'. Must be one of: {}",
+                    backend,
+                    valid_backends.join(", ")
+                ),
             )));
         }
     }

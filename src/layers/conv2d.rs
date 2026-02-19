@@ -8,6 +8,11 @@ use crate::layers::gradient::GradientAccumulator;
 use crate::layers::Layer;
 use crate::utils::rng::SimpleRng;
 
+#[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+use crate::gpu::backend::{GpuBackend, GpuError};
+#[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+use std::sync::Arc;
+
 /// 2D Convolutional layer with learnable filters.
 ///
 /// Performs 2D convolution: slides filters over input to produce feature maps.
@@ -51,6 +56,9 @@ pub struct Conv2DLayer {
     // Gradient accumulators
     grad_weights: GradientAccumulator,
     grad_biases: GradientAccumulator,
+    // Optional GPU backend for accelerated computation
+    #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+    gpu_backend: Option<Arc<dyn GpuBackend>>,
 }
 
 impl Conv2DLayer {
@@ -149,6 +157,8 @@ impl Conv2DLayer {
             biases: vec![0.0f32; out_channels],
             grad_weights: GradientAccumulator::new(weight_count),
             grad_biases: GradientAccumulator::new(out_channels),
+            #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+            gpu_backend: None,
         }
     }
 
@@ -287,17 +297,12 @@ impl Conv2DLayer {
         self.weights.len() + self.biases.len()
     }
 
-    /// Computes the L2 norm (magnitude) of the layer's weight and bias gradients.
-    ///
-    /// This is useful for monitoring gradient flow during training and detecting
-    /// vanishing or exploding gradients. The L2 norm is computed as sqrt(sum(g_i^2))
-    /// for each gradient component.
+    /// Computes the L2 norm of the layer's accumulated weight and bias gradients.
     ///
     /// # Returns
     ///
-    /// A tuple `(weight_grad_norm, bias_grad_norm)` where:
-    /// - `weight_grad_norm` is the L2 norm of the weight gradients
-    /// - `bias_grad_norm` is the L2 norm of the bias gradients
+    /// A tuple `(weight_grad_norm, bias_grad_norm)` where `weight_grad_norm` is the L2
+    /// norm of the weight gradients and `bias_grad_norm` is the L2 norm of the bias gradients.
     ///
     /// # Examples
     ///
@@ -307,9 +312,9 @@ impl Conv2DLayer {
     /// use rust_neural_networks::utils::rng::SimpleRng;
     ///
     /// let mut rng = SimpleRng::new(42);
-    /// let layer = Conv2DLayer::new(1, 2, 3, 1, 1, 4, 4, &mut rng);
+    /// let mut layer = Conv2DLayer::new(1, 2, 3, 1, 1, 4, 4, &mut rng);
     ///
-    /// // Perform forward and backward pass to accumulate gradients
+    /// // after a forward/backward step gradients may be non-zero
     /// let input = vec![1.0; layer.input_size()];
     /// let mut output = vec![0.0; layer.output_size()];
     /// layer.forward(&input, &mut output, 1);
@@ -317,26 +322,23 @@ impl Conv2DLayer {
     /// let mut grad_input = vec![0.0; layer.input_size()];
     /// layer.backward(&input, &grad_output, &mut grad_input, 1);
     ///
-    /// // Get gradient magnitudes
-    /// let (weight_norm, bias_norm) = layer.get_gradient_magnitude();
-    /// assert!(weight_norm >= 0.0);
-    /// assert!(bias_norm >= 0.0);
+    /// let (w_norm, b_norm) = layer.get_gradient_magnitude();
+    /// assert!(w_norm >= 0.0);
+    /// assert!(b_norm >= 0.0);
     /// ```
     pub fn get_gradient_magnitude(&self) -> (f32, f32) {
         (self.grad_weights.l2_norm(), self.grad_biases.l2_norm())
     }
 
-    /// Creates a Conv2DLayer with pre-existing weights and biases (no random initialization).
+    /// Create a Conv2DLayer using the provided weights and biases.
     ///
-    /// This constructor is used when loading a model from disk, allowing the layer to be
-    /// reconstructed with previously trained parameters. Gradient accumulators are
-    /// zero-initialized, ready for the next training pass.
+    /// Intended for reconstructing a layer from saved parameters; gradient accumulators
+    /// are initialized to zero and ready for the next training pass.
     ///
     /// # Panics
     ///
-    /// Panics if the length of `weights` does not equal
-    /// `out_channels * in_channels * kernel_size * kernel_size` or
-    /// the length of `biases` does not equal `out_channels`.
+    /// Panics if `weights.len()` != `out_channels * in_channels * kernel_size * kernel_size`
+    /// or if `biases.len()` != `out_channels`.
     ///
     /// # Examples
     ///
@@ -358,7 +360,6 @@ impl Conv2DLayer {
     /// assert_eq!(layer.in_channels(), 1);
     /// assert_eq!(layer.out_channels(), 2);
     /// ```
-    #[allow(clippy::too_many_arguments)]
     pub fn new_with_weights(
         in_channels: usize,
         out_channels: usize,
@@ -398,76 +399,229 @@ impl Conv2DLayer {
             grad_biases: GradientAccumulator::new(biases.len()),
             weights,
             biases,
+            #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+            gpu_backend: None,
         }
+    }
+}
+
+// GPU-accelerated forward and backward implementations
+#[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+impl Conv2DLayer {
+    /// Constructs a Conv2DLayer and attaches the provided GPU backend for accelerated forward and backward computations.
+    ///
+    /// The layer will attempt to use the backend for GPU-accelerated operations and may fall back to the CPU path if a GPU operation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// // let mut rng = SimpleRng::new(seed);
+    /// // let backend: Arc<dyn GpuBackend> = Arc::new(MyGpuBackend::new(...));
+    /// // let layer = Conv2DLayer::new_with_gpu(3, 16, 3, 1, 1, 32, 32, &mut rng, backend);
+    /// ```
+    pub fn new_with_gpu(
+        in_channels: usize,
+        out_channels: usize,
+        kernel_size: usize,
+        padding: isize,
+        stride: usize,
+        input_height: usize,
+        input_width: usize,
+        rng: &mut SimpleRng,
+        gpu_backend: Arc<dyn GpuBackend>,
+    ) -> Self {
+        let mut layer = Self::new(
+            in_channels,
+            out_channels,
+            kernel_size,
+            padding,
+            stride,
+            input_height,
+            input_width,
+            rng,
+        );
+        layer.gpu_backend = Some(gpu_backend);
+        layer
+    }
+
+    /// Attach or replace the GPU backend used by this layer.
+    ///
+    /// After calling this, the layer will attempt to use the provided backend for GPU-accelerated
+    /// forward and backward paths when available; the previous backend (if any) is replaced.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use std::sync::Arc;
+    /// use rust_neural_networks::gpu::GpuBackend;
+    /// // `backend` must implement the `GpuBackend` trait.
+    /// let backend: Arc<dyn GpuBackend> = /* create backend */;
+    /// layer.set_gpu_backend(backend);
+    /// ```
+    pub fn set_gpu_backend(&mut self, backend: Arc<dyn GpuBackend>) {
+        self.gpu_backend = Some(backend);
+    }
+
+    /// Checks whether a GPU backend is attached to the layer.
+    ///
+    /// # Returns
+    ///
+    /// `true` if a GPU backend is attached, `false` otherwise.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // given a `Conv2DLayer` instance `layer`
+    /// let has_gpu = layer.has_gpu_backend();
+    /// ```
+    pub fn has_gpu_backend(&self) -> bool {
+        self.gpu_backend.is_some()
+    }
+
+    /// Performs the forward convolution using the attached GPU backend.
+    ///
+    /// Attempts to compute this layer's forward pass on the GPU. If the layer's
+    /// padding is negative or the backend fails, an error is returned so the caller
+    /// may fall back to a CPU implementation.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // `layer` is a Conv2DLayer and `backend` implements GpuBackend.
+    /// let batch_size = 1;
+    /// let input = vec![0.0f32; layer.input_size() * batch_size];
+    /// let mut output = vec![0.0f32; layer.output_size() * batch_size];
+    /// layer.forward_gpu(&input, &mut output, batch_size, backend.as_ref())?;
+    /// ```
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if the GPU convolution completed successfully, `Err(GpuError)` if the
+    /// GPU backend cannot perform the operation (for example, when padding is
+    /// negative) or if the backend call fails.
+    fn forward_gpu(
+        &self,
+        input: &[f32],
+        output: &mut [f32],
+        batch_size: usize,
+        backend: &dyn GpuBackend,
+    ) -> Result<(), GpuError> {
+        // Padding must be non-negative for GPU backend (uses usize)
+        let padding = if self.padding >= 0 {
+            self.padding as usize
+        } else {
+            return Err(GpuError::Unsupported(
+                "Negative padding not supported on GPU".to_string(),
+            ));
+        };
+
+        backend.conv2d_forward(
+            input,
+            &self.weights,
+            &self.biases,
+            output,
+            batch_size,
+            self.in_channels,
+            self.out_channels,
+            self.input_height,
+            self.input_width,
+            self.kernel_size,
+            self.kernel_size,
+            self.stride,
+            padding,
+        )
+    }
+
+    /// Performs the convolution backward pass on the GPU, accumulating gradients for weights and biases and writing input gradients into `grad_input`.
+    ///
+    /// On success, GPU-computed gradients for filters and biases are accumulated into the layer's internal
+    /// gradient accumulators and `grad_input` is populated with gradients w.r.t. the input.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(GpuError::Unsupported(_))` if the layer's padding is negative (GPU path requires non-negative padding).
+    /// Returns other `GpuError` variants if the GPU backend reports a failure.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // `layer` is a Conv2DLayer and `backend` implements GpuBackend.
+    /// // `input`, `grad_output`, and `grad_input` must have appropriate lengths.
+    /// let res = layer.backward_gpu(&input, &grad_output, &mut grad_input, batch_size, &backend);
+    /// match res {
+    ///     Ok(()) => { /* gradients accumulated into layer */ }
+    ///     Err(e) => { /* handle GPU failure or fallback to CPU */ }
+    /// }
+    /// ```
+    fn backward_gpu(
+        &self,
+        input: &[f32],
+        grad_output: &[f32],
+        grad_input: &mut [f32],
+        batch_size: usize,
+        backend: &dyn GpuBackend,
+    ) -> Result<(), GpuError> {
+        let padding = if self.padding >= 0 {
+            self.padding as usize
+        } else {
+            return Err(GpuError::Unsupported(
+                "Negative padding not supported on GPU".to_string(),
+            ));
+        };
+
+        let weight_count =
+            self.out_channels * self.in_channels * self.kernel_size * self.kernel_size;
+        let mut grad_filters = vec![0.0f32; weight_count];
+        let mut grad_bias = vec![0.0f32; self.out_channels];
+
+        backend.conv2d_backward(
+            input,
+            &self.weights,
+            grad_output,
+            grad_input,
+            &mut grad_filters,
+            &mut grad_bias,
+            batch_size,
+            self.in_channels,
+            self.out_channels,
+            self.input_height,
+            self.input_width,
+            self.kernel_size,
+            self.kernel_size,
+            self.stride,
+            padding,
+        )?;
+
+        // Accumulate GPU-computed gradients into the gradient accumulators
+        self.grad_weights.accumulate(&grad_filters);
+        self.grad_biases.accumulate(&grad_bias);
+
+        Ok(())
     }
 }
 
 // Layer trait implementation
 
 impl Layer for Conv2DLayer {
-    /// Applies this convolutional layer to `input` and writes the computed feature maps into `output`.
+    /// Computes this layer's convolution over a batch of inputs and writes feature maps into `output`.
     ///
-    /// # Forward Pass Formula
+    /// The `input` slice must be laid out channels-last per sample: (H × W × C_in). The `output`
+    /// slice must be laid out per sample as (C_out × H_out × W_out). `batch_size` is the number of
+    /// samples packed consecutively in each buffer (so total lengths are `batch_size * input_size()`
+    /// and `batch_size * output_size()` respectively).
     ///
-    /// The 2D convolution operation computes output feature maps by sliding filters over the input:
-    /// ```text
-    /// y[b,i,j,c_out] = Σ(x[b, i*s + di - p, j*s + dj - p, c_in] × W[c_out, c_in, di, dj]) + b[c_out]
-    /// ```
-    ///
-    /// where the sum is over all kernel positions (di ∈ [0, K), dj ∈ [0, K)) and input channels (c_in ∈ [0, C_in)).
-    ///
-    /// where:
-    /// - `x` is the input tensor (batch_size × input_height × input_width × in_channels)
-    /// - `W` is the filter weights (out_channels × in_channels × kernel_size × kernel_size)
-    /// - `b` is the bias vector (out_channels)
-    /// - `y` is the output tensor (batch_size × output_height × output_width × out_channels)
-    /// - `s` is the stride (step size)
-    /// - `p` is the padding (zero-padding applied to input borders)
-    /// - `K` is the kernel_size (assumed square)
-    ///
-    /// # Dimension Transformations
-    ///
-    /// **Input dimensions:**
-    /// - Input: (batch_size × input_height × input_width × in_channels)
-    /// - Memory layout: channels-last (pixel-interleaved RGBRGB...)
-    ///
-    /// **Output dimensions:**
-    /// - Output height: floor((input_height + 2×padding - kernel_size) / stride) + 1
-    /// - Output width: floor((input_width + 2×padding - kernel_size) / stride) + 1
-    /// - Output: (batch_size × output_height × output_width × out_channels)
-    ///
-    /// **Convolution kernel:**
-    /// - Weights: (out_channels × in_channels × kernel_size × kernel_size)
-    /// - For each output position (i, j), the kernel slides over a (kernel_size × kernel_size) window
-    ///   of the input, computing a weighted sum across all input channels
-    ///
-    /// # Implementation Details
-    ///
-    /// This method uses nested loops to implement the convolution:
-    /// 1. Iterate over batch samples
-    /// 2. Iterate over output channels (filters)
-    /// 3. Iterate over spatial output positions (i, j)
-    /// 4. For each output position, accumulate contributions from:
-    ///    - All input channels (c_in)
-    ///    - All kernel positions (di, dj)
-    /// 5. Add bias for the output channel
-    ///
-    /// Zero-padding is applied by checking bounds during convolution - positions outside
-    /// the input dimensions contribute 0 to the output sum.
-    ///
-    /// # Parameters
-    ///
-    /// - `input`: Flattened input tensor with layout [batch, input_height, input_width, in_channels].
-    /// - `output`: Mutable flattened output buffer with layout [batch, out_channels, output_height, output_width].
-    /// - `batch_size`: Number of examples in the batch.
+    /// This method will panic if the provided buffer lengths do not match the expected sizes for the
+    /// configured layer dimensions. If a GPU backend is attached and its forward call succeeds, the
+    /// GPU-accelerated path is used; otherwise the CPU implementation is executed.
     ///
     /// # Examples
     ///
     /// ```
-    /// // Construct a layer (rng provided by the surrounding crate/test harness)
     /// use rust_neural_networks::layers::conv2d::Conv2DLayer;
     /// use rust_neural_networks::layers::Layer;
     /// use rust_neural_networks::utils::rng::SimpleRng;
+    ///
     /// let mut rng = SimpleRng::new(42);
     /// let layer = Conv2DLayer::new(1, 8, 3, 1, 1, 28, 28, &mut rng);
     /// let batch_size = 2;
@@ -511,6 +665,20 @@ impl Layer for Conv2DLayer {
             batch_size * self.output_size(),
             output.len()
         );
+        // Try GPU-accelerated path if backend is available
+        #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+        {
+            if let Some(ref backend) = self.gpu_backend {
+                if self
+                    .forward_gpu(input, output, batch_size, backend.as_ref())
+                    .is_ok()
+                {
+                    return;
+                }
+                // GPU failed, fall through to CPU path
+            }
+        }
+
         let out_spatial = out_h * out_w; // Total spatial elements per output channel
         let in_spatial = self.input_height * self.input_width; // Total spatial elements per input channel
 
@@ -586,19 +754,21 @@ impl Layer for Conv2DLayer {
         }
     }
 
-    /// Computes and accumulates gradients for this convolutional layer and writes the input gradients.
+    /// Accumulates gradients for the layer's parameters from `grad_output` and writes the
+    /// gradient with respect to the layer input into `grad_input`.
     ///
-    /// This method updates the layer's internal gradient accumulators (`grad_weights` and `grad_biases`) by
-    /// accumulating gradients from `grad_output` across the batch and spatial locations, and writes the gradient
-    /// with respect to the layer input into `grad_input`.
+    /// Input and output buffer layouts:
+    /// - `input` and `grad_input` use NHWC (batch, height, width, channels).
+    /// - `grad_output` uses the layer output layout (batch, out_channels, out_height, out_width).
     ///
-    /// Parameters are expected in contiguous row-major layout with ordering (batch, height, width, channel).
-    /// `input`/`grad_input` use NHWC (channels-last) layout, while `grad_output` follows the layer output
-    /// layout [batch, out_channels, out_h, out_w].
-    /// - `input`: length `batch_size * layer.input_size()`.
-    /// - `grad_output`: length `batch_size * layer.output_size()`.
-    /// - `grad_input`: mutable buffer with the same length and layout as `input`; it is overwritten with computed gradients.
-    /// - `batch_size`: number of examples in the first dimension of `input` and `grad_output`.
+    /// Buffer length requirements:
+    /// - `input.len() == batch_size * self.input_size()`
+    /// - `grad_output.len() == batch_size * self.output_size()`
+    /// - `grad_input.len() == batch_size * self.input_size()`
+    ///
+    /// This method zeros `self.grad_weights` and `self.grad_biases` before accumulating
+    /// gradients across the batch and spatial dimensions. `grad_input` is overwritten
+    /// with the computed input gradients.
     ///
     /// # Examples
     ///
@@ -606,48 +776,17 @@ impl Layer for Conv2DLayer {
     /// use rust_neural_networks::layers::conv2d::Conv2DLayer;
     /// use rust_neural_networks::layers::Layer;
     /// use rust_neural_networks::utils::rng::SimpleRng;
+    ///
     /// let mut rng = SimpleRng::new(42);
     /// let layer = Conv2DLayer::new(1, 1, 3, 1, 1, 5, 5, &mut rng);
     /// let batch = 1;
     /// let input = vec![0.0f32; batch * layer.input_size()];
     /// let grad_out = vec![1.0f32; batch * layer.output_size()];
     /// let mut grad_in = vec![0.0f32; batch * layer.input_size()];
+    ///
     /// layer.backward(&input, &grad_out, &mut grad_in, batch);
     /// assert!(grad_in.iter().any(|&v| v != 0.0));
     /// ```
-    /// # Backward Pass
-    ///
-    /// Computes gradients via the chain rule for backpropagation.
-    ///
-    /// Given gradient w.r.t. output: ∂L/∂y (batch_size × out_height × out_width × out_channels)
-    ///
-    /// **Step 1: Weight gradients**
-    /// - ∂L/∂W[c_out, c_in, ky, kx] = Σ (∂L/∂y[b, oy, ox, c_out] × x[b, oy*s + ky - p, ox*s + kx - p, c_in])
-    /// - Summation over all batch samples (b), output spatial positions (oy, ox)
-    /// - Dimension check: For each filter position (c_out, c_in, ky, kx), correlate output gradient with corresponding input patch
-    /// - Chain rule: Since y[b,i,j,c_out] = Σ(x[...] × W[c_out, c_in, di, dj]) + b[c_out], we have ∂y/∂W = x at corresponding positions
-    ///
-    /// **Step 2: Bias gradients**
-    /// - ∂L/∂b[c_out] = Σ (∂L/∂y[b, oy, ox, c_out])
-    /// - Summation over all batch samples (b) and output spatial positions (oy, ox)
-    /// - Dimension check: Sum over (batch_size × out_height × out_width × out_channels) → (out_channels)
-    /// - Chain rule: Since y = convolution + b, we have ∂y/∂b = 1 (for each output channel)
-    ///
-    /// **Step 3: Input gradients (for backprop to previous layer)**
-    /// - ∂L/∂x[b, iy, ix, c_in] = Σ (∂L/∂y[b, oy, ox, c_out] × W[c_out, c_in, ky, kx])
-    /// - Summation over all output channels (c_out) and kernel positions (ky, kx) where iy = oy*s + ky - p and ix = ox*s + kx - p
-    /// - Dimension check: For each input position, accumulate gradients from all output positions that used it in the forward pass
-    /// - Chain rule: Since y = convolution(x, W) + b, we have ∂y/∂x = W^T (transposed/rotated convolution)
-    ///
-    /// where:
-    /// - `s` is the stride
-    /// - `p` is the padding
-    /// - `ky, kx` are kernel spatial indices ∈ [0, kernel_size)
-    /// - `oy, ox` are output spatial indices ∈ [0, output_height), [0, output_width)
-    /// - `iy, ix` are input spatial indices ∈ [0, input_height), [0, input_width)
-    ///
-    /// All gradients are reset at the start and accumulated across the batch to support
-    /// mini-batch gradient descent.
     fn backward(
         &self,
         input: &[f32],
@@ -701,6 +840,27 @@ impl Layer for Conv2DLayer {
             batch_size * self.input_size(),
             grad_input.len()
         );
+
+        // Try GPU-accelerated path if backend is available
+        #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+        {
+            if let Some(ref backend) = self.gpu_backend {
+                // Zero accumulators before GPU backward
+                self.grad_weights.zero();
+                self.grad_biases.zero();
+                // Zero grad_input
+                for v in grad_input.iter_mut() {
+                    *v = 0.0;
+                }
+                if self
+                    .backward_gpu(input, grad_output, grad_input, batch_size, backend.as_ref())
+                    .is_ok()
+                {
+                    return;
+                }
+                // GPU failed, fall through to CPU path (accumulators already zeroed, that's fine)
+            }
+        }
 
         let out_spatial = out_h * out_w;
         let in_spatial = self.input_height * self.input_width;

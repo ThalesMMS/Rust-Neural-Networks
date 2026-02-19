@@ -1406,6 +1406,18 @@ mod tests {
         use rust_neural_networks::config::TrainingConfig;
 
         // Helper to build a minimal TrainingConfig with a given optimizer_type
+        /// Constructs a TrainingConfig with default values (most fields set to `None`) and an optional optimizer type.
+        ///
+        /// The returned config has `scheduler_type` set to `"none"` and all scheduler/optimizer hyperparameters,
+        /// training and augmentation settings initialized to `None`, except `optimizer_type` which is set from the argument.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// let cfg = make_config(Some("adam"));
+        /// assert_eq!(cfg.scheduler_type, "none");
+        /// assert_eq!(cfg.optimizer_type.as_deref(), Some("adam"));
+        /// ```
         fn make_config(optimizer_type: Option<&str>) -> TrainingConfig {
             TrainingConfig {
                 scheduler_type: "none".to_string(),
@@ -1441,6 +1453,8 @@ mod tests {
                 g_lr: None,
                 d_lr: None,
                 label_smoothing: None,
+                gpu_backend: None,
+                gpu_device_id: None,
                 step_debug: None,
             }
         }

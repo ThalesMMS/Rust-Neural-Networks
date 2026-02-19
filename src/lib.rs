@@ -16,6 +16,7 @@
 //! - `profiling`: Performance profiling and metrics collection
 //! - `step_debug`: Interactive step-through debugging for training
 //! - `compression`: Model compression techniques (quantization, pruning)
+//! - `gpu`: GPU acceleration backends (Metal for macOS, CUDA for NVIDIA)
 
 pub mod architecture;
 pub mod autoencoder;
@@ -24,6 +25,8 @@ pub mod benchmark;
 pub mod compression;
 pub mod config;
 pub mod data;
+#[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+pub mod gpu;
 pub mod layers;
 pub mod optimizers;
 pub mod profiling;

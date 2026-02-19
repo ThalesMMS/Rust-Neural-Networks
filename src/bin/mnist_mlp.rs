@@ -18,6 +18,11 @@ use rust_neural_networks::utils::activations::{relu_inplace, softmax_rows};
 use rust_neural_networks::utils::lr_scheduler::{create_scheduler_from_config, LRScheduler};
 use rust_neural_networks::utils::rng::SimpleRng;
 
+#[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+use rust_neural_networks::gpu;
+#[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+use std::sync::Arc;
+
 // MLP with minibatches for MNIST (Rust port for study).
 // Uses shared library layers and utilities.
 const IMG_H: usize = 28;
@@ -98,23 +103,48 @@ struct NeuralNetwork {
 }
 
 // Network construction 784 -> 512 -> 10.
-/// Create a feedforward NeuralNetwork with randomized DenseLayer parameters.
+/// Create a two-layer feedforward neural network with randomized parameters.
 ///
-/// The returned network contains a hidden DenseLayer sized NUM_INPUTS -> NUM_HIDDEN
-/// and an output DenseLayer sized NUM_HIDDEN -> NUM_OUTPUTS. Layer parameters
-/// are initialized using the provided RNG (the RNG is reseeded inside the function).
+/// The network contains a hidden DenseLayer sized NUM_INPUTS -> NUM_HIDDEN and an
+/// output DenseLayer sized NUM_HIDDEN -> NUM_OUTPUTS. Layer weights and biases
+/// are initialized using the provided RNG. When compiled with a GPU feature and
+/// a non-`None` GPU backend is supplied, GPU-backed layers are constructed.
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// let mut rng = SimpleRng::new(42);
 /// let nn = initialize_network(&mut rng);
 /// assert_eq!(nn.hidden_layer.input_size(), NUM_INPUTS);
-/// assert_eq!(nn.hidden_layer.output_size(), NUM_HIDDEN);
-/// assert_eq!(nn.output_layer.input_size(), NUM_HIDDEN);
-/// assert_eq!(nn.output_layer.output_size(), NUM_OUTPUTS);
 /// ```
-fn initialize_network(rng: &mut SimpleRng) -> NeuralNetwork {
+///
+/// ```ignore
+/// // With GPU feature enabled:
+/// use std::sync::Arc;
+/// let mut rng = SimpleRng::new(42);
+/// let gpu_backend: Option<Arc<dyn gpu::GpuBackend>> = None;
+/// let nn = initialize_network(&mut rng, &gpu_backend);
+/// ```
+fn initialize_network(
+    rng: &mut SimpleRng,
+    #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))] gpu_backend: &Option<
+        Arc<dyn gpu::GpuBackend>,
+    >,
+) -> NeuralNetwork {
+    #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+    {
+        if let Some(ref backend) = gpu_backend {
+            let hidden_layer =
+                DenseLayer::new_with_gpu(NUM_INPUTS, NUM_HIDDEN, rng, Arc::clone(backend));
+            let output_layer =
+                DenseLayer::new_with_gpu(NUM_HIDDEN, NUM_OUTPUTS, rng, Arc::clone(backend));
+            return NeuralNetwork {
+                hidden_layer,
+                output_layer,
+            };
+        }
+    }
+
     let hidden_layer = DenseLayer::new(NUM_INPUTS, NUM_HIDDEN, rng);
     let output_layer = DenseLayer::new(NUM_HIDDEN, NUM_OUTPUTS, rng);
 
@@ -637,6 +667,16 @@ fn save_model(nn: &NeuralNetwork, filename: &str) {
     println!("Model saved to {}", filename);
 }
 
+/// Create a learning-rate scheduler from the provided learning rate, epoch count, and optional config path.
+///
+/// The scheduler is configured using the explicit `learning_rate` and `epochs` values and may be further
+/// influenced by settings found at `config_path` when provided.
+///
+/// # Examples
+///
+/// ```
+/// let scheduler = scheduler_from_args(0.001, 50, None);
+/// ```
 fn scheduler_from_args(
     learning_rate: f32,
     epochs: usize,
@@ -645,14 +685,18 @@ fn scheduler_from_args(
     create_scheduler_from_config(learning_rate, epochs, config_path)
 }
 
-/// Program entry point that loads MNIST data, constructs a learning-rate scheduler and neural network, trains and evaluates the model, and saves the trained parameters.
+/// Run the full MNIST training, evaluation, and model-save pipeline.
 ///
-/// The function parses an optional CLI config path to select a learning-rate scheduler, measures and reports timings for data loading, training, and testing, and writes the final model to `mnist_model.bin`.
+/// This binary entrypoint parses an optional CLI config path (uses the bundled default if omitted),
+/// loads configuration and MNIST data, constructs the scheduler and network (optionally enabling GPU
+/// when compiled with GPU features), executes training with early stopping and augmentation options,
+/// evaluates on the test set, and writes the trained parameters to `mnist_model.bin`. Runtime errors
+/// such as configuration or data-load failures cause the process to exit with an error message.
 ///
 /// # Examples
 ///
 /// ```
-/// // Run the program entry point (typically executed by the runtime).
+/// // Typical invocation in a binary; runs the full training and evaluation workflow.
 /// main();
 /// ```
 fn main() {
@@ -688,6 +732,28 @@ fn main() {
     let random_crop_padding = config.random_crop_padding;
     let brightness_jitter = config.brightness_jitter;
     let contrast_jitter = config.contrast_jitter;
+
+    // GPU initialization based on config
+    #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+    let gpu_backend = {
+        let requested = config.gpu_backend.as_deref().unwrap_or("auto");
+        if requested == "cpu" {
+            println!("GPU disabled by config (gpu_backend: \"cpu\")");
+            None
+        } else {
+            match gpu::create_gpu_backend() {
+                Some(backend) => {
+                    gpu::print_backend_info(&*backend);
+                    println!("GPU acceleration enabled for training");
+                    Some(backend)
+                }
+                None => {
+                    println!("No GPU available, falling back to CPU");
+                    None
+                }
+            }
+        }
+    };
 
     // Resolve step-through debug mode from CLI flag or config
     let step_debug_enabled = parse_step_flag(&args) || config.step_debug.unwrap_or(false);
@@ -751,7 +817,11 @@ fn main() {
 
     println!("Initializing neural network...");
     let mut rng = SimpleRng::new(1);
-    let mut nn = initialize_network(&mut rng);
+    let mut nn = initialize_network(
+        &mut rng,
+        #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+        &gpu_backend,
+    );
 
     // Augmentation RNG (reseeded from time for randomness)
     let mut aug_rng = SimpleRng::new(2);
@@ -821,7 +891,11 @@ mod tests {
     #[test]
     fn test_initialize_network() {
         let mut rng = SimpleRng::new(42);
-        let nn = initialize_network(&mut rng);
+        let nn = initialize_network(
+            &mut rng,
+            #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+            &None,
+        );
 
         assert_eq!(nn.hidden_layer.input_size(), NUM_INPUTS);
         assert_eq!(nn.hidden_layer.output_size(), NUM_HIDDEN);
