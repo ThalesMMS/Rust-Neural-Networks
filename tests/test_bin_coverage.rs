@@ -400,8 +400,10 @@ mod mlp_simple_bin {
                 [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]];
             let expected: [[f32; NUM_OUTPUTS]; NUM_SAMPLES] = [[0.0], [1.0], [1.0], [0.0]];
             let mut scheduler = ConstantLR::new(0.1);
+            // Create a disabled step debugger for testing
+            let mut debugger = StepDebugger::new(false);
             // Run a small number of epochs to verify the training loop executes correctly
-            train(&mut nn, &inputs, &expected, &mut scheduler, 10);
+            train(&mut nn, &inputs, &expected, &mut scheduler, 10, &mut debugger);
             // After training, forward pass should produce values in [0, 1]
             let mut hidden_out = vec![0.0f32; NUM_HIDDEN];
             let mut output_out = vec![0.0f32; NUM_OUTPUTS];

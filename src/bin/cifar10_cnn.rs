@@ -24,9 +24,10 @@ pub use rust_neural_networks::layers::{
 };
 use rust_neural_networks::optimizers::rmsprop::RMSprop;
 use rust_neural_networks::optimizers::{Adam, AdamW, Optimizer, SGD};
+use rust_neural_networks::step_debug::StepDebugger;
 use rust_neural_networks::training::{
     compute_softmax_cross_entropy, evaluate_batch_accuracy, gather_batch, parse_config_path,
-    print_training_config, CsvGradientLogger, CsvTrainingLogger, EarlyStopping,
+    parse_step_flag, print_training_config, CsvGradientLogger, CsvTrainingLogger, EarlyStopping,
     EarlyStoppingAction, TrainingMetrics,
 };
 pub use rust_neural_networks::utils::activations::{relu_inplace, softmax_rows};
@@ -831,6 +832,9 @@ fn main() {
     let contrast_jitter = config.contrast_jitter;
     let saturation_jitter = config.saturation_jitter;
 
+    // Resolve step-through debug mode from CLI flag or config
+    let step_debug_enabled = parse_step_flag(&args) || config.step_debug.unwrap_or(false);
+
     // Print loaded configuration
     print_training_config(
         &config,
@@ -905,6 +909,9 @@ fn main() {
 
     let mut model = init_cnn(&mut rng, arch_path.as_deref());
 
+    // Create step debugger
+    let mut debugger = StepDebugger::new(step_debug_enabled);
+
     // Create per-layer optimizers (one per layer to avoid shared optimizer state issues
     // with different parameter sizes across layers)
     let mut layer_optimizers: Vec<Box<dyn Optimizer>> = (0..model.layers.len())
@@ -976,6 +983,8 @@ fn main() {
         rng.shuffle_usize(&mut indices);
         let current_lr = scheduler.get_lr();
 
+        debugger.on_epoch_start(epoch + 1);
+
         // Update learning rate on all per-layer optimizers
         for opt in layer_optimizers.iter_mut() {
             opt.set_learning_rate(current_lr);
@@ -994,6 +1003,10 @@ fn main() {
         for batch_start in (0..train_n).step_by(batch_size) {
             let batch = (train_n - batch_start).min(batch_size);
             let scale = 1.0f32;
+            let batch_idx = batch_start / batch_size + 1;
+            let total_batches = train_n.div_ceil(batch_size);
+
+            debugger.set_context(epoch + 1, batch_idx, total_batches, batch);
 
             // Gather a random mini-batch into contiguous buffers.
             // Apply augmentation only during training if enabled.
@@ -1065,6 +1078,13 @@ fn main() {
             );
             total_loss += batch_loss;
 
+            debugger.after_loss(
+                batch_loss / batch as f32,
+                &delta[..batch * NUM_CLASSES],
+                batch,
+                NUM_CLASSES,
+            );
+
             // Backward pass through all layers
             backward_pass(
                 &mut model,
@@ -1077,19 +1097,36 @@ fn main() {
             );
 
             // Log gradient magnitudes before parameter update (accumulate for epoch).
+            // Also collect current batch gradients for debugger.
+            let mut layer_names: Vec<String> = Vec::new();
+            let mut gradient_tuples: Vec<(f32, f32)> = Vec::new();
+
             for (layer_idx, layer) in model.layers.iter().enumerate() {
                 let any_layer = layer.as_ref().as_any();
                 if let Some(conv_layer) = any_layer.downcast_ref::<Conv2DLayer>() {
                     let (w_norm, b_norm) = conv_layer.get_gradient_magnitude();
                     layer_weight_grad_sums[layer_idx] += w_norm;
                     layer_bias_grad_sums[layer_idx] += b_norm;
+                    layer_names.push(format!("conv_{}", layer_idx));
+                    gradient_tuples.push((w_norm, b_norm));
                 } else if let Some(dense_layer) = any_layer.downcast_ref::<DenseLayer>() {
                     let (w_norm, b_norm) = dense_layer.get_gradient_magnitude();
                     layer_weight_grad_sums[layer_idx] += w_norm;
                     layer_bias_grad_sums[layer_idx] += b_norm;
+                    layer_names.push(format!("dense_{}", layer_idx));
+                    gradient_tuples.push((w_norm, b_norm));
                 }
             }
             batch_count_total += 1;
+
+            // Build gradient info for debugger with string references
+            let gradient_info: Vec<(&str, f32, f32)> = layer_names
+                .iter()
+                .zip(gradient_tuples.iter())
+                .map(|(name, &(w, b))| (name.as_str(), w, b))
+                .collect();
+
+            debugger.after_update(&gradient_info, current_lr);
 
             // Update parameters for all layers using per-layer optimizers
             for (layer, opt) in model.layers.iter_mut().zip(layer_optimizers.iter_mut()) {

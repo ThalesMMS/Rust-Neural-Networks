@@ -239,6 +239,64 @@
             font-style: italic;
         }
 
+        .instructions-panel {
+            max-width: 700px;
+            margin: 0 auto;
+            text-align: left;
+        }
+
+        .instructions-panel h3 {
+            color: var(--primary-color);
+            margin-bottom: var(--spacing-sm);
+            font-size: 1.3rem;
+        }
+
+        .instructions-panel p {
+            margin-bottom: var(--spacing-sm);
+            line-height: 1.8;
+        }
+
+        .instructions-panel ol {
+            margin: var(--spacing-sm) 0 var(--spacing-md) var(--spacing-md);
+            line-height: 1.8;
+        }
+
+        .instructions-panel li {
+            margin-bottom: var(--spacing-xs);
+        }
+
+        .instructions-panel code {
+            background: var(--background-color);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.9em;
+            color: var(--error-color);
+        }
+
+        .command-block {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: var(--spacing-sm);
+            border-radius: 6px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.9rem;
+            margin: var(--spacing-sm) 0;
+            overflow-x: auto;
+        }
+
+        .info-box {
+            background: var(--mlp-bg);
+            border-left: 4px solid var(--primary-color);
+            padding: var(--spacing-sm) var(--spacing-md);
+            margin: var(--spacing-md) 0;
+            border-radius: 4px;
+        }
+
+        .info-box strong {
+            color: var(--primary-color);
+        }
+
         /* ========== Footer ========== */
         footer {
             text-align: center;
@@ -377,10 +435,37 @@
             init();
         } catch (e) {
             document.querySelector('.dashboard-grid').innerHTML =
-                `<div class="card card-full"><div class="no-data">
-                    Could not load dashboard_data.json.<br>
-                    Run: <code>cargo run --release --bin generate_dashboard_data</code>
-                </div></div>`;
+                `<div class="card card-full">
+                    <div class="instructions-panel">
+                        <h3>📊 Dashboard Data Not Found</h3>
+                        <p>
+                            This dashboard requires training data from the MNIST models.
+                            The data file <code>dashboard_data.json</code> needs to be generated first.
+                        </p>
+
+                        <div class="info-box">
+                            <strong>Quick Start:</strong> Generate the dashboard data by running the data generation binary.
+                        </div>
+
+                        <p><strong>Step 1:</strong> Generate the dashboard data</p>
+                        <div class="command-block">cargo run --release --bin generate_dashboard_data</div>
+
+                        <p><strong>Step 2:</strong> Refresh this page</p>
+                        <p>
+                            The script will automatically train all three MNIST models (MLP, CNN, and Attention)
+                            and collect their metrics into <code>demo/dashboard_data.json</code>.
+                        </p>
+
+                        <div class="info-box">
+                            <strong>Note:</strong> Training all three models takes approximately 5-10 minutes on most systems.
+                            The script will show progress for each model as it trains.
+                        </div>
+
+                        <p style="margin-top: var(--spacing-md);">
+                            <strong>Regenerating Data:</strong> Run the same command anytime to update the dashboard with fresh training runs.
+                        </p>
+                    </div>
+                </div>`;
         }
     }
 

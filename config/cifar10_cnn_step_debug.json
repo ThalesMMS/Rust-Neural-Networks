@@ -1,0 +1,14 @@
+{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "activation_function": "relu",
+  "learning_rate": 0.01,
+  "epochs": 3,
+  "batch_size": 32,
+  "validation_split": 0.1,
+  "early_stopping_patience": 3,
+  "early_stopping_min_delta": 0.001,
+  "enable_augmentation": false,
+  "step_debug": true
+}

@@ -3,6 +3,8 @@ use std::process;
 
 use rust_neural_networks::config::load_config;
 use rust_neural_networks::layers::{DenseLayer, Layer};
+use rust_neural_networks::step_debug::StepDebugger;
+use rust_neural_networks::training::parse_step_flag;
 use rust_neural_networks::utils::lr_scheduler::{create_scheduler_from_config, LRScheduler};
 use rust_neural_networks::utils::rng::SimpleRng;
 
@@ -169,6 +171,7 @@ fn train(
     expected_outputs: &[[f32; NUM_OUTPUTS]],
     scheduler: &mut dyn LRScheduler,
     epochs: usize,
+    debugger: &mut StepDebugger,
 ) {
     // Buffer pre-allocation
     let mut hidden_outputs = vec![0.0f32; NUM_HIDDEN];
@@ -179,10 +182,14 @@ fn train(
     let mut grad_hidden_input = vec![0.0f32; NUM_INPUTS];
 
     for epoch in 0..epochs {
+        debugger.on_epoch_start(epoch + 1);
+
         let mut total_errors = 0.0f32;
         let current_lr = scheduler.get_lr();
 
         for sample in 0..NUM_SAMPLES {
+            // Set context for this sample (treating each sample as a "batch")
+            debugger.set_context(epoch + 1, sample + 1, NUM_SAMPLES, 1);
             // No need to clear buffers explicitly as they are fully overwritten:
             // - hidden_outputs and output_outputs are overwritten by forward()
             // - errors is computed element-wise
@@ -198,9 +205,31 @@ fn train(
             grad_hidden_outputs.fill(0.0);
             grad_hidden_input.fill(0.0);
 
-            // Forward pass.
+            // Forward pass through hidden layer
+            debugger.before_forward(
+                "hidden_layer",
+                &inputs[sample],
+                1,
+                NUM_INPUTS,
+                NUM_HIDDEN,
+                nn.hidden_layer.parameter_count(),
+            );
             forward_with_sigmoid(&nn.hidden_layer, &inputs[sample], &mut hidden_outputs);
+            debugger.after_forward("hidden_layer", &hidden_outputs, 1, NUM_HIDDEN);
+            debugger.after_activation("Sigmoid", &hidden_outputs, 1, NUM_HIDDEN);
+
+            // Forward pass through output layer
+            debugger.before_forward(
+                "output_layer",
+                &hidden_outputs,
+                1,
+                NUM_HIDDEN,
+                NUM_OUTPUTS,
+                nn.output_layer.parameter_count(),
+            );
             forward_with_sigmoid(&nn.output_layer, &hidden_outputs, &mut output_outputs);
+            debugger.after_forward("output_layer", &output_outputs, 1, NUM_OUTPUTS);
+            debugger.after_activation("Sigmoid", &output_outputs, 1, NUM_OUTPUTS);
 
             // Compute error (expected - predicted).
             for i in 0..NUM_OUTPUTS {
@@ -220,6 +249,15 @@ fn train(
             nn.output_layer
                 .backward(&hidden_outputs, &grad_output, &mut grad_hidden_outputs, 1);
 
+            debugger.after_backward(
+                "output_layer",
+                &grad_output,
+                &grad_hidden_outputs,
+                1,
+                NUM_OUTPUTS,
+                NUM_HIDDEN,
+            );
+
             // CRITICAL FIX: Apply sigmoid derivative for hidden layer activation
             // This applies the chain rule for the hidden layer's sigmoid activation
             for i in 0..NUM_HIDDEN {
@@ -234,9 +272,30 @@ fn train(
                 1,
             );
 
+            debugger.after_backward(
+                "hidden_layer",
+                &grad_hidden_outputs,
+                &grad_hidden_input,
+                1,
+                NUM_HIDDEN,
+                NUM_INPUTS,
+            );
+
+            // Compute gradient norms before parameter update
+            let (hidden_w_norm, hidden_b_norm) = nn.hidden_layer.get_gradient_magnitude();
+            let (output_w_norm, output_b_norm) = nn.output_layer.get_gradient_magnitude();
+
             // 4. NOW update both layers (after all gradients are computed).
             nn.output_layer.update_parameters(current_lr);
             nn.hidden_layer.update_parameters(current_lr);
+
+            debugger.after_update(
+                &[
+                    ("hidden_layer", hidden_w_norm, hidden_b_norm),
+                    ("output_layer", output_w_norm, output_b_norm),
+                ],
+                current_lr,
+            );
         }
 
         // Average loss per epoch, printed every 1000 epochs.
@@ -295,15 +354,21 @@ fn scheduler_from_args(
 
 /// Parse command-line arguments to get config file path.
 /// Returns the path specified with --config flag, or default path if not provided.
-fn parse_config_path(args: &[String]) -> String {
+fn parse_config_path(args: &[String]) -> (String, Vec<String>) {
+    let mut config_path = DEFAULT_CONFIG_PATH.to_string();
+    let mut remaining_args = Vec::new();
+
     let mut i = 1;
     while i < args.len() {
         if args[i] == "--config" && i + 1 < args.len() {
-            return args[i + 1].clone();
+            config_path = args[i + 1].clone();
+            i += 2;
+        } else {
+            remaining_args.push(args[i].clone());
+            i += 1;
         }
-        i += 1;
     }
-    DEFAULT_CONFIG_PATH.to_string()
+    (config_path, remaining_args)
 }
 
 /// Train a two-layer neural network on the XOR dataset and print each input with its expected and predicted output.
@@ -322,11 +387,11 @@ fn parse_config_path(args: &[String]) -> String {
 /// crate::main();
 /// ```
 fn main() {
-    // Parse command-line arguments for config file path
+    // Parse command-line arguments for config file path and step mode
     let args: Vec<String> = env::args().collect();
-    let config_path = parse_config_path(&args);
+    let (config_path, remaining_args) = parse_config_path(&args);
 
-    // Load config
+    // Load config first to check step_debug field
     println!("=== XOR MLP Training ===");
     println!("Loading configuration from: {}", config_path);
     let config = match load_config(&config_path) {
@@ -337,6 +402,12 @@ fn main() {
             process::exit(1);
         }
     };
+
+    // Check for step-debug mode from CLI flag or config
+    let step_debug_enabled = parse_step_flag(&remaining_args) || config.step_debug.unwrap_or(false);
+
+    // Create step debugger
+    let mut debugger = StepDebugger::new(step_debug_enabled);
 
     // Extract hyperparameters from config with defaults
     let learning_rate = config.learning_rate.unwrap_or(0.01);
@@ -370,6 +441,7 @@ fn main() {
         &expected_outputs,
         scheduler.as_mut(),
         epochs,
+        &mut debugger,
     );
     test(&nn, &inputs, &expected_outputs);
 }

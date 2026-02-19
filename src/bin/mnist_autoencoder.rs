@@ -8,9 +8,10 @@ use rust_neural_networks::autoencoder::vanilla::VanillaAutoencoder;
 use rust_neural_networks::config::load_config;
 use rust_neural_networks::data::mnist::{read_mnist_images, read_mnist_labels};
 use rust_neural_networks::optimizers::{Adam, Optimizer, SGD};
+use rust_neural_networks::step_debug::StepDebugger;
 use rust_neural_networks::training::{
-    gather_batch, parse_config_path, print_training_config, CsvTrainingLogger, EarlyStopping,
-    EarlyStoppingAction, TrainingMetrics,
+    gather_batch, parse_config_path, parse_step_flag, print_training_config, CsvTrainingLogger,
+    EarlyStopping, EarlyStoppingAction, TrainingMetrics,
 };
 use rust_neural_networks::utils::lr_scheduler::{create_scheduler_from_config, LRScheduler};
 use rust_neural_networks::utils::rng::SimpleRng;
@@ -115,6 +116,7 @@ fn train(
     rng: &mut SimpleRng,
     scheduler: &mut dyn LRScheduler,
     params: &TrainHyperparams,
+    _debugger: &mut StepDebugger,
 ) {
     // Attempt to create logs dir if not exists
     std::fs::create_dir_all("./logs").ok();
@@ -432,9 +434,10 @@ fn scheduler_from_args(
 fn main() {
     let program_start = Instant::now();
 
-    // Parse command-line arguments for config file path
+    // Parse command-line arguments for config file path and step mode
     let args: Vec<String> = env::args().collect();
     let config_path = parse_config_path(&args, DEFAULT_CONFIG_PATH);
+    let step_mode = parse_step_flag(&args);
 
     println!("=== MNIST Vanilla Autoencoder Training ===");
     println!("Loading configuration from: {}", config_path);
@@ -541,6 +544,7 @@ fn main() {
         early_stopping_patience,
         early_stopping_min_delta,
     };
+    let mut debugger = StepDebugger::new(step_mode);
     train(
         &mut ae,
         &train_data,
@@ -548,6 +552,7 @@ fn main() {
         &mut rng,
         scheduler.as_mut(),
         &hyperparams,
+        &mut debugger,
     );
     let train_time = train_start.elapsed().as_secs_f64();
     println!("Total training time: {:.2} seconds", train_time);
@@ -596,12 +601,14 @@ mod tests {
         use std::fs;
         let mut rng = SimpleRng::new(0);
         let ae = initialize_autoencoder(&mut rng);
-        let path = "/tmp/test_ae_model.bin";
-        save_model(&ae, path);
+        // Use temp_dir() which respects TMPDIR and sandbox settings
+        let mut path = std::env::temp_dir();
+        path.push("test_ae_model.bin");
+        save_model(&ae, path.to_str().unwrap());
         assert!(
-            fs::metadata(path).is_ok(),
+            fs::metadata(&path).is_ok(),
             "Model file should exist after save"
         );
-        fs::remove_file(path).ok();
+        fs::remove_file(&path).ok();
     }
 }

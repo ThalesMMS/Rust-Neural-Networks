@@ -43,6 +43,8 @@ use std::time::Instant;
 use rust_neural_networks::config::load_config;
 use rust_neural_networks::layers::{DenseLayer, Layer, TransformerEncoder};
 use rust_neural_networks::optimizers::{Adam, Optimizer};
+use rust_neural_networks::step_debug::StepDebugger;
+use rust_neural_networks::training::parse_step_flag;
 use rust_neural_networks::utils::activations::{relu_inplace, softmax_rows};
 use rust_neural_networks::utils::lr_scheduler::create_scheduler_from_config;
 use rust_neural_networks::utils::{sinusoidal_positional_encoding, SimpleRng};
@@ -182,11 +184,13 @@ fn extract_patches(images: &[f32], batch_size: usize, patches: &mut [f32]) {
 fn main() {
     println!("=== Transformer MNIST Classifier ===\n");
 
+    // Parse command line arguments
+    let args: Vec<String> = args().collect();
+    let config_path = args.get(1).map(|s| s.as_str()).unwrap_or(DEFAULT_CONFIG_PATH);
+    let step_mode = parse_step_flag(&args);
+
     // Load configuration (use defaults if config file not found)
-    let config_path = args()
-        .nth(1)
-        .unwrap_or_else(|| DEFAULT_CONFIG_PATH.to_string());
-    let config = load_config(&config_path).unwrap_or_else(|e| {
+    let config = load_config(config_path).unwrap_or_else(|e| {
         eprintln!("Warning: Could not load config from {}: {}", config_path, e);
         eprintln!("Proceeding with built-in default hyperparameters\n");
         // Return minimal config that will use the const defaults defined above
@@ -194,6 +198,9 @@ fn main() {
             panic!("Could not load default config from {}", DEFAULT_CONFIG_PATH)
         })
     });
+
+    // Initialize step debugger
+    let mut debugger = StepDebugger::new(step_mode);
 
     // Extract hyperparameters from config
     let learning_rate = config.learning_rate.unwrap_or(LEARNING_RATE);
@@ -335,6 +342,9 @@ fn main() {
     println!("Starting training...\n");
     for epoch in 0..epochs {
         let epoch_start = Instant::now();
+
+        // Notify debugger of new epoch
+        debugger.on_epoch_start(epoch + 1);
 
         // Get current learning rate from scheduler and update optimizers
         let current_lr = lr_scheduler.get_lr();

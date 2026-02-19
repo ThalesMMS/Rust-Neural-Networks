@@ -23,9 +23,11 @@ use std::time::Instant;
 use rust_neural_networks::config::load_config;
 use rust_neural_networks::data::mnist::{read_mnist_images, read_mnist_labels};
 use rust_neural_networks::layers::{DenseLayer, Layer};
+use rust_neural_networks::step_debug::StepDebugger;
 use rust_neural_networks::training::{
     compute_softmax_cross_entropy, evaluate_batch_accuracy, gather_batch, parse_config_path,
-    print_training_config, CsvTrainingLogger, EarlyStopping, EarlyStoppingAction, TrainingMetrics,
+    parse_step_flag, print_training_config, CsvTrainingLogger, EarlyStopping, EarlyStoppingAction,
+    TrainingMetrics,
 };
 use rust_neural_networks::utils::activations::{relu_inplace, softmax_rows};
 use rust_neural_networks::utils::lr_scheduler::{create_scheduler_from_config, LRScheduler};
@@ -772,11 +774,11 @@ fn scheduler_from_args(
 /// main();
 /// ```
 fn main() {
-    // Parse command-line arguments for config file path
+    // Parse command-line arguments for config file path and step flag
     let args: Vec<String> = env::args().collect();
     let config_path = parse_config_path(&args, DEFAULT_CONFIG_PATH);
 
-    // Load config
+    // Load config first to check step_debug field
     println!("=== MNIST CNN Training ===");
     println!("Loading configuration from: {}", config_path);
     let config = match load_config(&config_path) {
@@ -787,6 +789,9 @@ fn main() {
             process::exit(1);
         }
     };
+
+    // Check for step-debug mode from CLI flag or config
+    let step_debug = parse_step_flag(&args) || config.step_debug.unwrap_or(false);
 
     // Extract hyperparameters from config with defaults
     let learning_rate = config.learning_rate.unwrap_or(LEARNING_RATE);
@@ -916,6 +921,9 @@ fn main() {
     // Early stopping state
     let mut early_stopping = EarlyStopping::new(early_stopping_patience, early_stopping_min_delta);
 
+    // Create step debugger
+    let mut debugger = StepDebugger::new(step_debug);
+
     println!(
         "Training CNN: epochs={} batch={} lr={}",
         epochs, batch_size, learning_rate
@@ -935,9 +943,16 @@ fn main() {
         let mut fc_bias_grad_sum = 0.0f32;
         let mut batch_count_total = 0usize;
 
+        debugger.on_epoch_start(epoch + 1);
+
+        let total_batches = (train_n + batch_size - 1) / batch_size;
+
         for batch_start in (0..train_n).step_by(batch_size) {
             let batch = (train_n - batch_start).min(batch_size);
             let scale = 1.0f32;
+            let batch_idx = batch_start / batch_size + 1;
+
+            debugger.set_context(epoch + 1, batch_idx, total_batches, batch);
 
             // Gather a random mini-batch into contiguous buffers.
             // Apply augmentation only during training if enabled.
@@ -981,12 +996,40 @@ fn main() {
             );
 
             // Forward: conv -> pool -> FC -> logits.
+            let conv_param_count = CONV_OUT * IMG_CHANNELS * KERNEL * KERNEL + CONV_OUT;
+            debugger.before_forward(
+                "conv_layer",
+                &batch_inputs,
+                batch,
+                IMG_H * IMG_W * IMG_CHANNELS,
+                CONV_OUT * IMG_H * IMG_W,
+                conv_param_count,
+            );
             conv_forward_relu(&mut model, batch, &batch_inputs, &mut conv_out);
+            debugger.after_forward(
+                "conv_layer",
+                &conv_out[..batch * CONV_OUT * IMG_H * IMG_W],
+                batch,
+                CONV_OUT * IMG_H * IMG_W,
+            );
+            debugger.after_activation(
+                "ReLU",
+                &conv_out[..batch * CONV_OUT * IMG_H * IMG_W],
+                batch,
+                CONV_OUT * IMG_H * IMG_W,
+            );
+
             maxpool_forward(batch, &conv_out, &mut pool_out, &mut pool_idx);
+
+            let fc_param_count = FC_IN * NUM_CLASSES + NUM_CLASSES;
+            debugger.before_forward("fc_layer", &pool_out, batch, FC_IN, NUM_CLASSES, fc_param_count);
             fc_forward(&mut model, batch, &pool_out, &mut logits);
+            debugger.after_forward("fc_layer", &logits, batch, NUM_CLASSES);
 
             // Softmax + loss + gradient at logits.
             softmax_rows(&mut logits[..batch * NUM_CLASSES], batch, NUM_CLASSES);
+            debugger.after_activation("Softmax", &logits[..batch * NUM_CLASSES], batch, NUM_CLASSES);
+
             let batch_loss = compute_softmax_cross_entropy(
                 &logits[..batch * NUM_CLASSES],
                 &batch_labels,
@@ -996,11 +1039,35 @@ fn main() {
                 scale,
             );
             total_loss += batch_loss;
+            debugger.after_loss(batch_loss / batch as f32, &delta, batch, NUM_CLASSES);
 
             // Backward: FC -> pool -> conv.
             fc_backward(&mut model, batch, &pool_out, &delta, &mut d_pool);
+            debugger.after_backward(
+                "fc_layer",
+                &delta,
+                &d_pool[..batch * FC_IN],
+                batch,
+                NUM_CLASSES,
+                FC_IN,
+            );
+
             maxpool_backward_relu(batch, &conv_out, &d_pool, &pool_idx, &mut d_conv);
+            debugger.after_relu_derivative(
+                &d_conv[..batch * CONV_OUT * IMG_H * IMG_W],
+                batch,
+                CONV_OUT * IMG_H * IMG_W,
+            );
+
             conv_backward(&mut model, batch, &batch_inputs, &d_conv, &mut _grad_input);
+            debugger.after_backward(
+                "conv_layer",
+                &d_conv,
+                &_grad_input[..batch * NUM_INPUTS],
+                batch,
+                CONV_OUT * IMG_H * IMG_W,
+                IMG_H * IMG_W * IMG_CHANNELS,
+            );
 
             // Log gradient magnitudes before parameter update (accumulate for epoch)
             let (conv_w_norm, conv_b_norm) = model.conv_layer.get_gradient_magnitude();
@@ -1014,6 +1081,14 @@ fn main() {
             // SGD update using Layer trait (no momentum, no weight decay).
             model.fc_layer.update_parameters(current_lr);
             model.conv_layer.update_parameters(current_lr);
+
+            debugger.after_update(
+                &[
+                    ("conv_layer", conv_w_norm, conv_b_norm),
+                    ("fc_layer", fc_w_norm, fc_b_norm),
+                ],
+                current_lr,
+            );
         }
 
         let secs = start_time.elapsed().as_secs_f32();

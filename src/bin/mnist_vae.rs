@@ -8,9 +8,10 @@ use rust_neural_networks::autoencoder::vae::VariationalAutoencoder;
 use rust_neural_networks::config::load_config;
 use rust_neural_networks::data::mnist::{read_mnist_images, read_mnist_labels};
 use rust_neural_networks::optimizers::{Adam, Optimizer, SGD};
+use rust_neural_networks::step_debug::StepDebugger;
 use rust_neural_networks::training::{
-    gather_batch, parse_config_path, print_training_config, CsvTrainingLogger, EarlyStopping,
-    EarlyStoppingAction, TrainingMetrics,
+    gather_batch, parse_config_path, parse_step_flag, print_training_config, CsvTrainingLogger,
+    EarlyStopping, EarlyStoppingAction, TrainingMetrics,
 };
 use rust_neural_networks::utils::lr_scheduler::{create_scheduler_from_config, LRScheduler};
 use rust_neural_networks::utils::rng::SimpleRng;
@@ -121,6 +122,7 @@ fn train(
     rng: &mut SimpleRng,
     scheduler: &mut dyn LRScheduler,
     params: &TrainHyperparams,
+    debugger: &mut StepDebugger,
 ) {
     // Attempt to create logs dir if not exists
     std::fs::create_dir_all("./logs").ok();
@@ -163,12 +165,16 @@ fn train(
         params.early_stopping_min_delta,
     );
 
+    let total_batches = (train_data.num_samples + params.batch_size - 1) / params.batch_size;
+
     for epoch in 0..params.epochs {
         let mut total_recon_loss = 0.0f32;
         let mut total_kl_loss = 0.0f32;
         let start_time = Instant::now();
         let current_lr = scheduler.get_lr();
         optimizer.set_learning_rate(current_lr);
+
+        debugger.on_epoch_start(epoch + 1);
 
         // Fisher-Yates shuffle
         if train_data.num_samples > 1 {
@@ -180,7 +186,10 @@ fn train(
 
         for batch_start in (0..train_data.num_samples).step_by(params.batch_size) {
             let batch_count = (train_data.num_samples - batch_start).min(params.batch_size);
+            let batch_idx = batch_start / params.batch_size + 1;
             let input_len = batch_count * NUM_INPUTS;
+
+            debugger.set_context(epoch + 1, batch_idx, total_batches, batch_count);
 
             // Gather a random mini-batch into contiguous buffers.
             // No augmentation for autoencoders (unsupervised, standard input = target).
@@ -204,18 +213,37 @@ fn train(
             );
 
             // Forward pass: encode, reparameterize, decode
+            debugger.before_forward(
+                "vae_encoder",
+                &batch_inputs,
+                batch_count,
+                NUM_INPUTS,
+                LATENT_DIM,
+                vae.parameter_count(),
+            );
             let (reconstruction, mu, log_var) =
                 vae.forward(&batch_inputs[..input_len], batch_count, rng);
+            debugger.after_forward("vae_decoder", &reconstruction, batch_count, NUM_INPUTS);
 
             // Compute ELBO loss components for logging
             let recon_loss =
                 vae.compute_reconstruction_loss(&reconstruction, &batch_inputs[..input_len]);
             let kl_loss = vae.compute_kl_divergence(&mu, &log_var);
+            let elbo_loss = recon_loss + KL_WEIGHT * kl_loss;
             total_recon_loss += recon_loss * batch_count as f32;
             total_kl_loss += kl_loss * batch_count as f32;
 
+            // Create a placeholder gradient buffer for loss logging
+            let loss_grad = vec![0.0f32; batch_count * NUM_INPUTS];
+            debugger.after_loss(elbo_loss, &loss_grad, batch_count, NUM_INPUTS);
+
             // Backward pass and parameter update with ELBO gradients
             vae.backward(&batch_inputs[..input_len], batch_count, KL_WEIGHT);
+
+            // Log gradient magnitudes (VAE internal gradients)
+            let grad_info = [("vae_all_layers", 0.0f32, 0.0f32)]; // Placeholder
+            debugger.after_update(&grad_info, current_lr);
+
             vae.update_with_optimizer(optimizer.as_mut());
         }
 
@@ -478,6 +506,9 @@ fn main() {
     let early_stopping_patience = config.early_stopping_patience.unwrap_or(5);
     let early_stopping_min_delta = config.early_stopping_min_delta.unwrap_or(0.0001);
 
+    // Resolve step-through debug mode from CLI flag or config
+    let step_debug_enabled = parse_step_flag(&args) || config.step_debug.unwrap_or(false);
+
     // Print loaded configuration
     print_training_config(
         &config,
@@ -546,6 +577,8 @@ fn main() {
     let mut vae = initialize_vae(&mut rng);
     println!("Total parameters: {}", vae.parameter_count());
 
+    let mut debugger = StepDebugger::new(step_debug_enabled);
+
     println!("Training VAE...");
     let train_start = Instant::now();
     let train_data = DataSet {
@@ -572,6 +605,7 @@ fn main() {
         &mut rng,
         scheduler.as_mut(),
         &hyperparams,
+        &mut debugger,
     );
     let train_time = train_start.elapsed().as_secs_f64();
     println!("Total training time: {:.2} seconds", train_time);
@@ -643,13 +677,15 @@ mod tests {
         use std::fs;
         let mut rng = SimpleRng::new(0);
         let vae = initialize_vae(&mut rng);
-        let path = "/tmp/test_vae_model.bin";
-        save_model(&vae, path);
+        // Use temp_dir() which respects TMPDIR and sandbox settings
+        let mut path = std::env::temp_dir();
+        path.push("test_vae_model.bin");
+        save_model(&vae, path.to_str().unwrap());
         assert!(
-            fs::metadata(path).is_ok(),
+            fs::metadata(&path).is_ok(),
             "Model file should exist after save"
         );
-        fs::remove_file(path).ok();
+        fs::remove_file(&path).ok();
     }
 
     #[test]

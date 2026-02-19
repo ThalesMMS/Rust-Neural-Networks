@@ -86,9 +86,10 @@ use std::time::Instant;
 
 use rust_neural_networks::config::load_config;
 use rust_neural_networks::data::mnist::{read_mnist_images, read_mnist_labels};
+use rust_neural_networks::step_debug::StepDebugger;
 use rust_neural_networks::training::{
-    evaluate_batch_accuracy, gather_batch, parse_config_path, CsvGradientLogger, CsvTrainingLogger,
-    EarlyStopping, EarlyStoppingAction, TrainingMetrics,
+    evaluate_batch_accuracy, gather_batch, parse_config_path, parse_step_flag, CsvGradientLogger,
+    CsvTrainingLogger, EarlyStopping, EarlyStoppingAction, TrainingMetrics,
 };
 use rust_neural_networks::utils::activations::softmax_rows;
 use rust_neural_networks::utils::lr_scheduler::{
@@ -1525,6 +1526,12 @@ fn main() {
         }
     };
 
+    // Resolve step-through debug mode from CLI flag or config
+    let step_enabled = parse_step_flag(&args) || config.step_debug.unwrap_or(false);
+
+    // Create step debugger
+    let mut debugger = StepDebugger::new(step_enabled);
+
     // Extract augmentation parameters from config
     let enable_augmentation = config.enable_augmentation.unwrap_or(false);
     let horizontal_flip_prob = config.horizontal_flip_prob;
@@ -1576,6 +1583,9 @@ fn main() {
 
     for epoch in 0..EPOCHS {
         let epoch_start = Instant::now();
+
+        debugger.on_epoch_start(epoch + 1);
+
         rng.shuffle_usize(&mut indices);
 
         // Get current learning rate from scheduler
@@ -1594,8 +1604,13 @@ fn main() {
         let mut classifier_b_sum = 0.0f32;
         let mut batch_count_total = 0usize;
 
+        let total_batches = (actual_train_samples + BATCH_SIZE - 1) / BATCH_SIZE;
+
         for batch_start in (0..actual_train_samples).step_by(BATCH_SIZE) {
             let batch_count = (actual_train_samples - batch_start).min(BATCH_SIZE);
+            let batch_idx = batch_start / BATCH_SIZE + 1;
+
+            debugger.set_context(epoch + 1, batch_idx, total_batches, batch_count);
 
             // Gather a random mini-batch into contiguous buffers.
             // Apply augmentation only during training if enabled.

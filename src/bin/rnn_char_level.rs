@@ -1,9 +1,12 @@
 use std::collections::HashMap;
+use std::env;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::time::Instant;
 
 use rust_neural_networks::layers::{Layer, LstmLayer};
+use rust_neural_networks::step_debug::StepDebugger;
+use rust_neural_networks::training::parse_step_flag;
 use rust_neural_networks::utils::gradient_clipping::clip_gradient_norm;
 use rust_neural_networks::utils::rng::SimpleRng;
 
@@ -172,6 +175,11 @@ fn generate_sample(
 fn main() {
     println!("=== Character-Level LSTM for Text Generation ===\n");
 
+    // Parse command-line arguments for step mode
+    let args: Vec<String> = env::args().collect();
+    let step_debug_enabled = parse_step_flag(&args);
+    let mut debugger = StepDebugger::new(step_debug_enabled);
+
     // Create vocabulary from training text
     let vocab = CharVocab::from_text(TRAINING_TEXT);
     println!("Vocabulary size: {}", vocab.vocab_size);
@@ -203,6 +211,8 @@ fn main() {
 
     // Training loop
     for epoch in 0..EPOCHS {
+        debugger.on_epoch_start(epoch + 1);
+
         let epoch_start = Instant::now();
         let mut total_loss = 0.0;
         let mut num_chars = 0;

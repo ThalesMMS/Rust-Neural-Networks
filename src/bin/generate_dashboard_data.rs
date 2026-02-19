@@ -89,33 +89,112 @@ struct EpochData {
 // CSV Parsing
 // ============================================================================
 
-/// Reads a CSV training log with format:
-/// `epoch,train_loss,train_time,val_loss,val_accuracy,learning_rate`
+/// Parse a training log CSV file into a vector of EpochData.
+///
+/// Expects lines with the columns:
+/// `epoch,train_loss,train_time,val_loss,val_accuracy,learning_rate`.
+/// An optional header row that begins with "epoch" is skipped. If at least one
+/// valid epoch row is parsed, returns `Some(Vec<EpochData>)`. Returns `None` if
+/// the file does not exist or no valid rows were found. Parsing and I/O issues
+/// are reported to stderr as warning/error messages.
+///
+/// # Examples
+///
+/// ```
+/// use std::env;
+/// use std::fs;
+/// let mut path = env::temp_dir();
+/// path.push("example_training_log.csv");
+/// let contents = "\
+/// epoch,train_loss,train_time,val_loss,val_accuracy,learning_rate
+/// 1,0.9,12.3,0.8,0.75,0.001
+/// 2,0.6,11.8,0.5,0.82,0.001
+/// ";
+/// fs::write(&path, contents).unwrap();
+/// let epochs = read_training_csv(path.to_str().unwrap());
+/// assert!(epochs.is_some());
+/// let v = epochs.unwrap();
+/// assert_eq!(v.len(), 2);
+/// ```
 fn read_training_csv(path: &str) -> Option<Vec<EpochData>> {
-    let file = fs::File::open(path).ok()?;
+    let file = match fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return None, // File doesn't exist - this is expected for unrun models
+    };
+
     let reader = BufReader::new(file);
     let mut epochs = Vec::new();
+    let mut parse_errors = 0;
+    let mut short_lines = 0;
 
     for (i, line) in reader.lines().enumerate() {
-        let line = line.ok()?;
+        let line = match line {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!("⚠️  Warning: Failed to read line {} from {}: {}", i + 1, path, e);
+                return None;
+            }
+        };
+
         let line = line.trim().to_string();
         if line.is_empty() {
             continue;
         }
+
         // Skip header line
         if i == 0 && line.starts_with("epoch") {
             continue;
         }
+
         let parts: Vec<&str> = line.split(',').collect();
         if parts.len() < 6 {
+            short_lines += 1;
             continue;
         }
-        let epoch: usize = parts[0].trim().parse().ok()?;
-        let train_loss: f32 = parts[1].trim().parse().ok()?;
-        let train_time: f32 = parts[2].trim().parse().ok()?;
-        let val_loss: f32 = parts[3].trim().parse().ok()?;
-        let val_accuracy: f32 = parts[4].trim().parse().ok()?;
-        let lr: f32 = parts[5].trim().parse().ok()?;
+
+        // Try to parse all fields with helpful error messages
+        let epoch: usize = match parts[0].trim().parse() {
+            Ok(v) => v,
+            Err(_) => {
+                parse_errors += 1;
+                continue;
+            }
+        };
+        let train_loss: f32 = match parts[1].trim().parse() {
+            Ok(v) => v,
+            Err(_) => {
+                parse_errors += 1;
+                continue;
+            }
+        };
+        let train_time: f32 = match parts[2].trim().parse() {
+            Ok(v) => v,
+            Err(_) => {
+                parse_errors += 1;
+                continue;
+            }
+        };
+        let val_loss: f32 = match parts[3].trim().parse() {
+            Ok(v) => v,
+            Err(_) => {
+                parse_errors += 1;
+                continue;
+            }
+        };
+        let val_accuracy: f32 = match parts[4].trim().parse() {
+            Ok(v) => v,
+            Err(_) => {
+                parse_errors += 1;
+                continue;
+            }
+        };
+        let lr: f32 = match parts[5].trim().parse() {
+            Ok(v) => v,
+            Err(_) => {
+                parse_errors += 1;
+                continue;
+            }
+        };
 
         epochs.push(EpochData {
             epoch,
@@ -127,17 +206,103 @@ fn read_training_csv(path: &str) -> Option<Vec<EpochData>> {
         });
     }
 
+    // Report parsing issues
+    if parse_errors > 0 || short_lines > 0 {
+        eprintln!("⚠️  Warning: Issues parsing {}:", path);
+        if short_lines > 0 {
+            eprintln!("    {} line(s) with fewer than 6 columns (expected: epoch,train_loss,train_time,val_loss,val_accuracy,learning_rate)", short_lines);
+        }
+        if parse_errors > 0 {
+            eprintln!("    {} line(s) with invalid numeric values", parse_errors);
+        }
+    }
+
     if epochs.is_empty() {
+        if parse_errors > 0 || short_lines > 0 {
+            eprintln!("⚠️  Error: {} contains no valid epoch data after parsing errors", path);
+            eprintln!("    Expected format: epoch,train_loss,train_time,val_loss,val_accuracy,learning_rate");
+        }
         None
     } else {
         Some(epochs)
     }
 }
 
+/// Detects and reads the training log file for a given model prefix.
+/// Tries multiple optimizer variants (adam, adamw, sgd, rmsprop) and returns
+/// the first valid log file found along with the detected optimizer name.
+///
+/// # Arguments
+/// * `model_prefix` - Base name of the model (e.g., "mnist_mlp", "mnist_cnn")
+///
+/// # Returns
+/// `Some((epochs, optimizer_name))` if a valid log file is found, `None` otherwise
+fn find_and_read_training_log(model_prefix: &str) -> Option<(Vec<EpochData>, String)> {
+    // Define supported optimizers in priority order
+    let optimizers = ["adam", "adamw", "sgd", "rmsprop"];
+
+    // Try each optimizer variant
+    for opt in &optimizers {
+        // Try both .txt and .csv extensions
+        for ext in &["txt", "csv"] {
+            let path = format!("./logs/training_loss_{}_{}.{}", model_prefix, opt, ext);
+            if let Some(epochs) = read_training_csv(&path) {
+                let optimizer_name = match *opt {
+                    "adam" => "Adam",
+                    "adamw" => "AdamW",
+                    "sgd" => "SGD",
+                    "rmsprop" => "RMSprop",
+                    _ => "Unknown",
+                };
+                return Some((epochs, optimizer_name.to_string()));
+            }
+        }
+    }
+
+    // Fallback: try legacy naming patterns without optimizer suffix
+    let legacy_paths = [
+        format!("./logs/training_loss_{}.csv", model_prefix),
+        format!("./logs/training_loss_{}.txt", model_prefix),
+    ];
+
+    for path in &legacy_paths {
+        if let Some(epochs) = read_training_csv(path) {
+            // Default to SGD for legacy files (historical convention)
+            return Some((epochs, "SGD".to_string()));
+        }
+    }
+
+    None
+}
+
 // ============================================================================
 // Model Architecture Definitions
 // ============================================================================
 
+/// Builds ModelData for a two-layer MNIST MLP (784 → 512 → 10), computing per-layer and aggregate
+/// architecture metrics and attaching detected training logs if available.
+///
+/// The returned ModelData contains LayerInfo entries for the hidden and output dense layers, the
+/// total parameter count, total forward FLOPs, and estimated parameter memory in bytes. This
+/// function also attempts to auto-detect a training log for the "mlp" prefix; when a valid log is
+/// found it populates `training` with the parsed epochs, the detected optimizer name, the initial
+/// learning rate (first epoch's lr or 0.001 if missing), a batch size of 64, the best validation
+/// accuracy, and the total training time.
+///
+/// # Returns
+///
+/// A ModelData describing the MLP architecture and optionally populated training data when a
+/// compatible training log is discovered.
+///
+/// # Examples
+///
+/// ```
+/// let mut rng = SimpleRng::seed_from_u64(42);
+/// let model = build_mlp_data(&mut rng);
+/// assert_eq!(model.id, "mnist_mlp");
+/// assert!(model.architecture.total_params > 0);
+/// // `training` may be None if no log file exists in `logs/`
+/// ```
 fn build_mlp_data(rng: &mut SimpleRng) -> ModelData {
     // MLP: 784 -> 512 -> 10
     let hidden = DenseLayer::new(784, 512, rng);
@@ -162,8 +327,8 @@ fn build_mlp_data(rng: &mut SimpleRng) -> ModelData {
     let total_flops: u64 = layers.iter().map(|l| l.flops).sum();
     let memory_bytes = hidden.parameter_memory_bytes() + output.parameter_memory_bytes();
 
-    // Try to read CSV log — MLP uses "./logs/training_loss_adam.txt"
-    let training = read_training_csv("./logs/training_loss_adam.txt").map(|epochs| {
+    // Auto-detect training log for any optimizer type
+    let training = find_and_read_training_log("mlp").map(|(epochs, optimizer)| {
         let best_accuracy = epochs
             .iter()
             .map(|e| e.val_accuracy)
@@ -171,7 +336,7 @@ fn build_mlp_data(rng: &mut SimpleRng) -> ModelData {
         let total_time: f32 = epochs.iter().map(|e| e.train_time).sum();
         TrainingData {
             config: TrainingConfig {
-                optimizer: "Adam".to_string(),
+                optimizer,
                 lr: epochs.first().map_or(0.001, |e| e.lr),
                 batch_size: 64,
             },
@@ -195,6 +360,34 @@ fn build_mlp_data(rng: &mut SimpleRng) -> ModelData {
     }
 }
 
+/// Builds metadata for a small CNN model and attempts to attach detected training logs.
+///
+/// Constructs a model architecture consisting of:
+/// - Conv2D with 1 input channel, 8 output channels, 3x3 kernel, padding=1 (preserves 28x28),
+/// - 2x2 max pooling (reduces to 8 x 14 x 14 = 1568),
+/// - Dense layer from 1568 to 10 outputs.
+///
+/// The returned ModelData includes per-layer LayerInfo entries, aggregated totals for parameters
+/// and FLOPs, memory usage in bytes, and an optional TrainingData populated if a training log
+/// for the "cnn" prefix is found.
+///
+/// # Parameters
+///
+/// - `rng`: used to initialize layer parameters when constructing layer objects.
+///
+/// # Returns
+///
+/// ModelData containing the CNN's id, name, description, architecture metrics (layers, total_params,
+/// total_flops, memory_bytes), and `training` set to Some(...) if a matching training log was found.
+///
+/// # Examples
+///
+/// ```
+/// let mut rng = SimpleRng::seeded(42);
+/// let model = build_cnn_data(&mut rng);
+/// assert_eq!(model.id, "mnist_cnn");
+/// assert!(model.architecture.total_params > 0);
+/// ```
 fn build_cnn_data(rng: &mut SimpleRng) -> ModelData {
     // CNN: Conv2D(1,8,3,pad=1,stride=1,28,28) -> MaxPool(2x2) -> Dense(1568,10)
     let conv = Conv2DLayer::new(1, 8, 3, 1, 1, 28, 28, rng);
@@ -226,7 +419,8 @@ fn build_cnn_data(rng: &mut SimpleRng) -> ModelData {
     let total_flops: u64 = layers.iter().map(|l| l.flops).sum();
     let memory_bytes = conv.parameter_memory_bytes() + fc.parameter_memory_bytes();
 
-    let training = read_training_csv("./logs/training_loss_cnn.csv").map(|epochs| {
+    // Auto-detect training log for any optimizer type
+    let training = find_and_read_training_log("cnn").map(|(epochs, optimizer)| {
         let best_accuracy = epochs
             .iter()
             .map(|e| e.val_accuracy)
@@ -234,7 +428,7 @@ fn build_cnn_data(rng: &mut SimpleRng) -> ModelData {
         let total_time: f32 = epochs.iter().map(|e| e.train_time).sum();
         TrainingData {
             config: TrainingConfig {
-                optimizer: "SGD".to_string(),
+                optimizer,
                 lr: epochs.first().map_or(0.01, |e| e.lr),
                 batch_size: 64,
             },
@@ -258,6 +452,19 @@ fn build_cnn_data(rng: &mut SimpleRng) -> ModelData {
     }
 }
 
+/// Builds a ModelData entry describing a small Transformer-style attention model.
+///
+/// The returned ModelData contains per-layer parameter counts and FLOP estimates, aggregated
+/// totals (parameters, FLOPs, and parameter memory in bytes), and an optional TrainingData
+/// when a matching training log for the "attention" model is detected under `logs/`.
+///
+/// # Examples
+///
+/// ```
+/// let md = build_attention_data();
+/// assert_eq!(md.id, "mnist_attention");
+/// assert_eq!(md.architecture.layers.len(), 4);
+/// ```
 fn build_attention_data() -> ModelData {
     // Attention model parameters (from mnist_attention_pool.rs constants):
     // PATCH=4, GRID=7, SEQ_LEN=49, PATCH_DIM=16, D_MODEL=64, FF_DIM=128, NUM_CLASSES=10
@@ -319,7 +526,8 @@ fn build_attention_data() -> ModelData {
     let total_flops: u64 = layers.iter().map(|l| l.flops).sum();
     let memory_bytes = total_params * 4;
 
-    let training = read_training_csv("./logs/training_loss_attention.csv").map(|epochs| {
+    // Auto-detect training log for any optimizer type
+    let training = find_and_read_training_log("attention").map(|(epochs, optimizer)| {
         let best_accuracy = epochs
             .iter()
             .map(|e| e.val_accuracy)
@@ -327,7 +535,7 @@ fn build_attention_data() -> ModelData {
         let total_time: f32 = epochs.iter().map(|e| e.train_time).sum();
         TrainingData {
             config: TrainingConfig {
-                optimizer: "SGD".to_string(),
+                optimizer,
                 lr: epochs.first().map_or(0.01, |e| e.lr),
                 batch_size: 32,
             },
@@ -357,10 +565,24 @@ fn build_attention_data() -> ModelData {
 // Main
 // ============================================================================
 
+/// Generates the demo/dashboard_data.json file consumed by the Architecture Comparison Dashboard.
+///
+/// This function builds model architecture summaries (MLP, CNN, Attention), attempts to locate and
+/// parse per-model training logs under logs/, prints a status summary (which models have training
+/// data found or missing), and writes a pretty-printed JSON file to demo/dashboard_data.json.
+/// It also prints guidance for generating missing logs when applicable.
+///
+/// # Examples
+///
+/// ```no_run
+/// // Running the CLI will produce `demo/dashboard_data.json` and may create the `demo/` directory.
+/// main();
+/// ```
 fn main() {
     let mut rng = SimpleRng::new(42);
 
     println!("Generating dashboard data...");
+    println!();
 
     let models = vec![
         build_mlp_data(&mut rng),
@@ -368,20 +590,74 @@ fn main() {
         build_attention_data(),
     ];
 
-    // Print summary
+    // Check log availability and provide helpful feedback
+    let mut missing_logs = Vec::new();
+    let mut found_logs = Vec::new();
+
     for model in &models {
-        let has_training = if model.training.is_some() {
-            "YES"
+        if model.training.is_some() {
+            found_logs.push(model.name.as_str());
         } else {
-            "NO"
-        };
-        println!(
-            "  {} — {} params, {} FLOPS, training data: {}",
-            model.name,
-            model.architecture.total_params,
-            model.architecture.total_flops,
-            has_training
-        );
+            missing_logs.push((model.id.as_str(), model.name.as_str()));
+        }
+    }
+
+    // Print summary with color-coded status
+    println!("Training Log Status:");
+    println!("-------------------");
+    for model in &models {
+        if model.training.is_some() {
+            println!(
+                "  ✓ {} — {} params, {} FLOPS [Training data FOUND]",
+                model.name,
+                model.architecture.total_params,
+                model.architecture.total_flops,
+            );
+        } else {
+            println!(
+                "  ✗ {} — {} params, {} FLOPS [Training data MISSING]",
+                model.name,
+                model.architecture.total_params,
+                model.architecture.total_flops,
+            );
+        }
+    }
+    println!();
+
+    // Provide helpful guidance if logs are missing
+    if !missing_logs.is_empty() {
+        println!("⚠️  Warning: Missing training logs for {} model(s)", missing_logs.len());
+        println!();
+        println!("The dashboard will show architecture data only (no training curves).");
+        println!("To generate complete training data, run:");
+        println!();
+        for (id, _name) in &missing_logs {
+            let bin_name = if id.starts_with("mnist_") {
+                id.to_string()
+            } else {
+                id.to_string()
+            };
+            println!("  cargo run --release --bin {}", bin_name);
+        }
+        println!();
+        println!("Expected log locations:");
+        for (id, _) in &missing_logs {
+            let model_prefix = if *id == "mnist_mlp" {
+                "mlp"
+            } else if *id == "mnist_cnn" {
+                "cnn"
+            } else if *id == "mnist_attention" {
+                "attention"
+            } else {
+                id
+            };
+            println!("  ./logs/training_loss_{}_<optimizer>.csv", model_prefix);
+            println!("    (where <optimizer> is adam, adamw, sgd, or rmsprop)");
+        }
+        println!();
+    } else {
+        println!("✓ All training logs found successfully!");
+        println!();
     }
 
     // Generate timestamp

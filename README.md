@@ -31,6 +31,33 @@ Each tutorial includes:
 
 Perfect for students, researchers, and practitioners wanting to understand neural networks beyond high-level APIs.
 
+## Architecture Dashboard
+
+**Compare model architectures side-by-side** with interactive visualizations and performance metrics.
+
+The Architecture Dashboard provides a comprehensive comparison tool for understanding how different neural network architectures perform on MNIST digit classification. Compare MLP, CNN, and Attention models across multiple dimensions:
+
+- **Training curves** - Loss and accuracy progression over epochs
+- **Architecture diagrams** - Visual representation of layer structure and connectivity
+- **Performance metrics** - Final accuracy, training time, parameter count, and efficiency
+- **Gradient flow** - Understand training dynamics and identify vanishing/exploding gradients
+
+**Quick start:**
+
+```bash
+# Train all models (generates logs in logs/)
+cargo run --release --bin mnist_mlp
+cargo run --release --bin mnist_cnn
+cargo run --release --bin mnist_attention_pool
+
+# Launch dashboard
+python architecture_dashboard.py
+```
+
+The dashboard opens in your browser at `http://localhost:8050` with interactive plots and comparisons.
+
+→ **[Architecture Dashboard Documentation](docs/architecture_dashboard.md)** - Full guide with examples and analysis
+
 ## Repository layout
 
 Rust source:

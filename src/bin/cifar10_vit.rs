@@ -40,6 +40,8 @@ use rust_neural_networks::config::load_config;
 use rust_neural_networks::data::cifar10::read_cifar10_batches;
 use rust_neural_networks::layers::{DenseLayer, Layer, PatchEmbeddingLayer, TransformerEncoder};
 use rust_neural_networks::optimizers::{Adam, Optimizer};
+use rust_neural_networks::step_debug::StepDebugger;
+use rust_neural_networks::training::parse_step_flag;
 use rust_neural_networks::utils::activations::{relu_inplace, softmax_rows};
 use rust_neural_networks::utils::lr_scheduler::create_scheduler_from_config;
 use rust_neural_networks::utils::{sinusoidal_positional_encoding, SimpleRng};
@@ -123,17 +125,25 @@ fn extract_patches_rgb(images: &[f32], batch_size: usize, patches: &mut [f32]) {
 fn main() {
     println!("=== Vision Transformer (ViT) — CIFAR-10 Classifier ===\n");
 
-    // Load configuration
-    let config_path = args()
-        .nth(1)
-        .unwrap_or_else(|| DEFAULT_CONFIG_PATH.to_string());
-    let config = load_config(&config_path).unwrap_or_else(|e| {
+    // Parse command-line arguments
+    let args_vec: Vec<String> = args().collect();
+
+    // Load configuration (first argument after program name)
+    let config_path = args_vec
+        .get(1)
+        .map(|s| s.as_str())
+        .unwrap_or(DEFAULT_CONFIG_PATH);
+    let config = load_config(config_path).unwrap_or_else(|e| {
         eprintln!("Warning: Could not load config from {}: {}", config_path, e);
         eprintln!("Proceeding with built-in default hyperparameters\n");
         load_config(DEFAULT_CONFIG_PATH).unwrap_or_else(|_| {
             panic!("Could not load default config from {}", DEFAULT_CONFIG_PATH)
         })
     });
+
+    // Parse step-through mode flag (second argument after program name)
+    let step_mode = parse_step_flag(&args_vec);
+    let mut debugger = StepDebugger::new(step_mode);
 
     // Extract hyperparameters from config
     let learning_rate = config.learning_rate.unwrap_or(LEARNING_RATE);
@@ -280,6 +290,9 @@ fn main() {
     for epoch in 0..epochs {
         let epoch_start = Instant::now();
 
+        // Step-through mode: notify epoch start
+        debugger.on_epoch_start(epoch + 1);
+
         // Get current learning rate from scheduler and update optimizers
         let current_lr = lr_scheduler.get_lr();
         patch_emb_optimizer.set_learning_rate(current_lr);
@@ -300,6 +313,9 @@ fn main() {
             let batch_start = batch_idx * batch_size;
             let batch_end = (batch_start + batch_size).min(train_samples);
             let current_batch_size = batch_end - batch_start;
+
+            // Step-through mode: set batch context
+            debugger.set_context(epoch + 1, batch_idx + 1, num_batches, current_batch_size);
 
             // Gather batch
             let batch_images: Vec<f32> = (batch_start..batch_end)

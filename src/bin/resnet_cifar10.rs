@@ -32,9 +32,11 @@ use rust_neural_networks::layers::{
 };
 use rust_neural_networks::optimizers::rmsprop::RMSprop;
 use rust_neural_networks::optimizers::{Adam, AdamW, Optimizer, SGD};
+use rust_neural_networks::step_debug::StepDebugger;
 use rust_neural_networks::training::{
     compute_softmax_cross_entropy, evaluate_batch_accuracy, gather_batch, parse_config_path,
-    print_training_config, CsvTrainingLogger, EarlyStopping, EarlyStoppingAction, TrainingMetrics,
+    parse_step_flag, print_training_config, CsvTrainingLogger, EarlyStopping, EarlyStoppingAction,
+    TrainingMetrics,
 };
 use rust_neural_networks::utils::activations::{relu_inplace, softmax_rows};
 use rust_neural_networks::utils::lr_scheduler::create_scheduler_from_config;
@@ -514,6 +516,7 @@ fn create_optimizer(config: &TrainingConfig, lr: f32) -> Box<dyn Optimizer> {
 fn main() {
     let args: Vec<String> = env::args().collect();
     let config_path = parse_config_path(&args, DEFAULT_CONFIG_PATH);
+    let step_mode = parse_step_flag(&args);
 
     println!("=== ResNet-18 CIFAR-10 Training ===");
     println!("Loading training configuration from: {}", config_path);
@@ -660,6 +663,8 @@ fn main() {
     let mut indices: Vec<usize> = (0..train_n).collect();
     let mut early_stopping = EarlyStopping::new(early_stopping_patience, early_stopping_min_delta);
 
+    let mut debugger = StepDebugger::new(step_mode);
+
     println!(
         "Training ResNet-18 CIFAR-10: epochs={} batch={} lr={}",
         epochs, batch_size, learning_rate
@@ -667,6 +672,7 @@ fn main() {
 
     // ── Training loop ─────────────────────────────────────────────────────────
     for epoch in 0..epochs {
+        debugger.on_epoch_start(epoch + 1);
         let start_time = Instant::now();
         rng.shuffle_usize(&mut indices);
         let current_lr = scheduler.get_lr();
@@ -681,6 +687,10 @@ fn main() {
 
         for batch_start in (0..train_n).step_by(batch_size) {
             let batch = (train_n - batch_start).min(batch_size);
+            let batch_idx = batch_start / batch_size;
+            let total_batches = train_n.div_ceil(batch_size);
+
+            debugger.set_context(epoch + 1, batch_idx + 1, total_batches, batch);
 
             gather_batch(
                 &train_images,
