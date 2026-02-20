@@ -571,13 +571,6 @@ fn build_attention_data() -> ModelData {
 /// parse per-model training logs under logs/, prints a status summary (which models have training
 /// data found or missing), and writes a pretty-printed JSON file to demo/dashboard_data.json.
 /// It also prints guidance for generating missing logs when applicable.
-///
-/// # Examples
-///
-/// ```no_run
-/// // Running the CLI will produce `demo/dashboard_data.json` and may create the `demo/` directory.
-/// main();
-/// ```
 fn main() {
     let mut rng = SimpleRng::new(42);
 
@@ -677,7 +670,9 @@ fn main() {
         let mut remaining_days = days_since_epoch;
         let mut year = 1970u64;
         loop {
-            let days_in_year = if year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400)) {
+            let days_in_year = if year.is_multiple_of(4)
+                && (!year.is_multiple_of(100) || year.is_multiple_of(400))
+            {
                 366
             } else {
                 365
@@ -688,11 +683,12 @@ fn main() {
             remaining_days -= days_in_year;
             year += 1;
         }
-        let days_in_months: [u64; 12] = if year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400)) {
-            [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-        } else {
-            [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-        };
+        let days_in_months: [u64; 12] =
+            if year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400)) {
+                [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+            } else {
+                [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+            };
         let mut month = 0usize;
         for (i, &d) in days_in_months.iter().enumerate() {
             if remaining_days < d {

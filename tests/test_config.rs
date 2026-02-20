@@ -1339,3 +1339,1351 @@ mod config_error_tests {
         );
     }
 }
+
+// ============================================================================
+// Optimizer Type Validation Tests
+// ============================================================================
+
+mod optimizer_type_tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_sgd_optimizer() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "optimizer_type": "sgd"
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.optimizer_type, Some("sgd".to_string()));
+    }
+
+    #[test]
+    fn test_valid_adam_optimizer() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "optimizer_type": "adam"
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.optimizer_type, Some("adam".to_string()));
+    }
+
+    #[test]
+    fn test_valid_adamw_optimizer() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "optimizer_type": "adamw"
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.optimizer_type, Some("adamw".to_string()));
+    }
+
+    #[test]
+    fn test_valid_rmsprop_optimizer() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "optimizer_type": "rmsprop"
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.optimizer_type, Some("rmsprop".to_string()));
+    }
+
+    #[test]
+    fn test_invalid_optimizer_type() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "optimizer_type": "invalid_optimizer"
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(result.is_err(), "Should fail on invalid optimizer type");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("invalid_optimizer") || err_msg.contains("optimizer"),
+            "Error should mention invalid optimizer but got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_optimizer_type_optional() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.optimizer_type, None);
+    }
+
+    #[test]
+    fn test_load_optimizer_adamw_demo_config() {
+        let config = load_config("config/optimizer_adamw_demo.json")
+            .expect("Failed to load optimizer_adamw_demo config");
+
+        assert_eq!(config.optimizer_type, Some("adamw".to_string()));
+        assert_eq!(config.adam_beta1, Some(0.9));
+        assert_eq!(config.adam_beta2, Some(0.999));
+        assert_eq!(config.adam_epsilon, Some(1e-8));
+        assert_eq!(config.adamw_weight_decay, Some(0.01));
+    }
+
+    #[test]
+    fn test_load_optimizer_rmsprop_demo_config() {
+        let config = load_config("config/optimizer_rmsprop_demo.json")
+            .expect("Failed to load optimizer_rmsprop_demo config");
+
+        assert_eq!(config.optimizer_type, Some("rmsprop".to_string()));
+    }
+}
+
+// ============================================================================
+// Adam Optimizer Hyperparameter Tests
+// ============================================================================
+
+mod adam_optimizer_tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_adam_hyperparameters() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "optimizer_type": "adam",
+  "adam_beta1": 0.9,
+  "adam_beta2": 0.999,
+  "adam_epsilon": 1e-8
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.adam_beta1, Some(0.9));
+        assert_eq!(config.adam_beta2, Some(0.999));
+        assert_eq!(config.adam_epsilon, Some(1e-8));
+    }
+
+    #[test]
+    fn test_adam_beta1_boundary_valid() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "adam_beta1": 0.0
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.adam_beta1, Some(0.0));
+    }
+
+    #[test]
+    fn test_adam_beta1_at_one_invalid() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "adam_beta1": 1.0
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(
+            result.is_err(),
+            "Should fail when adam_beta1 is exactly 1.0"
+        );
+    }
+
+    #[test]
+    fn test_adam_beta1_negative() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "adam_beta1": -0.1
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(result.is_err(), "Should fail on negative adam_beta1");
+    }
+
+    #[test]
+    fn test_adam_beta1_greater_than_one() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "adam_beta1": 1.5
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(result.is_err(), "Should fail when adam_beta1 > 1.0");
+    }
+
+    #[test]
+    fn test_adam_beta2_boundary_valid() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "adam_beta2": 0.0
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.adam_beta2, Some(0.0));
+    }
+
+    #[test]
+    fn test_adam_beta2_at_one_invalid() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "adam_beta2": 1.0
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(
+            result.is_err(),
+            "Should fail when adam_beta2 is exactly 1.0"
+        );
+    }
+
+    #[test]
+    fn test_adam_beta2_negative() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "adam_beta2": -0.1
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(result.is_err(), "Should fail on negative adam_beta2");
+    }
+
+    #[test]
+    fn test_adam_epsilon_positive() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "adam_epsilon": 1e-10
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.adam_epsilon, Some(1e-10));
+    }
+
+    #[test]
+    fn test_adam_epsilon_zero() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "adam_epsilon": 0.0
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(result.is_err(), "Should fail when adam_epsilon is zero");
+    }
+
+    #[test]
+    fn test_adam_epsilon_negative() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "adam_epsilon": -1e-8
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(result.is_err(), "Should fail on negative adam_epsilon");
+    }
+
+    #[test]
+    fn test_adam_hyperparameters_optional() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "optimizer_type": "adam"
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.adam_beta1, None);
+        assert_eq!(config.adam_beta2, None);
+        assert_eq!(config.adam_epsilon, None);
+    }
+}
+
+// ============================================================================
+// AdamW Optimizer Hyperparameter Tests
+// ============================================================================
+
+mod adamw_optimizer_tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_adamw_weight_decay() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "optimizer_type": "adamw",
+  "adamw_weight_decay": 0.01
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.adamw_weight_decay, Some(0.01));
+    }
+
+    #[test]
+    fn test_adamw_weight_decay_zero() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "adamw_weight_decay": 0.0
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.adamw_weight_decay, Some(0.0));
+    }
+
+    #[test]
+    fn test_adamw_weight_decay_negative() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "adamw_weight_decay": -0.01
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(result.is_err(), "Should fail on negative adamw_weight_decay");
+    }
+
+    #[test]
+    fn test_adamw_weight_decay_optional() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "optimizer_type": "adamw"
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.adamw_weight_decay, None);
+    }
+
+    #[test]
+    fn test_adamw_with_all_adam_params() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "optimizer_type": "adamw",
+  "adam_beta1": 0.9,
+  "adam_beta2": 0.999,
+  "adam_epsilon": 1e-8,
+  "adamw_weight_decay": 0.01
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.optimizer_type, Some("adamw".to_string()));
+        assert_eq!(config.adam_beta1, Some(0.9));
+        assert_eq!(config.adam_beta2, Some(0.999));
+        assert_eq!(config.adam_epsilon, Some(1e-8));
+        assert_eq!(config.adamw_weight_decay, Some(0.01));
+    }
+}
+
+// ============================================================================
+// RMSprop Optimizer Hyperparameter Tests
+// ============================================================================
+
+mod rmsprop_optimizer_tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_rmsprop_decay() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "optimizer_type": "rmsprop",
+  "rmsprop_decay": 0.9
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.rmsprop_decay, Some(0.9));
+    }
+
+    #[test]
+    fn test_rmsprop_decay_zero() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "rmsprop_decay": 0.0
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.rmsprop_decay, Some(0.0));
+    }
+
+    #[test]
+    fn test_rmsprop_decay_at_one_invalid() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "rmsprop_decay": 1.0
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(result.is_err(), "Should fail when rmsprop_decay is 1.0");
+    }
+
+    #[test]
+    fn test_rmsprop_decay_negative() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "rmsprop_decay": -0.1
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(result.is_err(), "Should fail on negative rmsprop_decay");
+    }
+
+    #[test]
+    fn test_rmsprop_epsilon_positive() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "rmsprop_epsilon": 1e-8
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.rmsprop_epsilon, Some(1e-8));
+    }
+
+    #[test]
+    fn test_rmsprop_epsilon_zero() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "rmsprop_epsilon": 0.0
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(result.is_err(), "Should fail when rmsprop_epsilon is zero");
+    }
+
+    #[test]
+    fn test_rmsprop_hyperparameters_optional() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "optimizer_type": "rmsprop"
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.rmsprop_decay, None);
+        assert_eq!(config.rmsprop_epsilon, None);
+    }
+}
+
+// ============================================================================
+// Data Augmentation Parameter Tests
+// ============================================================================
+
+mod augmentation_tests {
+    use super::*;
+
+    #[test]
+    fn test_enable_augmentation_true() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "enable_augmentation": true
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.enable_augmentation, Some(true));
+    }
+
+    #[test]
+    fn test_enable_augmentation_false() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "enable_augmentation": false
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.enable_augmentation, Some(false));
+    }
+
+    #[test]
+    fn test_horizontal_flip_prob_valid() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "horizontal_flip_prob": 0.5
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.horizontal_flip_prob, Some(0.5));
+    }
+
+    #[test]
+    fn test_horizontal_flip_prob_zero() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "horizontal_flip_prob": 0.0
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.horizontal_flip_prob, Some(0.0));
+    }
+
+    #[test]
+    fn test_horizontal_flip_prob_one() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "horizontal_flip_prob": 1.0
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.horizontal_flip_prob, Some(1.0));
+    }
+
+    #[test]
+    fn test_horizontal_flip_prob_negative() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "horizontal_flip_prob": -0.1
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(
+            result.is_err(),
+            "Should fail on negative horizontal_flip_prob"
+        );
+    }
+
+    #[test]
+    fn test_horizontal_flip_prob_greater_than_one() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "horizontal_flip_prob": 1.5
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(
+            result.is_err(),
+            "Should fail when horizontal_flip_prob > 1.0"
+        );
+    }
+
+    #[test]
+    fn test_random_crop_padding_valid() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "random_crop_padding": 4
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.random_crop_padding, Some(4));
+    }
+
+    #[test]
+    fn test_brightness_jitter_valid() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "brightness_jitter": 0.2
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.brightness_jitter, Some(0.2));
+    }
+
+    #[test]
+    fn test_brightness_jitter_zero() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "brightness_jitter": 0.0
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.brightness_jitter, Some(0.0));
+    }
+
+    #[test]
+    fn test_brightness_jitter_negative() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "brightness_jitter": -0.1
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(result.is_err(), "Should fail on negative brightness_jitter");
+    }
+
+    #[test]
+    fn test_contrast_jitter_valid() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "contrast_jitter": 0.2
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.contrast_jitter, Some(0.2));
+    }
+
+    #[test]
+    fn test_contrast_jitter_negative() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "contrast_jitter": -0.1
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(result.is_err(), "Should fail on negative contrast_jitter");
+    }
+
+    #[test]
+    fn test_saturation_jitter_valid() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "saturation_jitter": 0.2
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.saturation_jitter, Some(0.2));
+    }
+
+    #[test]
+    fn test_saturation_jitter_negative() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "saturation_jitter": -0.1
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(result.is_err(), "Should fail on negative saturation_jitter");
+    }
+
+    #[test]
+    fn test_all_augmentation_parameters() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "enable_augmentation": true,
+  "horizontal_flip_prob": 0.5,
+  "random_crop_padding": 4,
+  "brightness_jitter": 0.2,
+  "contrast_jitter": 0.2,
+  "saturation_jitter": 0.2
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.enable_augmentation, Some(true));
+        assert_eq!(config.horizontal_flip_prob, Some(0.5));
+        assert_eq!(config.random_crop_padding, Some(4));
+        assert_eq!(config.brightness_jitter, Some(0.2));
+        assert_eq!(config.contrast_jitter, Some(0.2));
+        assert_eq!(config.saturation_jitter, Some(0.2));
+    }
+}
+
+// ============================================================================
+// GAN-Specific Parameter Tests
+// ============================================================================
+
+mod gan_tests {
+    use super::*;
+
+    #[test]
+    fn test_noise_dim_valid() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "noise_dim": 100
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.noise_dim, Some(100));
+    }
+
+    #[test]
+    fn test_noise_dim_zero() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "noise_dim": 0
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(result.is_err(), "Should fail when noise_dim is zero");
+    }
+
+    #[test]
+    fn test_g_lr_valid() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "g_lr": 0.0002
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.g_lr, Some(0.0002));
+    }
+
+    #[test]
+    fn test_g_lr_zero() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "g_lr": 0.0
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(result.is_err(), "Should fail when g_lr is zero");
+    }
+
+    #[test]
+    fn test_g_lr_negative() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "g_lr": -0.001
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(result.is_err(), "Should fail on negative g_lr");
+    }
+
+    #[test]
+    fn test_d_lr_valid() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "d_lr": 0.0002
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.d_lr, Some(0.0002));
+    }
+
+    #[test]
+    fn test_d_lr_zero() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "d_lr": 0.0
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(result.is_err(), "Should fail when d_lr is zero");
+    }
+
+    #[test]
+    fn test_d_lr_negative() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "d_lr": -0.001
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(result.is_err(), "Should fail on negative d_lr");
+    }
+
+    #[test]
+    fn test_label_smoothing_valid() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "label_smoothing": 0.9
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.label_smoothing, Some(0.9));
+    }
+
+    #[test]
+    fn test_label_smoothing_zero() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "label_smoothing": 0.0
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.label_smoothing, Some(0.0));
+    }
+
+    #[test]
+    fn test_label_smoothing_one() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "label_smoothing": 1.0
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.label_smoothing, Some(1.0));
+    }
+
+    #[test]
+    fn test_label_smoothing_negative() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "label_smoothing": -0.1
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(result.is_err(), "Should fail on negative label_smoothing");
+    }
+
+    #[test]
+    fn test_label_smoothing_greater_than_one() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "label_smoothing": 1.5
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(
+            result.is_err(),
+            "Should fail when label_smoothing > 1.0"
+        );
+    }
+
+    #[test]
+    fn test_all_gan_parameters() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "noise_dim": 100,
+  "g_lr": 0.0002,
+  "d_lr": 0.0002,
+  "label_smoothing": 0.9
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.noise_dim, Some(100));
+        assert_eq!(config.g_lr, Some(0.0002));
+        assert_eq!(config.d_lr, Some(0.0002));
+        assert_eq!(config.label_smoothing, Some(0.9));
+    }
+}
+
+// ============================================================================
+// Boolean Configuration Field Tests
+// ============================================================================
+
+mod boolean_field_tests {
+    use super::*;
+
+    #[test]
+    fn test_enable_profiling_true() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "enable_profiling": true
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.enable_profiling, Some(true));
+    }
+
+    #[test]
+    fn test_enable_profiling_false() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "enable_profiling": false
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.enable_profiling, Some(false));
+    }
+
+    #[test]
+    fn test_step_debug_true() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "step_debug": true
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.step_debug, Some(true));
+    }
+
+    #[test]
+    fn test_step_debug_false() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "step_debug": false
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.step_debug, Some(false));
+    }
+
+    #[test]
+    fn test_boolean_fields_optional() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.enable_profiling, None);
+        assert_eq!(config.enable_augmentation, None);
+        assert_eq!(config.step_debug, None);
+    }
+}
+
+// ============================================================================
+// CIFAR10 ViT Config File Tests
+// ============================================================================
+
+mod cifar10_vit_config_tests {
+    use super::*;
+
+    #[test]
+    fn test_load_cifar10_vit_minimal() {
+        let config = load_config("config/cifar10_vit_minimal.json")
+            .expect("Failed to load cifar10_vit_minimal config");
+
+        assert_eq!(config.scheduler_type, "cosine_annealing");
+        assert_eq!(config.min_lr, Some(0.0001));
+        assert_eq!(config.T_max, Some(1));
+        assert_eq!(config.activation_function, Some("relu".to_string()));
+        assert_eq!(config.optimizer_type, Some("adam".to_string()));
+        assert_eq!(config.learning_rate, Some(0.001));
+        assert_eq!(config.epochs, Some(1));
+        assert_eq!(config.batch_size, Some(1));
+        assert_eq!(config.validation_split, Some(0.999));
+        assert_eq!(config.early_stopping_patience, Some(3));
+        assert_eq!(config.early_stopping_min_delta, Some(0.001));
+    }
+
+    #[test]
+    fn test_load_cifar10_vit_quick_test() {
+        let config = load_config("config/cifar10_vit_quick_test.json")
+            .expect("Failed to load cifar10_vit_quick_test config");
+
+        assert_eq!(config.scheduler_type, "cosine_annealing");
+        assert_eq!(config.batch_size, Some(64));
+        assert_eq!(config.validation_split, Some(0.9));
+    }
+
+    #[test]
+    fn test_load_cifar10_vit_smoke_test() {
+        let config = load_config("config/cifar10_vit_smoke_test.json")
+            .expect("Failed to load cifar10_vit_smoke_test config");
+
+        assert_eq!(config.scheduler_type, "cosine_annealing");
+        assert_eq!(config.batch_size, Some(5000));
+        assert_eq!(config.validation_split, Some(0.1));
+    }
+
+    #[test]
+    fn test_load_cifar10_vit_test() {
+        let config = load_config("config/cifar10_vit_test.json")
+            .expect("Failed to load cifar10_vit_test config");
+
+        assert_eq!(config.scheduler_type, "cosine_annealing");
+        assert_eq!(config.batch_size, Some(512));
+        assert_eq!(config.validation_split, Some(0.1));
+    }
+
+    #[test]
+    fn test_cifar10_vit_configs_share_common_fields() {
+        let configs = vec![
+            load_config("config/cifar10_vit_minimal.json").unwrap(),
+            load_config("config/cifar10_vit_quick_test.json").unwrap(),
+            load_config("config/cifar10_vit_smoke_test.json").unwrap(),
+            load_config("config/cifar10_vit_test.json").unwrap(),
+        ];
+
+        for config in configs {
+            assert_eq!(config.scheduler_type, "cosine_annealing");
+            assert_eq!(config.min_lr, Some(0.0001));
+            assert_eq!(config.T_max, Some(1));
+            assert_eq!(config.activation_function, Some("relu".to_string()));
+            assert_eq!(config.optimizer_type, Some("adam".to_string()));
+            assert_eq!(config.learning_rate, Some(0.001));
+            assert_eq!(config.epochs, Some(1));
+        }
+    }
+}
+
+// ============================================================================
+// Additional Edge Case and Regression Tests
+// ============================================================================
+
+mod additional_edge_cases {
+    use super::*;
+
+    #[test]
+    fn test_very_small_learning_rate() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "learning_rate": 1e-10
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.learning_rate, Some(1e-10));
+    }
+
+    #[test]
+    fn test_very_large_batch_size() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "batch_size": 1000000
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.batch_size, Some(1000000));
+    }
+
+    #[test]
+    fn test_all_optional_fields_present() {
+        let config_json = r#"{
+  "scheduler_type": "cosine_annealing",
+  "min_lr": 0.0001,
+  "T_max": 10,
+  "activation_function": "gelu",
+  "optimizer_type": "adamw",
+  "adam_beta1": 0.9,
+  "adam_beta2": 0.999,
+  "adam_epsilon": 1e-8,
+  "adamw_weight_decay": 0.01,
+  "learning_rate": 0.001,
+  "epochs": 50,
+  "batch_size": 128,
+  "validation_split": 0.2,
+  "early_stopping_patience": 10,
+  "early_stopping_min_delta": 0.0001,
+  "enable_profiling": true,
+  "enable_augmentation": true,
+  "horizontal_flip_prob": 0.5,
+  "random_crop_padding": 4,
+  "brightness_jitter": 0.2,
+  "contrast_jitter": 0.2,
+  "saturation_jitter": 0.2,
+  "noise_dim": 100,
+  "g_lr": 0.0002,
+  "d_lr": 0.0002,
+  "label_smoothing": 0.9,
+  "step_debug": false
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.scheduler_type, "cosine_annealing");
+        assert_eq!(config.optimizer_type, Some("adamw".to_string()));
+        assert_eq!(config.activation_function, Some("gelu".to_string()));
+        assert_eq!(config.enable_profiling, Some(true));
+        assert_eq!(config.enable_augmentation, Some(true));
+        assert_eq!(config.step_debug, Some(false));
+    }
+
+    #[test]
+    fn test_multiple_validation_failures() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "learning_rate": -0.01,
+  "batch_size": 0
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let result = load_config(temp_file.path().to_str().unwrap());
+
+        assert!(
+            result.is_err(),
+            "Should fail when multiple validation errors exist"
+        );
+    }
+
+    #[test]
+    fn test_optimizer_without_type_has_params() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "adam_beta1": 0.9,
+  "adam_beta2": 0.999,
+  "adam_epsilon": 1e-8
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.optimizer_type, None);
+        assert_eq!(config.adam_beta1, Some(0.9));
+        assert_eq!(config.adam_beta2, Some(0.999));
+        assert_eq!(config.adam_epsilon, Some(1e-8));
+    }
+
+    #[test]
+    fn test_config_with_only_required_field() {
+        let config_json = r#"{
+  "scheduler_type": "none"
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.scheduler_type, "none");
+        assert_eq!(config.step_size, None);
+        assert_eq!(config.gamma, None);
+        assert_eq!(config.optimizer_type, None);
+        assert_eq!(config.activation_function, None);
+    }
+
+    #[test]
+    fn test_boundary_value_epochs_one() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "epochs": 1
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.epochs, Some(1));
+    }
+
+    #[test]
+    fn test_boundary_value_batch_size_one() {
+        let config_json = r#"{
+  "scheduler_type": "step_decay",
+  "step_size": 3,
+  "gamma": 0.5,
+  "batch_size": 1
+}"#;
+
+        let temp_file = write_temp_config(config_json);
+        let config = load_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(config.batch_size, Some(1));
+    }
+}

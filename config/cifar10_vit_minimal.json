@@ -1,0 +1,16 @@
+{
+  "scheduler_type": "cosine_annealing",
+  "min_lr": 0.0001,
+  "T_max": 1,
+  "activation_function": "relu",
+  "optimizer_type": "adam",
+  "beta1": 0.9,
+  "beta2": 0.999,
+  "epsilon": 1e-8,
+  "learning_rate": 0.001,
+  "epochs": 1,
+  "batch_size": 1,
+  "validation_split": 0.999,
+  "early_stopping_patience": 3,
+  "early_stopping_min_delta": 0.001
+}
