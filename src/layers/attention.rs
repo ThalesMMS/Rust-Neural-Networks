@@ -198,6 +198,13 @@ impl MultiHeadAttentionLayer {
         self.cached_attn_weights.borrow()
     }
 
+    /// Returns the trainable parameter tensors in update order.
+    pub fn parameter_slices(&self) -> [&[f32]; 8] {
+        [
+            &self.w_q, &self.b_q, &self.w_k, &self.b_k, &self.w_v, &self.b_v, &self.w_o, &self.b_o,
+        ]
+    }
+
     /// Softmax in-place for a single vector.
     fn softmax_inplace(v: &mut [f32]) {
         if v.is_empty() {

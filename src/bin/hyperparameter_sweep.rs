@@ -409,7 +409,23 @@ fn list_log_files(dir_path: &str) -> Vec<String> {
     log_files
 }
 
-/// Finds the new log file by comparing before and after lists
+/// Locate the first entry in `after` that is not present in `before`.
+///
+/// Returns `Some(String)` with the first new file path from `after`, or `None` if no new file is found.
+///
+/// # Examples
+///
+/// ```
+/// let before = vec!["./logs/training_loss_1.csv".to_string()];
+/// let after = vec![
+///     "./logs/training_loss_1.csv".to_string(),
+///     "./logs/training_loss_2.csv".to_string(),
+/// ];
+/// assert_eq!(
+///     find_new_log_file(&before, &after),
+///     Some("./logs/training_loss_2.csv".to_string())
+/// );
+/// ```
 fn find_new_log_file(before: &[String], after: &[String]) -> Option<String> {
     for file in after {
         if !before.contains(file) {
@@ -419,8 +435,34 @@ fn find_new_log_file(before: &[String], after: &[String]) -> Option<String> {
     None
 }
 
-/// Parses a CSV log file and returns the final epoch's metrics
-/// Returns: (epoch, train_loss, val_loss, val_accuracy, training_time, learning_rate)
+/// Parse a CSV training log and extract the final epoch's metrics.
+///
+/// The function reads the log at `log_path`, skips the header, locates the last non-empty data line,
+/// and parses CSV columns into metrics.
+///
+/// # Returns
+///
+/// A tuple containing `(epoch, train_loss, val_loss, val_accuracy, training_time, learning_rate)`.
+/// If the log uses a five-column format (no learning rate column), `learning_rate` is `0.0`.
+///
+/// # Examples
+///
+/// ```
+/// use std::fs;
+/// let path = "test_log.csv";
+/// let csv = "\
+/// epoch,train_loss,train_time,val_loss,val_accuracy,learning_rate\n\
+/// 0,1.0,0.5,0.9,0.80,0.01\n\
+/// 1,0.8,1.0,0.7,0.85,0.01\n";
+/// fs::write(path, csv).unwrap();
+/// let (epoch, train_loss, val_loss, val_accuracy, training_time, learning_rate) = parse_log_file(path).unwrap();
+/// assert_eq!(epoch, 1);
+/// assert!((train_loss - 0.8).abs() < 1e-6);
+/// assert!((val_loss - 0.7).abs() < 1e-6);
+/// assert!((val_accuracy - 0.85).abs() < 1e-6);
+/// assert!((training_time - 1.0).abs() < 1e-6);
+/// assert!((learning_rate - 0.01).abs() < 1e-6);
+/// ```
 fn parse_log_file(log_path: &str) -> Result<(usize, f32, f32, f32, f32, f32), String> {
     let file = fs::File::open(log_path).map_err(|e| format!("Could not open log file: {}", e))?;
 
@@ -441,11 +483,11 @@ fn parse_log_file(log_path: &str) -> Result<(usize, f32, f32, f32, f32, f32), St
         return Err("No data lines found in log file".to_string());
     }
 
-    // Parse the CSV line: epoch,train_loss,train_time,val_loss,val_accuracy,learning_rate
+    // Parse the CSV line: epoch,train_loss,train_time,val_loss,val_accuracy
     let parts: Vec<&str> = last_line.split(',').collect();
-    if parts.len() < 6 {
+    if parts.len() < 5 {
         return Err(format!(
-            "Invalid CSV format: expected 6 columns, got {}",
+            "Invalid CSV format: expected 5 columns, got {}",
             parts.len()
         ));
     }
@@ -475,10 +517,16 @@ fn parse_log_file(log_path: &str) -> Result<(usize, f32, f32, f32, f32, f32), St
         .parse::<f32>()
         .map_err(|_| "Could not parse val_accuracy")?;
 
-    let learning_rate = parts[5]
-        .trim()
-        .parse::<f32>()
-        .map_err(|_| "Could not parse learning_rate")?;
+    let learning_rate = if parts.len() >= 6 {
+        parts[5].trim().parse::<f32>().map_err(|_| {
+            format!(
+                "Could not parse learning_rate from column 6: '{}'",
+                parts[5].trim()
+            )
+        })?
+    } else {
+        0.0
+    };
 
     Ok((
         epoch,

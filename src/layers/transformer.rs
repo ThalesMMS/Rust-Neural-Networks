@@ -174,6 +174,23 @@ impl TransformerBlock {
         &self.attention
     }
 
+    /// Returns all trainable parameter tensors owned by this block.
+    pub fn parameter_slices(&self) -> Vec<&[f32]> {
+        let mut slices = Vec::with_capacity(16);
+        slices.push(self.ln1.gamma());
+        slices.push(self.ln1.beta());
+        for params in self.attention.parameter_slices() {
+            slices.push(params);
+        }
+        slices.push(self.ln2.gamma());
+        slices.push(self.ln2.beta());
+        slices.push(self.ffn1.weights());
+        slices.push(self.ffn1.biases());
+        slices.push(self.ffn2.weights());
+        slices.push(self.ffn2.biases());
+        slices
+    }
+
     /// ReLU activation function applied in-place.
     fn relu_inplace(data: &mut [f32]) {
         for x in data.iter_mut() {
@@ -549,6 +566,15 @@ impl TransformerEncoder {
     /// This allows accessing individual blocks for attention weight visualization.
     pub fn blocks(&self) -> &[TransformerBlock] {
         &self.blocks
+    }
+
+    /// Returns all trainable parameter tensors owned by every block.
+    pub fn parameter_slices(&self) -> Vec<&[f32]> {
+        let mut slices = Vec::new();
+        for block in &self.blocks {
+            slices.extend(block.parameter_slices());
+        }
+        slices
     }
 }
 

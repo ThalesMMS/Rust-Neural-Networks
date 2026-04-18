@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fs;
 
+pub const SCHEDULER_ALLOWLIST: [&str; 3] = ["step_decay", "exponential", "cosine_annealing"];
+pub const ACTIVATION_ALLOWLIST: [&str; 6] = ["relu", "leaky_relu", "elu", "gelu", "swish", "tanh"];
+
 /// Configuration for training, including learning rate scheduler and activation function settings
 ///
 /// This structure is used to parse training configuration from JSON files.

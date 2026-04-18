@@ -79,6 +79,8 @@ const EARLY_STOPPING_MIN_DELTA: f32 = 0.001;
 
 // Default config path
 const DEFAULT_CONFIG_PATH: &str = "config/training/transformer_mnist_default.json";
+const CHECKPOINT_PATH: &str = "mnist_attention_model_best.bin";
+const FINAL_CHECKPOINT_PATH: &str = "transformer_mnist_model.bin";
 
 // ============================================================================
 // MNIST Data Loading (IDX format)
@@ -145,6 +147,50 @@ fn read_mnist_labels(filename: &str) -> Result<Vec<u8>, String> {
     Ok(data[offset..offset + num_labels].to_vec())
 }
 
+fn write_f32_slice<W: Write>(writer: &mut W, values: &[f32]) -> std::io::Result<()> {
+    for &value in values {
+        writer.write_all(&value.to_le_bytes())?;
+    }
+    Ok(())
+}
+
+fn save_transformer_checkpoint(
+    path: &str,
+    patch_embedding: &DenseLayer,
+    transformer_encoder: &TransformerEncoder,
+    classifier: &DenseLayer,
+) -> std::io::Result<()> {
+    let temp_path = format!("{}.tmp", path);
+    let file = File::create(&temp_path)?;
+
+    let write_result = (|| -> std::io::Result<()> {
+        let mut writer = BufWriter::new(file);
+
+        write_f32_slice(&mut writer, patch_embedding.weights())?;
+        write_f32_slice(&mut writer, patch_embedding.biases())?;
+        for params in transformer_encoder.parameter_slices() {
+            write_f32_slice(&mut writer, params)?;
+        }
+        write_f32_slice(&mut writer, classifier.weights())?;
+        write_f32_slice(&mut writer, classifier.biases())?;
+        writer.flush()?;
+        writer.get_ref().sync_all()?;
+        Ok(())
+    })();
+
+    if let Err(err) = write_result {
+        let _ = fs::remove_file(&temp_path);
+        return Err(err);
+    }
+
+    if let Err(err) = fs::rename(&temp_path, path) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(err);
+    }
+
+    Ok(())
+}
+
 // ============================================================================
 // Patch Extraction (from mnist_attention_pool.rs pattern)
 // ============================================================================
@@ -186,7 +232,10 @@ fn main() {
 
     // Parse command line arguments
     let args: Vec<String> = args().collect();
-    let config_path = args.get(1).map(|s| s.as_str()).unwrap_or(DEFAULT_CONFIG_PATH);
+    let config_path = args
+        .get(1)
+        .map(|s| s.as_str())
+        .unwrap_or(DEFAULT_CONFIG_PATH);
     let step_mode = parse_step_flag(&args);
 
     // Load configuration (use defaults if config file not found)
@@ -243,10 +292,6 @@ fn main() {
         eprintln!("Error reading test labels: {}", e);
         process::exit(1);
     });
-
-    // Normalize images to [0, 1]
-    let train_images: Vec<f32> = train_images.iter().map(|&x| x / 255.0).collect();
-    let test_images: Vec<f32> = test_images.iter().map(|&x| x / 255.0).collect();
 
     // Split training data into train and validation sets
     let val_samples = (TRAIN_SAMPLES as f32 * validation_split) as usize;
@@ -336,6 +381,7 @@ fn main() {
 
     // Training state
     let mut best_val_loss = f32::INFINITY;
+    let mut best_val_accuracy = f32::NEG_INFINITY;
     let mut patience_counter = 0;
 
     // Training loop
@@ -553,6 +599,24 @@ fn main() {
         .unwrap();
         log_writer.flush().unwrap();
 
+        if val_accuracy > best_val_accuracy {
+            best_val_accuracy = val_accuracy;
+            if let Err(err) = save_transformer_checkpoint(
+                CHECKPOINT_PATH,
+                &patch_embedding,
+                &transformer_encoder,
+                &classifier,
+            ) {
+                eprintln!("Error saving best model checkpoint: {}", err);
+                process::exit(1);
+            }
+            println!(
+                "Best validation accuracy improved to {:.2}%; saved {}",
+                best_val_accuracy * 100.0,
+                CHECKPOINT_PATH
+            );
+        }
+
         // Update learning rate for next epoch
         lr_scheduler.step();
 
@@ -595,9 +659,16 @@ fn main() {
     println!("Test Loss: {:.4}", test_loss);
     println!("Test Accuracy: {:.2}%", test_accuracy * 100.0);
 
-    // Save model (simplified - just save a marker file)
-    fs::write("transformer_mnist_model.bin", b"model_saved").unwrap();
-    println!("\nModel saved to transformer_mnist_model.bin");
+    if let Err(err) = save_transformer_checkpoint(
+        FINAL_CHECKPOINT_PATH,
+        &patch_embedding,
+        &transformer_encoder,
+        &classifier,
+    ) {
+        eprintln!("Error saving model checkpoint: {}", err);
+        process::exit(1);
+    }
+    println!("\nFinal model saved to {}", FINAL_CHECKPOINT_PATH);
     println!("Training logs saved to logs/transformer_mnist.csv");
 }
 

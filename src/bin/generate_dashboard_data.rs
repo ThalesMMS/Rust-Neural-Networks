@@ -92,7 +92,8 @@ struct EpochData {
 /// Parse a training log CSV file into a vector of EpochData.
 ///
 /// Expects lines with the columns:
-/// `epoch,train_loss,train_time,val_loss,val_accuracy,learning_rate`.
+/// `epoch,train_loss,train_time,val_loss,val_accuracy`.
+/// Older logs with a trailing `learning_rate` column are also accepted.
 /// An optional header row that begins with "epoch" is skipped. If at least one
 /// valid epoch row is parsed, returns `Some(Vec<EpochData>)`. Returns `None` if
 /// the file does not exist or no valid rows were found. Parsing and I/O issues
@@ -106,9 +107,9 @@ struct EpochData {
 /// let mut path = env::temp_dir();
 /// path.push("example_training_log.csv");
 /// let contents = "\
-/// epoch,train_loss,train_time,val_loss,val_accuracy,learning_rate
-/// 1,0.9,12.3,0.8,0.75,0.001
-/// 2,0.6,11.8,0.5,0.82,0.001
+/// epoch,train_loss,train_time,val_loss,val_accuracy
+/// 1,0.9,12.3,0.8,0.75
+/// 2,0.6,11.8,0.5,0.82
 /// ";
 /// fs::write(&path, contents).unwrap();
 /// let epochs = read_training_csv(path.to_str().unwrap());
@@ -131,7 +132,12 @@ fn read_training_csv(path: &str) -> Option<Vec<EpochData>> {
         let line = match line {
             Ok(l) => l,
             Err(e) => {
-                eprintln!("⚠️  Warning: Failed to read line {} from {}: {}", i + 1, path, e);
+                eprintln!(
+                    "⚠️  Warning: Failed to read line {} from {}: {}",
+                    i + 1,
+                    path,
+                    e
+                );
                 return None;
             }
         };
@@ -147,7 +153,7 @@ fn read_training_csv(path: &str) -> Option<Vec<EpochData>> {
         }
 
         let parts: Vec<&str> = line.split(',').collect();
-        if parts.len() < 6 {
+        if parts.len() < 5 {
             short_lines += 1;
             continue;
         }
@@ -188,12 +194,10 @@ fn read_training_csv(path: &str) -> Option<Vec<EpochData>> {
                 continue;
             }
         };
-        let lr: f32 = match parts[5].trim().parse() {
-            Ok(v) => v,
-            Err(_) => {
-                parse_errors += 1;
-                continue;
-            }
+        let lr: f32 = if parts.len() >= 6 {
+            parts[5].trim().parse().unwrap_or(0.0)
+        } else {
+            0.0
         };
 
         epochs.push(EpochData {
@@ -210,7 +214,7 @@ fn read_training_csv(path: &str) -> Option<Vec<EpochData>> {
     if parse_errors > 0 || short_lines > 0 {
         eprintln!("⚠️  Warning: Issues parsing {}:", path);
         if short_lines > 0 {
-            eprintln!("    {} line(s) with fewer than 6 columns (expected: epoch,train_loss,train_time,val_loss,val_accuracy,learning_rate)", short_lines);
+            eprintln!("    {} line(s) with fewer than 5 columns (expected: epoch,train_loss,train_time,val_loss,val_accuracy)", short_lines);
         }
         if parse_errors > 0 {
             eprintln!("    {} line(s) with invalid numeric values", parse_errors);
@@ -219,8 +223,11 @@ fn read_training_csv(path: &str) -> Option<Vec<EpochData>> {
 
     if epochs.is_empty() {
         if parse_errors > 0 || short_lines > 0 {
-            eprintln!("⚠️  Error: {} contains no valid epoch data after parsing errors", path);
-            eprintln!("    Expected format: epoch,train_loss,train_time,val_loss,val_accuracy,learning_rate");
+            eprintln!(
+                "⚠️  Error: {} contains no valid epoch data after parsing errors",
+                path
+            );
+            eprintln!("    Expected format: epoch,train_loss,train_time,val_loss,val_accuracy");
         }
         None
     } else {
@@ -567,10 +574,18 @@ fn build_attention_data() -> ModelData {
 
 /// Generates the demo/dashboard_data.json file consumed by the Architecture Comparison Dashboard.
 ///
-/// This function builds model architecture summaries (MLP, CNN, Attention), attempts to locate and
-/// parse per-model training logs under logs/, prints a status summary (which models have training
-/// data found or missing), and writes a pretty-printed JSON file to demo/dashboard_data.json.
-/// It also prints guidance for generating missing logs when applicable.
+/// Builds architecture summaries for bundled MNIST models (MLP, CNN, Attention), attempts to locate
+/// and parse per-model training logs under ./logs/, prints a status summary about found/missing
+/// training data, and writes a pretty-printed JSON file to demo/dashboard_data.json. When training
+/// logs are missing the function prints guidance for producing them; when present it includes
+/// training summaries in the generated output.
+///
+/// # Examples
+///
+/// ```no_run
+/// // Run the dashboard data generator (writes demo/dashboard_data.json).
+/// crate::main();
+/// ```
 fn main() {
     let mut rng = SimpleRng::new(42);
 
@@ -602,16 +617,12 @@ fn main() {
         if model.training.is_some() {
             println!(
                 "  ✓ {} — {} params, {} FLOPS [Training data FOUND]",
-                model.name,
-                model.architecture.total_params,
-                model.architecture.total_flops,
+                model.name, model.architecture.total_params, model.architecture.total_flops,
             );
         } else {
             println!(
                 "  ✗ {} — {} params, {} FLOPS [Training data MISSING]",
-                model.name,
-                model.architecture.total_params,
-                model.architecture.total_flops,
+                model.name, model.architecture.total_params, model.architecture.total_flops,
             );
         }
     }
@@ -619,7 +630,10 @@ fn main() {
 
     // Provide helpful guidance if logs are missing
     if !missing_logs.is_empty() {
-        println!("⚠️  Warning: Missing training logs for {} model(s)", missing_logs.len());
+        println!(
+            "⚠️  Warning: Missing training logs for {} model(s)",
+            missing_logs.len()
+        );
         println!();
         println!("The dashboard will show architecture data only (no training curves).");
         println!("To generate complete training data, run:");
