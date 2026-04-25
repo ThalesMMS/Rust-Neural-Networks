@@ -25,6 +25,12 @@
     "attention": {
       "embed_dim": 64,
       "num_heads": 4
+    },
+    "transformer_encoder": {
+      "d_model": 64,
+      "num_heads": 4,
+      "d_ff": 128,
+      "num_layers": 2
     }
   }
 }

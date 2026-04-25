@@ -21,7 +21,7 @@
 
 use std::env;
 use std::fs;
-use std::io::Write as IoWrite;
+use std::io::Write;
 use std::process;
 use std::time::Instant;
 
@@ -32,6 +32,7 @@ use rust_neural_networks::layers::{
 };
 use rust_neural_networks::optimizers::rmsprop::RMSprop;
 use rust_neural_networks::optimizers::{Adam, AdamW, Optimizer, SGD};
+use rust_neural_networks::persistence::save_layers_to_file;
 use rust_neural_networks::step_debug::StepDebugger;
 use rust_neural_networks::training::{
     compute_softmax_cross_entropy, evaluate_batch_accuracy, gather_batch, parse_config_path,
@@ -381,103 +382,11 @@ fn test_accuracy(model: &mut ResNet, images: &[f32], labels: &[u8]) -> f32 {
 
 /// Saves a model checkpoint to a binary file.
 ///
-/// Serialises layers it can access (Conv2D, BatchNorm, Dense, GlobalAvgPool) and
-/// writes architecture metadata for ResidualBlocks (their internal weights are not
-/// publicly accessible via the current library API).
-///
-/// Layer type IDs:
-/// - 0 = Dense
-/// - 1 = Conv2D
-/// - 2 = BatchNorm
-/// - 5 = ResidualBlock (metadata only)
-/// - 6 = GlobalAvgPool (no trainable params)
+/// Uses the shared layer-stack checkpoint format. ResidualBlocks are still saved
+/// as architecture metadata only because their internal weights are not publicly
+/// accessible via the current library API.
 fn save_model(model: &ResNet, filename: &str) {
-    use std::fs::File;
-    use std::io::BufWriter;
-
-    let mut f = BufWriter::new(File::create(filename).expect("Failed to create model file"));
-
-    let num_layers = model.layers.len() as u32;
-    f.write_all(&num_layers.to_le_bytes()).unwrap();
-
-    for layer in &model.layers {
-        let any_layer = layer.as_any();
-
-        if let Some(dense) = any_layer.downcast_ref::<DenseLayer>() {
-            // Type 0: Dense
-            f.write_all(&[0u8]).unwrap();
-            f.write_all(&(dense.input_size() as u32).to_le_bytes())
-                .unwrap();
-            f.write_all(&(dense.output_size() as u32).to_le_bytes())
-                .unwrap();
-            for &w in dense.weights() {
-                f.write_all(&w.to_le_bytes()).unwrap();
-            }
-            for &b in dense.biases() {
-                f.write_all(&b.to_le_bytes()).unwrap();
-            }
-        } else if let Some(conv) = any_layer.downcast_ref::<Conv2DLayer>() {
-            // Type 1: Conv2D
-            f.write_all(&[1u8]).unwrap();
-            f.write_all(&(conv.in_channels() as u32).to_le_bytes())
-                .unwrap();
-            f.write_all(&(conv.out_channels() as u32).to_le_bytes())
-                .unwrap();
-            f.write_all(&(conv.kernel_size() as u32).to_le_bytes())
-                .unwrap();
-            f.write_all(&(conv.padding() as i32).to_le_bytes()).unwrap();
-            f.write_all(&(conv.stride() as u32).to_le_bytes()).unwrap();
-            f.write_all(&(conv.input_height() as u32).to_le_bytes())
-                .unwrap();
-            f.write_all(&(conv.input_width() as u32).to_le_bytes())
-                .unwrap();
-            for &w in conv.weights() {
-                f.write_all(&w.to_le_bytes()).unwrap();
-            }
-            for &b in conv.biases() {
-                f.write_all(&b.to_le_bytes()).unwrap();
-            }
-        } else if let Some(bn) = any_layer.downcast_ref::<BatchNormLayer>() {
-            // Type 2: BatchNorm
-            f.write_all(&[2u8]).unwrap();
-            f.write_all(&(bn.output_size() as u32).to_le_bytes())
-                .unwrap();
-            for &g in bn.gamma() {
-                f.write_all(&g.to_le_bytes()).unwrap();
-            }
-            for &b in bn.beta() {
-                f.write_all(&b.to_le_bytes()).unwrap();
-            }
-            for &m in &bn.running_mean() {
-                f.write_all(&m.to_le_bytes()).unwrap();
-            }
-            for &v in &bn.running_var() {
-                f.write_all(&v.to_le_bytes()).unwrap();
-            }
-        } else if let Some(rb) = any_layer.downcast_ref::<ResidualBlock>() {
-            // Type 5: ResidualBlock (architecture metadata only – internal weights
-            // are not exposed by the current library API).
-            f.write_all(&[5u8]).unwrap();
-            f.write_all(&(rb.in_channels() as u32).to_le_bytes())
-                .unwrap();
-            f.write_all(&(rb.out_channels() as u32).to_le_bytes())
-                .unwrap();
-            f.write_all(&(rb.out_height() as u32).to_le_bytes())
-                .unwrap();
-            f.write_all(&(rb.out_width() as u32).to_le_bytes()).unwrap();
-            f.write_all(&[rb.has_projection_shortcut() as u8]).unwrap();
-        } else if let Some(gap) = any_layer.downcast_ref::<GlobalAvgPoolLayer>() {
-            // Type 6: GlobalAvgPool (no trainable parameters)
-            f.write_all(&[6u8]).unwrap();
-            f.write_all(&(gap.in_height() as u32).to_le_bytes())
-                .unwrap();
-            f.write_all(&(gap.in_width() as u32).to_le_bytes()).unwrap();
-            f.write_all(&(gap.channels() as u32).to_le_bytes()).unwrap();
-        } else {
-            panic!("Unknown layer type encountered during serialisation");
-        }
-    }
-
+    save_layers_to_file(filename, &model.layers).expect("Failed to save model layers");
     println!("Model checkpoint saved to: {}", filename);
 }
 

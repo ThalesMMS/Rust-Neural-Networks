@@ -12,8 +12,9 @@ use rust_neural_networks::layers::conv2d::Conv2DLayer;
 use rust_neural_networks::layers::dense::DenseLayer;
 use rust_neural_networks::layers::dropout::DropoutLayer;
 use rust_neural_networks::layers::Layer;
+use rust_neural_networks::persistence::{load_layers, save_layers};
 use rust_neural_networks::utils::rng::SimpleRng;
-use std::io::{Cursor, Read, Write};
+use std::io::Cursor;
 
 // ============================================================================
 // BatchNorm Mode Switching Tests
@@ -225,225 +226,6 @@ fn test_cifar10_deep_cnn_batchnorm_integration() {
 }
 
 // ============================================================================
-// Serialization Helpers
-// ============================================================================
-
-/// Serialize a list of layers to binary format, mirroring cifar10_cnn save_model.
-///
-/// Binary format:
-/// - u32: number of layers
-/// - Per layer: type_id (u8) followed by layer-specific data:
-///   - Dense (0): in_size (u32), out_size (u32), weights (f32*), biases (f32*)
-///   - Conv2D (1): in_ch/out_ch/kernel (u32), padding (i32), stride/height/width (u32),
-///     weights (f32*), biases (f32*)
-///   - BatchNorm (2): size (u32), gamma (f32*), beta (f32*), running_mean (f32*), running_var (f32*)
-///   - Dropout (3): size (u32), drop_rate (f32)
-fn serialize_layers(layers: &[Box<dyn Layer>], writer: &mut impl Write) {
-    let num_layers = layers.len() as u32;
-    writer.write_all(&num_layers.to_le_bytes()).unwrap();
-
-    for layer in layers {
-        let any_layer = layer.as_any();
-
-        if let Some(dense) = any_layer.downcast_ref::<DenseLayer>() {
-            writer.write_all(&[0u8]).unwrap();
-            writer
-                .write_all(&(dense.input_size() as u32).to_le_bytes())
-                .unwrap();
-            writer
-                .write_all(&(dense.output_size() as u32).to_le_bytes())
-                .unwrap();
-            for &w in dense.weights() {
-                writer.write_all(&w.to_le_bytes()).unwrap();
-            }
-            for &b in dense.biases() {
-                writer.write_all(&b.to_le_bytes()).unwrap();
-            }
-        } else if let Some(conv) = any_layer.downcast_ref::<Conv2DLayer>() {
-            writer.write_all(&[1u8]).unwrap();
-            writer
-                .write_all(&(conv.in_channels() as u32).to_le_bytes())
-                .unwrap();
-            writer
-                .write_all(&(conv.out_channels() as u32).to_le_bytes())
-                .unwrap();
-            writer
-                .write_all(&(conv.kernel_size() as u32).to_le_bytes())
-                .unwrap();
-            writer
-                .write_all(&(conv.padding() as i32).to_le_bytes())
-                .unwrap();
-            writer
-                .write_all(&(conv.stride() as u32).to_le_bytes())
-                .unwrap();
-            writer
-                .write_all(&(conv.input_height() as u32).to_le_bytes())
-                .unwrap();
-            writer
-                .write_all(&(conv.input_width() as u32).to_le_bytes())
-                .unwrap();
-            for &w in conv.weights() {
-                writer.write_all(&w.to_le_bytes()).unwrap();
-            }
-            for &b in conv.biases() {
-                writer.write_all(&b.to_le_bytes()).unwrap();
-            }
-        } else if let Some(bn) = any_layer.downcast_ref::<BatchNormLayer>() {
-            writer.write_all(&[2u8]).unwrap();
-            writer
-                .write_all(&(bn.output_size() as u32).to_le_bytes())
-                .unwrap();
-            for &g in bn.gamma() {
-                writer.write_all(&g.to_le_bytes()).unwrap();
-            }
-            for &b in bn.beta() {
-                writer.write_all(&b.to_le_bytes()).unwrap();
-            }
-            for &m in &bn.running_mean() {
-                writer.write_all(&m.to_le_bytes()).unwrap();
-            }
-            for &v in &bn.running_var() {
-                writer.write_all(&v.to_le_bytes()).unwrap();
-            }
-        } else if let Some(dropout) = any_layer.downcast_ref::<DropoutLayer>() {
-            writer.write_all(&[3u8]).unwrap();
-            writer
-                .write_all(&(dropout.output_size() as u32).to_le_bytes())
-                .unwrap();
-            writer
-                .write_all(&dropout.drop_rate().to_le_bytes())
-                .unwrap();
-        } else {
-            panic!("Unknown layer type encountered in test serialization");
-        }
-    }
-}
-
-/// Deserialize layers from binary format, mirroring cifar10_cnn load_model.
-fn deserialize_layers(reader: &mut impl Read) -> Vec<Box<dyn Layer>> {
-    let mut buf4 = [0u8; 4];
-    reader.read_exact(&mut buf4).unwrap();
-    let num_layers = u32::from_le_bytes(buf4) as usize;
-
-    let mut layers: Vec<Box<dyn Layer>> = Vec::with_capacity(num_layers);
-    let mut rng = SimpleRng::new(42);
-
-    for _ in 0..num_layers {
-        let mut type_buf = [0u8; 1];
-        reader.read_exact(&mut type_buf).unwrap();
-        match type_buf[0] {
-            0 => {
-                // Dense
-                reader.read_exact(&mut buf4).unwrap();
-                let in_size = u32::from_le_bytes(buf4) as usize;
-                reader.read_exact(&mut buf4).unwrap();
-                let out_size = u32::from_le_bytes(buf4) as usize;
-                let mut weights = vec![0.0f32; in_size * out_size];
-                for w in &mut weights {
-                    reader.read_exact(&mut buf4).unwrap();
-                    *w = f32::from_le_bytes(buf4);
-                }
-                let mut biases = vec![0.0f32; out_size];
-                for b in &mut biases {
-                    reader.read_exact(&mut buf4).unwrap();
-                    *b = f32::from_le_bytes(buf4);
-                }
-                layers.push(Box::new(DenseLayer::new_with_weights(
-                    in_size, out_size, weights, biases,
-                )));
-            }
-            1 => {
-                // Conv2D
-                reader.read_exact(&mut buf4).unwrap();
-                let in_channels = u32::from_le_bytes(buf4) as usize;
-                reader.read_exact(&mut buf4).unwrap();
-                let out_channels = u32::from_le_bytes(buf4) as usize;
-                reader.read_exact(&mut buf4).unwrap();
-                let kernel_size = u32::from_le_bytes(buf4) as usize;
-                reader.read_exact(&mut buf4).unwrap();
-                let padding = i32::from_le_bytes(buf4) as isize;
-                reader.read_exact(&mut buf4).unwrap();
-                let stride = u32::from_le_bytes(buf4) as usize;
-                reader.read_exact(&mut buf4).unwrap();
-                let input_height = u32::from_le_bytes(buf4) as usize;
-                reader.read_exact(&mut buf4).unwrap();
-                let input_width = u32::from_le_bytes(buf4) as usize;
-                let weight_count = out_channels * in_channels * kernel_size * kernel_size;
-                let mut weights = vec![0.0f32; weight_count];
-                for w in &mut weights {
-                    reader.read_exact(&mut buf4).unwrap();
-                    *w = f32::from_le_bytes(buf4);
-                }
-                let mut biases = vec![0.0f32; out_channels];
-                for b in &mut biases {
-                    reader.read_exact(&mut buf4).unwrap();
-                    *b = f32::from_le_bytes(buf4);
-                }
-                layers.push(Box::new(Conv2DLayer::new_with_weights(
-                    in_channels,
-                    out_channels,
-                    kernel_size,
-                    padding,
-                    stride,
-                    input_height,
-                    input_width,
-                    weights,
-                    biases,
-                )));
-            }
-            2 => {
-                // BatchNorm
-                reader.read_exact(&mut buf4).unwrap();
-                let size = u32::from_le_bytes(buf4) as usize;
-                let mut gamma = vec![0.0f32; size];
-                for g in &mut gamma {
-                    reader.read_exact(&mut buf4).unwrap();
-                    *g = f32::from_le_bytes(buf4);
-                }
-                let mut beta = vec![0.0f32; size];
-                for b in &mut beta {
-                    reader.read_exact(&mut buf4).unwrap();
-                    *b = f32::from_le_bytes(buf4);
-                }
-                let mut running_mean = vec![0.0f32; size];
-                for m in &mut running_mean {
-                    reader.read_exact(&mut buf4).unwrap();
-                    *m = f32::from_le_bytes(buf4);
-                }
-                let mut running_var = vec![0.0f32; size];
-                for v in &mut running_var {
-                    reader.read_exact(&mut buf4).unwrap();
-                    *v = f32::from_le_bytes(buf4);
-                }
-                layers.push(Box::new(BatchNormLayer::new_with_params(
-                    size,
-                    1e-5,
-                    0.1,
-                    gamma,
-                    beta,
-                    running_mean,
-                    running_var,
-                )));
-            }
-            3 => {
-                // Dropout
-                reader.read_exact(&mut buf4).unwrap();
-                let size = u32::from_le_bytes(buf4) as usize;
-                reader.read_exact(&mut buf4).unwrap();
-                let drop_rate = f32::from_le_bytes(buf4);
-                layers.push(Box::new(DropoutLayer::new(size, drop_rate, &mut rng)));
-            }
-            t => panic!(
-                "Unknown layer type {} encountered in test deserialization",
-                t
-            ),
-        }
-    }
-
-    layers
-}
-
-// ============================================================================
 // Model Serialization Roundtrip Tests
 // ============================================================================
 
@@ -470,13 +252,13 @@ fn test_save_load_baseline_model() {
 
     // Serialize to in-memory buffer
     let mut data: Vec<u8> = Vec::new();
-    serialize_layers(&layers, &mut data);
+    save_layers(&mut data, &layers).unwrap();
 
     assert!(!data.is_empty(), "Serialized data should not be empty");
 
     // Deserialize from buffer
     let mut cursor = Cursor::new(&data);
-    let loaded_layers = deserialize_layers(&mut cursor);
+    let loaded_layers = load_layers(&mut cursor, &mut rng).unwrap();
 
     // Verify layer count
     assert_eq!(
@@ -585,11 +367,11 @@ fn test_save_load_mixed_architecture() {
 
     // Serialize to in-memory buffer
     let mut data: Vec<u8> = Vec::new();
-    serialize_layers(&layers, &mut data);
+    save_layers(&mut data, &layers).unwrap();
 
     // Deserialize from buffer
     let mut cursor = Cursor::new(&data);
-    let loaded_layers = deserialize_layers(&mut cursor);
+    let loaded_layers = load_layers(&mut cursor, &mut rng).unwrap();
 
     // Verify layer count
     assert_eq!(
@@ -691,11 +473,11 @@ fn test_save_load_dropout_drop_rate() {
 
     // Serialize to in-memory buffer
     let mut data: Vec<u8> = Vec::new();
-    serialize_layers(&layers, &mut data);
+    save_layers(&mut data, &layers).unwrap();
 
     // Deserialize from buffer
     let mut cursor = Cursor::new(&data);
-    let loaded_layers = deserialize_layers(&mut cursor);
+    let loaded_layers = load_layers(&mut cursor, &mut rng).unwrap();
 
     assert_eq!(
         loaded_layers.len(),
@@ -784,13 +566,13 @@ fn test_save_load_deep_cnn_model() {
 
     // Serialize to in-memory buffer
     let mut data: Vec<u8> = Vec::new();
-    serialize_layers(&layers, &mut data);
+    save_layers(&mut data, &layers).unwrap();
 
     assert!(!data.is_empty(), "Serialized data should not be empty");
 
     // Deserialize from buffer
     let mut cursor = Cursor::new(&data);
-    let loaded_layers = deserialize_layers(&mut cursor);
+    let loaded_layers = load_layers(&mut cursor, &mut rng).unwrap();
 
     // Verify layer count is preserved
     assert_eq!(

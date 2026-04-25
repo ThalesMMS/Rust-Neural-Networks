@@ -21,6 +21,11 @@
       "name": "attention",
       "max_acceptable_latency_ms": 10000.0,
       "min_acceptable_throughput_samples_per_sec": 0.5
+    },
+    {
+      "name": "transformer_encoder",
+      "max_acceptable_latency_ms": 10000.0,
+      "min_acceptable_throughput_samples_per_sec": 0.5
     }
   ]
 }

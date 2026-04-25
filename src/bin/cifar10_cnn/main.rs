@@ -11,8 +11,8 @@
 // Note: educational implementation. Conv2D uses explicit loops; DenseLayer uses BLAS.
 
 use std::env;
-use std::fs::{self, File};
-use std::io::{BufWriter, Write};
+use std::fs;
+use std::io::Write;
 use std::process;
 use std::time::Instant;
 

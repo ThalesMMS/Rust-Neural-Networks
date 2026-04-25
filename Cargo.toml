@@ -17,6 +17,7 @@ cudarc = { version = "0.12", optional = true }
 
 [features]
 shared_activations = []
+cifar10-bench = []
 gpu-metal = ["dep:metal", "dep:objc"]
 gpu-cuda = ["dep:cudarc"]
 
@@ -33,7 +34,13 @@ openblas-src = { version = "0.10", features = ["system", "cblas"] }
 
 [dev-dependencies]
 approx = "0.5"
+criterion = "0.5"
 tempfile = "3.24.0"
+
+[[bench]]
+name = "cifar10_loader"
+harness = false
+required-features = ["cifar10-bench"]
 
 [profile.release]
 lto = true

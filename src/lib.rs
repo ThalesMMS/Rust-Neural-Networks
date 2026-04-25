@@ -29,6 +29,7 @@ pub mod data;
 pub mod gpu;
 pub mod layers;
 pub mod optimizers;
+pub mod persistence;
 pub mod profiling;
 pub mod step_debug;
 pub mod sweep;

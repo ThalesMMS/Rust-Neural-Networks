@@ -1,37 +1,3 @@
-//! Transformer block layer implementation
-//!
-//! This module provides a TransformerBlock that combines multi-head attention,
-//! layer normalization, feed-forward network, and residual connections following
-//! the "Attention is All You Need" architecture (Vaswani et al., 2017).
-//!
-//! # Architecture
-//!
-//! The TransformerBlock implements a Pre-LN (Pre-Layer Normalization) architecture:
-//!
-//! ```text
-//! input
-//!   |
-//!   +--> LayerNorm --> MultiHeadAttention --> Add(residual) --> [intermediate]
-//!                                              |
-//!                                              +--> LayerNorm --> FFN --> Add(residual) --> output
-//! ```
-//!
-//! Where FFN (Feed-Forward Network) is:
-//! ```text
-//! Dense(d_model -> d_ff) --> ReLU --> Dense(d_ff -> d_model)
-//! ```
-//!
-//! # Pre-LN vs Post-LN
-//!
-//! This implementation uses Pre-LN where layer normalization is applied *before*
-//! each sub-layer (attention and FFN), which provides better training stability
-//! and gradient flow compared to the original Post-LN architecture.
-//!
-//! # References
-//!
-//! Vaswani, A., et al. (2017). Attention is All You Need. NeurIPS.
-//! Xiong, R., et al. (2020). On Layer Normalization in the Transformer Architecture. ICML.
-
 use crate::layers::{DenseLayer, Layer, LayerNormLayer, MultiHeadAttentionLayer};
 use crate::optimizers::Optimizer;
 use crate::utils::rng::SimpleRng;
@@ -92,22 +58,15 @@ pub struct TransformerBlock {
 }
 
 impl TransformerBlock {
-    /// Creates a new transformer block with Xavier-initialized weights.
-    ///
-    /// # Arguments
-    ///
-    /// * `d_model` - Model dimension (must be divisible by num_heads)
-    /// * `num_heads` - Number of attention heads
-    /// * `d_ff` - Hidden dimension of feed-forward network (typically 4 * d_model)
-    /// * `rng` - Random number generator for weight initialization
+    /// Creates a Transformer encoder block using a Pre-LN layout with Xavier-initialized weights.
     ///
     /// # Panics
     ///
-    /// Panics if d_model is not divisible by num_heads.
+    /// Panics if `d_model` is not divisible by `num_heads`.
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
     /// let mut rng = SimpleRng::new(42);
     /// let block = TransformerBlock::new(256, 8, 1024, &mut rng);
     /// assert_eq!(block.d_model(), 256);
@@ -167,9 +126,6 @@ impl TransformerBlock {
     }
 
     /// Returns a reference to the multi-head attention sub-layer.
-    ///
-    /// This allows accessing attention weights for visualization via
-    /// `block.attention_layer().get_attention_weights()`.
     pub fn attention_layer(&self) -> &MultiHeadAttentionLayer {
         &self.attention
     }
@@ -191,38 +147,88 @@ impl TransformerBlock {
         slices
     }
 
-    /// ReLU activation function applied in-place.
     fn relu_inplace(data: &mut [f32]) {
         for x in data.iter_mut() {
-            if *x < 0.0 {
-                *x = 0.0;
-            }
+            *x = x.max(0.0);
         }
+    }
+
+    /// Returns true if the cached input, batch size, and sequence length all match the given values.
+    pub(super) fn cached_input_matches(
+        &self,
+        input: &[f32],
+        batch_size: usize,
+        seq_len: usize,
+    ) -> bool {
+        *self.cached_batch_size.borrow() == batch_size
+            && *self.cached_seq_len.borrow() == seq_len
+            && self.cached_input.borrow().as_slice() == input
+    }
+
+    fn clear_cached_activations(&self) {
+        self.cached_input.borrow_mut().clear();
+        self.cached_ln1_out.borrow_mut().clear();
+        self.cached_attn_out.borrow_mut().clear();
+        self.cached_residual1.borrow_mut().clear();
+        self.cached_ln2_out.borrow_mut().clear();
+        self.cached_ffn1_out.borrow_mut().clear();
+        self.cached_ffn2_out.borrow_mut().clear();
+        *self.cached_batch_size.borrow_mut() = 0;
+        *self.cached_seq_len.borrow_mut() = 0;
+    }
+
+    fn assert_cache_len(name: &str, actual: usize, expected: usize) {
+        assert_eq!(
+            actual, expected,
+            "TransformerBlock::backward {name} length {actual} must equal expected length {expected}"
+        );
     }
 }
 
 impl Layer for TransformerBlock {
-    /// Forward propagation through the transformer block.
+    /// Performs a forward pass through the transformer encoder block (Pre-LN).
     ///
-    /// Implements the Pre-LN transformer architecture:
-    /// 1. Layer norm on input
-    /// 2. Multi-head self-attention
-    /// 3. Residual connection
-    /// 4. Layer norm on intermediate output
-    /// 5. Feed-forward network (Dense → ReLU → Dense)
-    /// 6. Residual connection
-    ///
-    /// # Arguments
-    ///
-    /// * `input` - Input data (batch_size × seq_len × d_model, flattened)
-    /// * `output` - Output buffer (batch_size × seq_len × d_model, flattened)
-    /// * `batch_size` - Number of samples in the batch
+    /// The input is normalized, processed by multi-head self-attention, added residually to
+    /// the input, normalized again, passed through a two-layer feed-forward network with
+    /// an in-place ReLU, and finally added residually to produce the output. Input and
+    /// output are expected as flattened tensors with layout (batch_size × seq_len × d_model).
     ///
     /// # Panics
     ///
-    /// Panics if input/output dimensions don't match expected sizes.
+    /// Panics if `input.len()` is not divisible by `batch_size * d_model` or if `output.len()`
+    /// does not equal `input.len()`.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Construct a transformer block for d_model=4, num_heads=2, d_ff=8
+    /// let mut rng = SimpleRng::new(0);
+    /// let block = TransformerBlock::new(4, 2, 8, &mut rng);
+    ///
+    /// let batch_size = 1;
+    /// let seq_len = 1;
+    /// let mut input = vec![0.5f32; batch_size * seq_len * block.d_model()];
+    /// let mut output = vec![0.0f32; input.len()];
+    ///
+    /// block.forward(&input, &mut output, batch_size);
+    ///
+    /// assert_eq!(output.len(), input.len());
+    /// ```
     fn forward(&self, input: &[f32], output: &mut [f32], batch_size: usize) {
         let total_size = input.len();
+        assert_eq!(
+            output.len(),
+            total_size,
+            "TransformerBlock::forward output length must equal input length"
+        );
+        assert!(
+            batch_size > 0,
+            "TransformerBlock::forward batch_size must be > 0"
+        );
+        assert!(
+            self.d_model > 0,
+            "TransformerBlock::forward d_model must be > 0"
+        );
         assert_eq!(
             total_size % (batch_size * self.d_model),
             0,
@@ -290,22 +296,14 @@ impl Layer for TransformerBlock {
         }
     }
 
-    /// Backward propagation through the transformer block.
+    /// Performs backpropagation through the transformer block using cached forward activations.
     ///
-    /// Computes gradients using the chain rule through:
-    /// 1. Second residual connection
-    /// 2. Feed-forward network (Dense → ReLU → Dense)
-    /// 3. Second layer norm
-    /// 4. First residual connection
-    /// 5. Multi-head self-attention
-    /// 6. First layer norm
+    /// This computes and accumulates gradients for the block's inputs and internal parameters by
+    /// propagating `grad_output` backward through the second residual + FFN path, the second layer
+    /// normalization, the first residual + attention path, and the first layer normalization.
+    /// The method writes gradients into `grad_input` (adds to existing values) and relies on values
+    /// stored during the corresponding `forward` call; the `_input` parameter is ignored.
     ///
-    /// # Arguments
-    ///
-    /// * `input` - Input data from forward pass (unused, we use cached values)
-    /// * `grad_output` - Gradient of loss w.r.t. block output
-    /// * `grad_input` - Buffer to store gradient w.r.t. block input
-    /// * `batch_size` - Number of samples in the batch
     fn backward(
         &self,
         _input: &[f32],
@@ -313,8 +311,68 @@ impl Layer for TransformerBlock {
         grad_input: &mut [f32],
         batch_size: usize,
     ) {
+        assert!(
+            batch_size > 0,
+            "TransformerBlock::backward batch_size must be > 0"
+        );
+        assert!(
+            self.d_model > 0,
+            "TransformerBlock::backward d_model must be > 0"
+        );
         let seq_len = *self.cached_seq_len.borrow();
+        assert!(
+            seq_len > 0,
+            "TransformerBlock::backward requires cached_seq_len > 0; call forward before backward"
+        );
+        assert_eq!(
+            *self.cached_batch_size.borrow(),
+            batch_size,
+            "TransformerBlock::backward batch_size must match cached_batch_size"
+        );
         let total_size = batch_size * seq_len * self.d_model;
+        let ffn_size = batch_size * seq_len * self.d_ff;
+
+        assert_eq!(
+            grad_output.len(),
+            total_size,
+            "TransformerBlock::backward grad_output length must match batch_size * cached_seq_len * d_model"
+        );
+        assert_eq!(
+            grad_input.len(),
+            total_size,
+            "TransformerBlock::backward grad_input length must match batch_size * cached_seq_len * d_model"
+        );
+        Self::assert_cache_len("cached_input", self.cached_input.borrow().len(), total_size);
+        Self::assert_cache_len(
+            "cached_ln1_out",
+            self.cached_ln1_out.borrow().len(),
+            total_size,
+        );
+        Self::assert_cache_len(
+            "cached_attn_out",
+            self.cached_attn_out.borrow().len(),
+            total_size,
+        );
+        Self::assert_cache_len(
+            "cached_residual1",
+            self.cached_residual1.borrow().len(),
+            total_size,
+        );
+        Self::assert_cache_len(
+            "cached_ln2_out",
+            self.cached_ln2_out.borrow().len(),
+            total_size,
+        );
+        Self::assert_cache_len(
+            "cached_ffn1_out",
+            self.cached_ffn1_out.borrow().len(),
+            ffn_size,
+        );
+        Self::assert_cache_len(
+            "cached_ffn2_out",
+            self.cached_ffn2_out.borrow().len(),
+            total_size,
+        );
 
         // Retrieve cached values
         let cached_input = self.cached_input.borrow();
@@ -404,63 +462,50 @@ impl Layer for TransformerBlock {
         }
     }
 
-    /// Update layer parameters using learning rate.
+    /// Apply vanilla gradient descent to every trainable parameter in this block.
     ///
-    /// Updates all sub-layer parameters (attention, layer norms, FFN layers)
-    /// using vanilla gradient descent.
+    /// This updates the attention, both layer-norms, and both feed-forward dense layers
+    /// by subtracting `learning_rate * gradient` from each parameter.
     ///
     /// # Arguments
     ///
-    /// * `learning_rate` - Learning rate for gradient descent
+    /// * `learning_rate` - Scalar learning rate applied to all parameter updates.
+    ///
     fn update_parameters(&mut self, learning_rate: f32) {
         self.ln1.update_parameters(learning_rate);
         self.attention.update_parameters(learning_rate);
         self.ln2.update_parameters(learning_rate);
         self.ffn1.update_parameters(learning_rate);
         self.ffn2.update_parameters(learning_rate);
+        self.clear_cached_activations();
     }
 
-    /// Update layer parameters using an optimizer.
+    /// Update all trainable parameters using the given optimizer.
     ///
-    /// Updates all sub-layer parameters using the provided optimizer.
-    /// This allows using advanced optimizers like Adam with momentum
-    /// and adaptive learning rates.
+    /// Calls `update_with_optimizer` on each sub-layer so the optimizer can apply its
+    /// parameter updates (e.g., Adam, SGD with momentum).
     ///
     /// # Arguments
     ///
-    /// * `optimizer` - Mutable reference to an optimizer implementing the Optimizer trait
+    /// * `optimizer` - Mutable reference to an object implementing the `Optimizer` trait
+    ///
     fn update_with_optimizer(&mut self, optimizer: &mut dyn Optimizer) {
         self.ln1.update_with_optimizer(optimizer);
         self.attention.update_with_optimizer(optimizer);
         self.ln2.update_with_optimizer(optimizer);
         self.ffn1.update_with_optimizer(optimizer);
         self.ffn2.update_with_optimizer(optimizer);
+        self.clear_cached_activations();
     }
 
-    /// Get the input size of the transformer block.
-    ///
-    /// For transformer blocks, input size is the model dimension (d_model).
-    /// Note that the actual input is 3D (batch × seq_len × d_model) but
-    /// flattened to 1D for the Layer trait interface.
     fn input_size(&self) -> usize {
         self.d_model
     }
 
-    /// Get the output size of the transformer block.
-    ///
-    /// For transformer blocks, output size equals input size (d_model).
     fn output_size(&self) -> usize {
         self.d_model
     }
 
-    /// Get the total number of trainable parameters.
-    ///
-    /// Returns the sum of parameters from all sub-layers:
-    /// - First layer norm (2 * d_model)
-    /// - Multi-head attention
-    /// - Second layer norm (2 * d_model)
-    /// - FFN layer 1 (d_model * d_ff + d_ff)
-    /// - FFN layer 2 (d_ff * d_model + d_model)
     fn parameter_count(&self) -> usize {
         self.ln1.parameter_count()
             + self.attention.parameter_count()
@@ -482,248 +527,23 @@ impl Layer for TransformerBlock {
     }
 }
 
-/// Transformer encoder consisting of multiple stacked TransformerBlocks.
-///
-/// This struct allows composing multiple transformer encoder blocks into a deep network.
-/// Each block processes the output of the previous block sequentially.
-///
-/// # Fields
-///
-/// * `blocks` - Vector of TransformerBlock layers
-/// * `d_model` - Model dimension (same for all blocks)
-/// * `num_layers` - Number of stacked transformer blocks
-///
-/// # Example
-///
-/// ```ignore
-/// use rust_neural_networks::layers::TransformerEncoder;
-/// use rust_neural_networks::utils::SimpleRng;
-///
-/// let mut rng = SimpleRng::new(42);
-/// let encoder = TransformerEncoder::new(6, 512, 8, 2048, &mut rng);
-/// assert_eq!(encoder.num_layers(), 6);
-/// assert_eq!(encoder.input_size(), 512);
-/// ```
-pub struct TransformerEncoder {
-    blocks: Vec<TransformerBlock>,
-    d_model: usize,
-    num_layers: usize,
-}
-
-impl TransformerEncoder {
-    /// Creates a new transformer encoder with multiple stacked blocks.
-    ///
-    /// # Arguments
-    ///
-    /// * `num_layers` - Number of transformer blocks to stack
-    /// * `d_model` - Model dimension (must be divisible by num_heads)
-    /// * `num_heads` - Number of attention heads per block
-    /// * `d_ff` - Hidden dimension of feed-forward network (typically 4 * d_model)
-    /// * `rng` - Random number generator for weight initialization
-    ///
-    /// # Panics
-    ///
-    /// Panics if d_model is not divisible by num_heads.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// let mut rng = SimpleRng::new(42);
-    /// let encoder = TransformerEncoder::new(6, 512, 8, 2048, &mut rng);
-    /// assert_eq!(encoder.num_layers(), 6);
-    /// ```
-    pub fn new(
-        num_layers: usize,
-        d_model: usize,
-        num_heads: usize,
-        d_ff: usize,
-        rng: &mut SimpleRng,
-    ) -> Self {
-        let mut blocks = Vec::with_capacity(num_layers);
-        for _ in 0..num_layers {
-            blocks.push(TransformerBlock::new(d_model, num_heads, d_ff, rng));
-        }
-
-        Self {
-            blocks,
-            d_model,
-            num_layers,
-        }
-    }
-
-    /// Returns the number of stacked transformer blocks.
-    pub fn num_layers(&self) -> usize {
-        self.num_layers
-    }
-
-    /// Returns the model dimension.
-    pub fn d_model(&self) -> usize {
-        self.d_model
-    }
-
-    /// Returns a slice of the transformer blocks.
-    ///
-    /// This allows accessing individual blocks for attention weight visualization.
-    pub fn blocks(&self) -> &[TransformerBlock] {
-        &self.blocks
-    }
-
-    /// Returns all trainable parameter tensors owned by every block.
-    pub fn parameter_slices(&self) -> Vec<&[f32]> {
-        let mut slices = Vec::new();
-        for block in &self.blocks {
-            slices.extend(block.parameter_slices());
-        }
-        slices
-    }
-}
-
-impl Layer for TransformerEncoder {
-    /// Forward propagation through all stacked transformer blocks.
-    ///
-    /// Passes input sequentially through each block, with each block's
-    /// output becoming the next block's input.
-    ///
-    /// # Arguments
-    ///
-    /// * `input` - Input data (batch_size × seq_len × d_model, flattened)
-    /// * `output` - Output buffer (batch_size × seq_len × d_model, flattened)
-    /// * `batch_size` - Number of samples in the batch
-    #[allow(clippy::manual_is_multiple_of)]
-    fn forward(&self, input: &[f32], output: &mut [f32], batch_size: usize) {
-        if self.blocks.is_empty() {
-            output.copy_from_slice(input);
-            return;
-        }
-
-        // We need intermediate buffers for passing data between blocks
-        let mut buffer1 = input.to_vec();
-        let mut buffer2 = vec![0.0f32; input.len()];
-
-        for (i, block) in self.blocks.iter().enumerate() {
-            if i % 2 == 0 {
-                block.forward(&buffer1, &mut buffer2, batch_size);
-            } else {
-                block.forward(&buffer2, &mut buffer1, batch_size);
-            }
-        }
-
-        // Copy final result to output
-        if self.num_layers % 2 == 0 {
-            output.copy_from_slice(&buffer1);
-        } else {
-            output.copy_from_slice(&buffer2);
-        }
-    }
-
-    /// Backward propagation through all stacked transformer blocks.
-    ///
-    /// Propagates gradients in reverse order through the blocks,
-    /// from the last block back to the first.
-    ///
-    /// # Arguments
-    ///
-    /// * `input` - Input data from forward pass
-    /// * `grad_output` - Gradient of loss w.r.t. encoder output
-    /// * `grad_input` - Buffer to store gradient w.r.t. encoder input
-    /// * `batch_size` - Number of samples in the batch
-    fn backward(
-        &self,
-        input: &[f32],
-        grad_output: &[f32],
-        grad_input: &mut [f32],
-        batch_size: usize,
-    ) {
-        if self.blocks.is_empty() {
-            grad_input.copy_from_slice(grad_output);
-            return;
-        }
-
-        // We need to reconstruct the forward pass to get intermediate activations
-        // For efficiency in production, these would be cached during forward pass
-        let mut activations = Vec::with_capacity(self.num_layers + 1);
-        activations.push(input.to_vec());
-
-        // Forward pass to cache activations
-        let mut current = input.to_vec();
-        let mut next = vec![0.0f32; input.len()];
-        for block in &self.blocks {
-            block.forward(&current, &mut next, batch_size);
-            activations.push(next.clone());
-            std::mem::swap(&mut current, &mut next);
-        }
-
-        // Backward pass through blocks in reverse order
-        let mut grad_buffer1 = grad_output.to_vec();
-        let mut grad_buffer2 = vec![0.0f32; input.len()];
-
-        for (i, block) in self.blocks.iter().enumerate().rev() {
-            let block_input = &activations[i];
-
-            block.backward(block_input, &grad_buffer1, &mut grad_buffer2, batch_size);
-            std::mem::swap(&mut grad_buffer1, &mut grad_buffer2);
-        }
-
-        grad_input.copy_from_slice(&grad_buffer1);
-    }
-
-    /// Update parameters in all transformer blocks.
-    ///
-    /// # Arguments
-    ///
-    /// * `learning_rate` - Learning rate for gradient descent
-    fn update_parameters(&mut self, learning_rate: f32) {
-        for block in &mut self.blocks {
-            block.update_parameters(learning_rate);
-        }
-    }
-
-    /// Update parameters in all transformer blocks using an optimizer.
-    ///
-    /// # Arguments
-    ///
-    /// * `optimizer` - Mutable reference to an optimizer implementing the Optimizer trait
-    fn update_with_optimizer(&mut self, optimizer: &mut dyn Optimizer) {
-        for block in &mut self.blocks {
-            block.update_with_optimizer(optimizer);
-        }
-    }
-
-    /// Get the input size of the transformer encoder.
-    ///
-    /// Returns the model dimension (d_model).
-    fn input_size(&self) -> usize {
-        self.d_model
-    }
-
-    /// Get the output size of the transformer encoder.
-    ///
-    /// Returns the model dimension (d_model).
-    fn output_size(&self) -> usize {
-        self.d_model
-    }
-
-    /// Get the total number of trainable parameters across all blocks.
-    fn parameter_count(&self) -> usize {
-        self.blocks.iter().map(|b| b.parameter_count()).sum()
-    }
-
-    fn into_any(self: Box<Self>) -> Box<dyn Any> {
-        self
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::optimizers::Adam;
+    use crate::utils::rng::SimpleRng;
+
+    fn assert_forward_cache_empty(block: &TransformerBlock) {
+        assert!(block.cached_input.borrow().is_empty());
+        assert!(block.cached_ln1_out.borrow().is_empty());
+        assert!(block.cached_attn_out.borrow().is_empty());
+        assert!(block.cached_residual1.borrow().is_empty());
+        assert!(block.cached_ln2_out.borrow().is_empty());
+        assert!(block.cached_ffn1_out.borrow().is_empty());
+        assert!(block.cached_ffn2_out.borrow().is_empty());
+        assert_eq!(*block.cached_batch_size.borrow(), 0);
+        assert_eq!(*block.cached_seq_len.borrow(), 0);
+    }
 
     #[test]
     fn test_transformer_block_creation() {
@@ -827,5 +647,159 @@ mod tests {
         // With residual connections, output should have some relationship to input
         // (this is a weak test, but verifies residuals are working)
         assert!(output_norm.is_finite());
+    }
+
+    #[test]
+    fn test_transformer_block_output_length_equals_input_length() {
+        let mut rng = SimpleRng::new(7);
+        let d_model = 8;
+        let block = TransformerBlock::new(d_model, 2, 16, &mut rng);
+
+        let batch_size = 3;
+        let seq_len = 5;
+        let n = batch_size * seq_len * d_model;
+        let input = vec![0.1f32; n];
+        let mut output = vec![0.0f32; n];
+
+        block.forward(&input, &mut output, batch_size);
+
+        assert_eq!(output.len(), input.len());
+    }
+
+    #[test]
+    #[should_panic(expected = "TransformerBlock::forward output length must equal input length")]
+    fn test_transformer_block_forward_rejects_mismatched_output_length() {
+        let mut rng = SimpleRng::new(7);
+        let d_model = 8;
+        let block = TransformerBlock::new(d_model, 2, 16, &mut rng);
+
+        let batch_size = 1;
+        let seq_len = 2;
+        let input = vec![0.1f32; batch_size * seq_len * d_model];
+        let mut output = vec![0.0f32; input.len() + 1];
+
+        block.forward(&input, &mut output, batch_size);
+    }
+
+    #[test]
+    fn test_transformer_block_single_head_works() {
+        // num_heads=1 should be valid when d_model is divisible by 1
+        let mut rng = SimpleRng::new(13);
+        let block = TransformerBlock::new(8, 1, 16, &mut rng);
+
+        assert_eq!(block.num_heads(), 1);
+
+        let batch_size = 1;
+        let seq_len = 2;
+        let input = vec![0.5f32; batch_size * seq_len * 8];
+        let mut output = vec![0.0f32; input.len()];
+
+        block.forward(&input, &mut output, batch_size);
+        assert!(output.iter().all(|&x| x.is_finite()));
+    }
+
+    #[test]
+    fn test_transformer_block_attention_layer_accessor_is_non_null() {
+        let mut rng = SimpleRng::new(21);
+        let block = TransformerBlock::new(16, 2, 32, &mut rng);
+        // attention_layer() should return a reference without panicking
+        let _attn = block.attention_layer();
+    }
+
+    #[test]
+    fn test_transformer_block_parameter_slices_count() {
+        // Expected slices: ln1 gamma + ln1 beta + attention slices + ln2 gamma + ln2 beta + ffn1 weights + ffn1 biases + ffn2 weights + ffn2 biases
+        // attention has 4 weight matrices + 4 bias vectors = 8 slices; total = 2 + 8 + 2 + 4 = 16
+        let mut rng = SimpleRng::new(99);
+        let block = TransformerBlock::new(16, 2, 32, &mut rng);
+        let slices = block.parameter_slices();
+        // At minimum: ln1(2) + attn(>=4) + ln2(2) + ffn1(2) + ffn2(2) = 12+
+        assert!(slices.len() >= 12);
+        // All slices should be non-empty
+        for s in &slices {
+            assert!(!s.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_transformer_block_varied_seq_len_and_batch() {
+        let mut rng = SimpleRng::new(55);
+        let d_model = 16;
+        let block = TransformerBlock::new(d_model, 2, 32, &mut rng);
+
+        for batch_size in [1, 2, 4] {
+            for seq_len in [1, 3, 7] {
+                let n = batch_size * seq_len * d_model;
+                let input: Vec<f32> = (0..n).map(|i| (i as f32 * 0.01).sin()).collect();
+                let mut output = vec![0.0f32; n];
+                block.forward(&input, &mut output, batch_size);
+                assert!(
+                    output.iter().all(|&x| x.is_finite()),
+                    "batch_size={batch_size}, seq_len={seq_len}: non-finite output"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_transformer_block_grad_input_length_equals_input_length() {
+        let mut rng = SimpleRng::new(77);
+        let d_model = 8;
+        let block = TransformerBlock::new(d_model, 2, 16, &mut rng);
+
+        let batch_size = 2;
+        let seq_len = 3;
+        let n = batch_size * seq_len * d_model;
+        let input = vec![0.3f32; n];
+        let mut output = vec![0.0f32; n];
+        block.forward(&input, &mut output, batch_size);
+
+        let grad_output = vec![1.0f32; n];
+        let mut grad_input = vec![0.0f32; n];
+        block.backward(&input, &grad_output, &mut grad_input, batch_size);
+
+        assert_eq!(grad_input.len(), n);
+        assert!(grad_input.iter().all(|&x| x.is_finite()));
+    }
+
+    #[test]
+    #[should_panic(expected = "TransformerBlock::backward requires cached_seq_len > 0")]
+    fn test_transformer_block_backward_rejects_missing_forward_cache() {
+        let mut rng = SimpleRng::new(77);
+        let block = TransformerBlock::new(8, 2, 16, &mut rng);
+        let grad_output = vec![1.0f32; 8];
+        let mut grad_input = vec![0.0f32; 8];
+
+        block.backward(&[], &grad_output, &mut grad_input, 1);
+    }
+
+    #[test]
+    fn test_transformer_block_parameter_updates_clear_forward_cache() {
+        let mut rng = SimpleRng::new(91);
+        let mut block = TransformerBlock::new(8, 2, 16, &mut rng);
+        let input = vec![0.25f32; 2 * 3 * 8];
+        let mut output = vec![0.0f32; input.len()];
+
+        block.forward(&input, &mut output, 2);
+        assert!(!block.cached_input.borrow().is_empty());
+        block.update_parameters(0.01);
+        assert_forward_cache_empty(&block);
+
+        block.forward(&input, &mut output, 2);
+        assert!(!block.cached_input.borrow().is_empty());
+        let mut optimizer = Adam::new(0.001, 0.9, 0.999, 1e-8);
+        block.update_with_optimizer(&mut optimizer);
+        assert_forward_cache_empty(&block);
+    }
+
+    #[test]
+    #[should_panic(expected = "input length must be divisible by batch_size * d_model")]
+    fn test_transformer_block_forward_rejects_misaligned_input() {
+        let mut rng = SimpleRng::new(11);
+        let block = TransformerBlock::new(8, 2, 16, &mut rng);
+        // 17 is not divisible by batch_size(1) * d_model(8)
+        let input = vec![0.0f32; 17];
+        let mut output = vec![0.0f32; 17];
+        block.forward(&input, &mut output, 1);
     }
 }

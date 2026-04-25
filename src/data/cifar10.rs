@@ -148,8 +148,9 @@ pub fn read_cifar10_batch(filename: &str) -> std::io::Result<(Vec<f32>, Vec<u8>)
 /// assert_eq!(images.len(), 20000 * 32 * 32 * 3);
 /// ```
 pub fn read_cifar10_batches(filenames: &[&str]) -> std::io::Result<(Vec<f32>, Vec<u8>)> {
-    let mut all_images = Vec::new();
-    let mut all_labels = Vec::new();
+    let mut all_images =
+        Vec::with_capacity(filenames.len() * CIFAR10_BATCH_SIZE * CIFAR10_IMAGE_BYTES);
+    let mut all_labels = Vec::with_capacity(filenames.len() * CIFAR10_BATCH_SIZE);
 
     for filename in filenames {
         let (images, labels) = read_cifar10_batch(filename)?;
