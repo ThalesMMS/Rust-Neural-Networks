@@ -75,6 +75,13 @@ mod training_hyperparameter_tests;
 mod config_error_tests;
 
 // ============================================================================
+// Training control validation tests (warmup/cyclical/regularization/clipping)
+// ============================================================================
+
+#[path = "test_config/training_controls_validation_tests.rs"]
+mod training_controls_validation_tests;
+
+// ============================================================================
 // Optimizer Type Validation Tests
 // ============================================================================
 

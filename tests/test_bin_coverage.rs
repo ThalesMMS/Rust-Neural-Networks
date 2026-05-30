@@ -116,6 +116,7 @@ mod mnist_mlp_bin {
             };
             let mut aug_rng = SimpleRng::new(42);
             let mut debugger = StepDebugger::new(false);
+            let config = rust_neural_networks::config::TrainingConfig::default();
             train(
                 &mut nn,
                 &train_data,
@@ -125,6 +126,7 @@ mod mnist_mlp_bin {
                 &params,
                 &mut aug_rng,
                 &mut debugger,
+                &config,
             );
 
             assert!(Path::new("logs/training_loss_adam.txt").exists());
@@ -570,6 +572,10 @@ mod cifar10_cnn_bin {
                 gpu_backend: None,
                 gpu_device_id: None,
                 step_debug: None,
+                warmup: None,
+                cyclical_lr: None,
+                regularization: None,
+                gradient_clipping: None,
             }
         }
 

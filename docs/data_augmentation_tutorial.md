@@ -382,7 +382,7 @@ For CIFAR-10, more aggressive augmentation is beneficial because photographs hav
 
 **Run it:**
 ```bash
-cargo run --release --bin cifar10_cnn -- config/training/cifar10_cnn_default.json
+cargo run --release --bin cifar10_cnn -- --config config/training/cifar10_cnn_default.json
 ```
 
 **Key differences from MNIST configs:**

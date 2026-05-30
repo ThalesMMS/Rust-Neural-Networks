@@ -1,6 +1,113 @@
 use super::Conv2DLayer;
 use crate::layers::Layer;
 
+#[cfg(target_os = "macos")]
+extern crate blas_src;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+extern crate openblas_src;
+use cblas::{sgemm, Layout, Transpose};
+
+fn im2col_nhwc_into(
+    input: &[f32],
+    in_base: usize,
+    input_height: usize,
+    input_width: usize,
+    in_channels: usize,
+    kernel_size: usize,
+    stride: usize,
+    padding: isize,
+    out_h: usize,
+    out_w: usize,
+    x_col: &mut [f32],
+) {
+    // Packs one sample of NHWC input into a row-major matrix X_col with shape (P, K):
+    //   P = out_h * out_w
+    //   K = in_channels * kernel_size * kernel_size
+    // Row p corresponds to (oy, ox) and is laid out as (ic, ky, kx).
+    let k = in_channels * kernel_size * kernel_size;
+    debug_assert_eq!(x_col.len(), out_h * out_w * k);
+
+    for oy in 0..out_h {
+        for ox in 0..out_w {
+            let row = (oy * out_w + ox) * k;
+            let mut col = 0;
+
+            for ic in 0..in_channels {
+                for ky in 0..kernel_size {
+                    let iy = oy as isize * stride as isize + ky as isize - padding;
+
+                    for kx in 0..kernel_size {
+                        let ix = ox as isize * stride as isize + kx as isize - padding;
+
+                        let v = if iy >= 0
+                            && iy < input_height as isize
+                            && ix >= 0
+                            && ix < input_width as isize
+                        {
+                            let iyy = iy as usize;
+                            let ixx = ix as usize;
+                            let in_idx = in_base + (iyy * input_width + ixx) * in_channels + ic;
+                            input[in_idx]
+                        } else {
+                            0.0
+                        };
+
+                        x_col[row + col] = v;
+                        col += 1;
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn col2im_into(
+    dx_col: &[f32],
+    out_base: usize,
+    input_height: usize,
+    input_width: usize,
+    in_channels: usize,
+    kernel_size: usize,
+    stride: usize,
+    padding: isize,
+    out_h: usize,
+    out_w: usize,
+    grad_input: &mut [f32],
+) {
+    // Scatters one sample of dX_col (P, K) back into NHWC grad_input, accumulating overlaps.
+    let k = in_channels * kernel_size * kernel_size;
+    debug_assert_eq!(dx_col.len(), out_h * out_w * k);
+
+    for oy in 0..out_h {
+        for ox in 0..out_w {
+            let row = (oy * out_w + ox) * k;
+            let mut col = 0;
+
+            for ic in 0..in_channels {
+                for ky in 0..kernel_size {
+                    let iy = oy as isize * stride as isize + ky as isize - padding;
+
+                    for kx in 0..kernel_size {
+                        let ix = ox as isize * stride as isize + kx as isize - padding;
+
+                        if iy >= 0
+                            && iy < input_height as isize
+                            && ix >= 0
+                            && ix < input_width as isize
+                        {
+                            let iyy = iy as usize;
+                            let ixx = ix as usize;
+                            let in_idx = out_base + (iyy * input_width + ixx) * in_channels + ic;
+                            grad_input[in_idx] += dx_col[row + col];
+                        }
+                        col += 1;
+                    }
+                }
+            }
+        }
+    }
+}
+
 // Layer trait implementation
 
 impl Layer for Conv2DLayer {
@@ -88,73 +195,72 @@ impl Layer for Conv2DLayer {
         let out_spatial = out_h * out_w; // Total spatial elements per output channel
         let in_spatial = self.input_height * self.input_width; // Total spatial elements per input channel
 
+        // im2col + GEMM design (matrix shapes)
+        //
+        // Input is NHWC per sample: (H * W * C_in).
+        // For each sample we pack a column matrix X_col of shape (K, P) where:
+        //   K = C_in * kH * kW
+        //   P = out_h * out_w
+        // We interpret X_col as a row-major matrix with dimensions (P, K)
+        // (each row is one output spatial position's receptive field).
+        // Weights are stored as (C_out, C_in, kH, kW) contiguous; we interpret them as
+        // a row-major matrix W_mat of shape (C_out, K).
+        // The forward output per sample is:
+        //   Y_mat (P, C_out) = X_col (P, K) * W_mat^T (K, C_out)
+        // which can be reshaped into the existing output layout (C_out, out_h, out_w).
+
+        let k = self.in_channels * self.kernel_size * self.kernel_size;
+        let p = out_spatial;
+        let mut x_col = vec![0.0f32; p * k];
+        let mut y_mat = vec![0.0f32; p * self.out_channels];
+
         // Process each sample in the batch
         for b in 0..batch_size {
-            // Input base offset: (batch_index × in_channels × H × W)
-            // Input dimensions: (batch_size × input_height × input_width × in_channels)
             let in_base = b * (self.in_channels * in_spatial);
-
-            // Output base offset for this batch sample
-            // Output dimensions: (batch_size × out_channels × output_height × output_width)
             let out_base_b = b * (self.out_channels * out_spatial);
 
-            // Process each output channel (filter)
+            // Pack X_col (P, K) for this sample.
+            im2col_nhwc_into(
+                input,
+                in_base,
+                self.input_height,
+                self.input_width,
+                self.in_channels,
+                self.kernel_size,
+                self.stride,
+                self.padding,
+                out_h,
+                out_w,
+                &mut x_col,
+            );
+
+            // Compute Y_mat (P, C_out) = X_col (P, K) * W_mat^T (K, C_out)
+            // where W_mat is interpreted as (C_out, K) row-major.
+            unsafe {
+                sgemm(
+                    Layout::RowMajor,
+                    Transpose::None,
+                    Transpose::Ordinary,
+                    p as i32,
+                    self.out_channels as i32,
+                    k as i32,
+                    1.0,
+                    &x_col,
+                    k as i32,
+                    &self.weights,
+                    k as i32,
+                    0.0,
+                    &mut y_mat,
+                    self.out_channels as i32,
+                );
+            }
+
+            // Add bias and write into existing output layout: (C_out, out_h, out_w).
             for oc in 0..self.out_channels {
-                let bias = self.biases[oc]; // Bias for this output channel
+                let bias = self.biases[oc];
                 let out_base = out_base_b + oc * out_spatial;
-
-                // For each output spatial position (oy, ox), compute convolution result
-                for oy in 0..out_h {
-                    for ox in 0..out_w {
-                        let mut sum = bias; // Start with bias
-
-                        // Accumulate contributions from all input channels
-                        for ic in 0..self.in_channels {
-                            // Weight index base for filter[oc, ic, :, :]
-                            // Weights dimension: (out_channels × in_channels × kernel_size × kernel_size)
-                            let w_base =
-                                (oc * self.in_channels + ic) * self.kernel_size * self.kernel_size;
-
-                            // Slide kernel window over input spatial positions
-                            // For each kernel position (ky, kx), compute corresponding input position
-                            for ky in 0..self.kernel_size {
-                                for kx in 0..self.kernel_size {
-                                    // Input position: output_pos × stride + kernel_offset - padding
-                                    // This implements: i = oy*stride + ky - padding
-                                    let iy = oy as isize * self.stride as isize + ky as isize
-                                        - self.padding;
-                                    let ix = ox as isize * self.stride as isize + kx as isize
-                                        - self.padding;
-
-                                    // Zero-padding: only accumulate if position is within input bounds
-                                    if iy >= 0
-                                        && iy < self.input_height as isize
-                                        && ix >= 0
-                                        && ix < self.input_width as isize
-                                    {
-                                        let iyy = iy as usize;
-                                        let ixx = ix as usize;
-
-                                        // Input index in channels-last format: [H, W, C]
-                                        // Index: base + (row × width + col) × channels + channel_index
-                                        let in_idx = in_base
-                                            + (iyy * self.input_width + ixx) * self.in_channels
-                                            + ic;
-
-                                        // Weight index: [oc, ic, ky, kx]
-                                        let w_idx = w_base + ky * self.kernel_size + kx;
-
-                                        // Accumulate: sum += input[i,j,c_in] × weight[c_out,c_in,ky,kx]
-                                        sum += input[in_idx] * self.weights[w_idx];
-                                    }
-                                }
-                            }
-                        }
-
-                        // Write final convolution result: y[b, oy, ox, oc] = sum
-                        let out_idx = out_base + oy * out_w + ox;
-                        output[out_idx] = sum;
-                    }
+                for pos in 0..out_spatial {
+                    output[out_base + pos] = y_mat[pos * self.out_channels + oc] + bias;
                 }
             }
         }
@@ -281,106 +387,110 @@ impl Layer for Conv2DLayer {
         self.grad_weights.zero();
         self.grad_biases.zero();
 
-        // Borrow gradient accumulators for direct index-based accumulation
+        // Matrix shapes used in backward (per-sample):
+        //   X_col: (P, K) row-major, where P = out_h*out_w and K = C_in*kH*kW
+        //   dY:    (P, C_out) row-major (constructed from grad_output layout)
+        //   dW:    (C_out, K) row-major
+        //   dX_col:(P, K) row-major
+        // GEMMs:
+        //   dW += dY^T (C_out, P) * X_col (P, K) => (C_out, K)
+        //   dX_col = dY (P, C_out) * W (C_out, K) => (P, K)
+
+        let k = self.in_channels * self.kernel_size * self.kernel_size;
+        let p = out_spatial;
+
+        // Scratch buffers (reused per batch element)
+        let mut x_col = vec![0.0f32; p * k];
+        let mut dy_mat = vec![0.0f32; p * self.out_channels];
+        let mut dx_col = vec![0.0f32; p * k];
+
+        // Borrow gradient accumulators for direct updates
         let mut grad_w = self.grad_weights.borrow_mut();
         let mut grad_b = self.grad_biases.borrow_mut();
 
-        // Accumulate gradients for weights and biases
         for b in 0..batch_size {
             let in_base = b * (self.in_channels * in_spatial);
             let g_base_b = b * (self.out_channels * out_spatial);
 
+            // Pack X_col (P, K)
+            im2col_nhwc_into(
+                input,
+                in_base,
+                self.input_height,
+                self.input_width,
+                self.in_channels,
+                self.kernel_size,
+                self.stride,
+                self.padding,
+                out_h,
+                out_w,
+                &mut x_col,
+            );
+
+            // Pack dY into dy_mat (P, C_out) from existing grad_output layout (C_out, P)
             for oc in 0..self.out_channels {
                 let g_base = g_base_b + oc * out_spatial;
-
-                // Accumulate bias gradient
-                for oy in 0..out_h {
-                    for ox in 0..out_w {
-                        let g = grad_output[g_base + oy * out_w + ox];
-                        grad_b[oc] += g;
-                    }
-                }
-
-                // Accumulate weight gradients
-                for ic in 0..self.in_channels {
-                    let w_base = (oc * self.in_channels + ic) * self.kernel_size * self.kernel_size;
-
-                    for oy in 0..out_h {
-                        for ox in 0..out_w {
-                            let g = grad_output[g_base + oy * out_w + ox];
-
-                            for ky in 0..self.kernel_size {
-                                for kx in 0..self.kernel_size {
-                                    let iy = oy as isize * self.stride as isize + ky as isize
-                                        - self.padding;
-                                    let ix = ox as isize * self.stride as isize + kx as isize
-                                        - self.padding;
-
-                                    if iy >= 0
-                                        && iy < self.input_height as isize
-                                        && ix >= 0
-                                        && ix < self.input_width as isize
-                                    {
-                                        let iyy = iy as usize;
-                                        let ixx = ix as usize;
-                                        let in_idx = in_base
-                                            + (iyy * self.input_width + ixx) * self.in_channels
-                                            + ic;
-                                        let w_idx = w_base + ky * self.kernel_size + kx;
-                                        grad_w[w_idx] += g * input[in_idx];
-                                    }
-                                }
-                            }
-                        }
-                    }
+                for pos in 0..out_spatial {
+                    let g = grad_output[g_base + pos];
+                    dy_mat[pos * self.out_channels + oc] = g;
+                    grad_b[oc] += g;
                 }
             }
-        }
 
-        // Compute gradient with respect to input
-        for v in grad_input.iter_mut() {
-            *v = 0.0;
-        }
-
-        for b in 0..batch_size {
-            let in_base = b * (self.in_channels * in_spatial);
-            let g_base_b = b * (self.out_channels * out_spatial);
-
-            for ic in 0..self.in_channels {
-                for oc in 0..self.out_channels {
-                    let g_base = g_base_b + oc * out_spatial;
-                    let w_base = (oc * self.in_channels + ic) * self.kernel_size * self.kernel_size;
-
-                    for oy in 0..out_h {
-                        for ox in 0..out_w {
-                            let g = grad_output[g_base + oy * out_w + ox];
-
-                            for ky in 0..self.kernel_size {
-                                for kx in 0..self.kernel_size {
-                                    let iy = oy as isize * self.stride as isize + ky as isize
-                                        - self.padding;
-                                    let ix = ox as isize * self.stride as isize + kx as isize
-                                        - self.padding;
-
-                                    if iy >= 0
-                                        && iy < self.input_height as isize
-                                        && ix >= 0
-                                        && ix < self.input_width as isize
-                                    {
-                                        let iyy = iy as usize;
-                                        let ixx = ix as usize;
-                                        let in_idx = in_base
-                                            + (iyy * self.input_width + ixx) * self.in_channels
-                                            + ic;
-                                        let w_idx = w_base + ky * self.kernel_size + kx;
-                                        grad_input[in_idx] += g * self.weights[w_idx];
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            // dW accumulation: dW += dY^T * X_col
+            unsafe {
+                sgemm(
+                    Layout::RowMajor,
+                    Transpose::Ordinary,
+                    Transpose::None,
+                    self.out_channels as i32,
+                    k as i32,
+                    p as i32,
+                    1.0,
+                    &dy_mat,
+                    self.out_channels as i32,
+                    &x_col,
+                    k as i32,
+                    1.0,
+                    &mut grad_w,
+                    k as i32,
+                );
             }
+
+            // dX_col = dY * W
+            unsafe {
+                sgemm(
+                    Layout::RowMajor,
+                    Transpose::None,
+                    Transpose::None,
+                    p as i32,
+                    k as i32,
+                    self.out_channels as i32,
+                    1.0,
+                    &dy_mat,
+                    self.out_channels as i32,
+                    &self.weights,
+                    k as i32,
+                    0.0,
+                    &mut dx_col,
+                    k as i32,
+                );
+            }
+
+            // Scatter-add dX_col back into NHWC grad_input
+            col2im_into(
+                &dx_col,
+                in_base,
+                self.input_height,
+                self.input_width,
+                self.in_channels,
+                self.kernel_size,
+                self.stride,
+                self.padding,
+                out_h,
+                out_w,
+                grad_input,
+            );
         }
     }
 

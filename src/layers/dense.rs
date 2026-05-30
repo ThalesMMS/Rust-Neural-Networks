@@ -217,6 +217,67 @@ impl DenseLayer {
         self.weights.len() + self.biases.len()
     }
 
+    /// Applies in-place L2 regularization to accumulated gradients.
+    ///
+    /// This adds `lambda * weight` (and `lambda * bias`) to the corresponding
+    /// gradient entries.
+    pub fn apply_l2_regularization(&self, lambda: f32) {
+        if lambda == 0.0 {
+            return;
+        }
+
+        {
+            let mut grad_w = self.grad_weights.borrow_mut();
+            for (g, &w) in grad_w.iter_mut().zip(self.weights.iter()) {
+                *g += lambda * w;
+            }
+        }
+
+        {
+            let mut grad_b = self.grad_biases.borrow_mut();
+            for (g, &b) in grad_b.iter_mut().zip(self.biases.iter()) {
+                *g += lambda * b;
+            }
+        }
+    }
+
+    /// Applies in-place L1 regularization to accumulated gradients.
+    ///
+    /// This adds `lambda * sign(param)` to the corresponding gradient entries.
+    pub fn apply_l1_regularization(&self, lambda: f32) {
+        if lambda == 0.0 {
+            return;
+        }
+
+        {
+            let mut grad_w = self.grad_weights.borrow_mut();
+            for (g, &w) in grad_w.iter_mut().zip(self.weights.iter()) {
+                let sign = if w > 0.0 {
+                    1.0
+                } else if w < 0.0 {
+                    -1.0
+                } else {
+                    0.0
+                };
+                *g += lambda * sign;
+            }
+        }
+
+        {
+            let mut grad_b = self.grad_biases.borrow_mut();
+            for (g, &b) in grad_b.iter_mut().zip(self.biases.iter()) {
+                let sign = if b > 0.0 {
+                    1.0
+                } else if b < 0.0 {
+                    -1.0
+                } else {
+                    0.0
+                };
+                *g += lambda * sign;
+            }
+        }
+    }
+
     /// Immutable view of the layer's weight values.
     ///
     /// The returned slice contains weights in row-major order with length equal to
@@ -291,6 +352,30 @@ impl DenseLayer {
     /// ```
     pub fn get_gradient_magnitude(&self) -> (f32, f32) {
         (self.grad_weights.l2_norm(), self.grad_biases.l2_norm())
+    }
+
+    /// Applies gradient clipping to this layer's accumulated gradients according to the shared
+    /// training configuration.
+    ///
+    /// When `clipping` is `None`, this is a no-op.
+    pub fn apply_gradient_clipping(
+        &self,
+        clipping: &Option<crate::config::GradientClippingConfig>,
+    ) {
+        let Some(clipping) = clipping else {
+            return;
+        };
+
+        match *clipping {
+            crate::config::GradientClippingConfig::Norm { max_norm } => {
+                self.grad_weights.clip_by_norm(max_norm);
+                self.grad_biases.clip_by_norm(max_norm);
+            }
+            crate::config::GradientClippingConfig::Value { max_value } => {
+                self.grad_weights.clip_by_value(max_value);
+                self.grad_biases.clip_by_value(max_value);
+            }
+        }
     }
 
     /// Creates a dense layer with pre-existing weights and biases (no random initialization).

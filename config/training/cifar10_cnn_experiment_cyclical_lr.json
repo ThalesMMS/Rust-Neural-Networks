@@ -1,0 +1,15 @@
+{
+  "scheduler_type": "constant",
+  "activation_function": "relu",
+  "epochs": 10,
+  "batch_size": 32,
+  "validation_split": 0.1,
+  "early_stopping_patience": 3,
+  "early_stopping_min_delta": 0.001,
+  "cyclical_lr": {
+    "mode": "triangular",
+    "min_lr": 0.0002,
+    "max_lr": 0.002,
+    "step_size": 200
+  }
+}

@@ -114,12 +114,17 @@ Before generating dashboard data, ensure you have:
 
 ### Training Models
 
-The dashboard data generator expects training logs in CSV format for each model:
+The dashboard data generator expects training logs in CSV format for each model/optimizer combination.
 
 **Expected log files:**
-- `logs/training_loss_adam.txt` - MLP training log
-- `logs/training_loss_cnn.csv` - CNN training log
-- `logs/training_loss_attention.csv` - Attention training log
+- `logs/training_loss_mlp_<optimizer>.csv`
+- `logs/training_loss_cnn_<optimizer>.csv`
+- `logs/training_loss_attention_<optimizer>.csv`
+
+Example (Adam):
+- `logs/training_loss_mlp_adam.csv`
+- `logs/training_loss_cnn_adam.csv`
+- `logs/training_loss_attention_adam.csv`
 
 **CSV format:**
 ```csv
@@ -152,8 +157,8 @@ Once training logs are available, generate the dashboard data:
 # Standard generation
 cargo run --release --bin generate_dashboard_data
 
-# With verbose output
-cargo run --release --bin generate_dashboard_data --verbose
+# Generate dashboard data
+cargo run --release --bin generate_dashboard_data
 
 # Check what data is available without regenerating
 ls -lh logs/*.{txt,csv}
@@ -185,7 +190,20 @@ Open demo/architecture_dashboard.html in a browser to view.
 
 ## Viewing the Dashboard
 
-The dashboard is a static HTML page (`demo/architecture_dashboard.html`) that loads data from `demo/dashboard_data.json` via JavaScript fetch. It must be served over HTTP (not `file://`) due to browser CORS restrictions.
+The dashboard is a static HTML page (`demo/architecture_dashboard.html`) that loads data via JavaScript `fetch()`.
+
+By default, it loads `demo/dashboard_data.json`.
+
+You can also point it at *multiple* dashboard datasets using URL query parameters:
+
+- `?models=<file1>,<file2>,...`
+  - Example: `http://localhost:8080/architecture_dashboard.html?models=dashboard_data.json,other_run.json`
+  - Each entry is fetched relative to the `demo/` directory.
+- `?models_path=<dir>`
+  - Example: `http://localhost:8080/architecture_dashboard.html?models_path=./runs/`
+  - The dashboard will fetch `<dir>/index.json` to get a list of datasets, then fetch each listed JSON file.
+
+The page must be served over HTTP (not `file://`) due to browser CORS restrictions.
 
 ### Using Python HTTP Server
 
@@ -262,18 +280,19 @@ start demo/architecture_dashboard.html
 **Location:** Top of dashboard, below the title
 
 **Functionality:**
-- Click a model badge to toggle visibility (show/hide)
-- Each model has a distinct color:
-  - **MLP**: Blue (#4A90E2)
-  - **CNN**: Green (#5CB85C)
-  - **Attention**: Orange (#F0AD4E)
-- Toggle state persists within browser session
-- All charts and tables update instantly when toggling
+- Select which runs/models participate in the comparison using checkboxes
+- Optionally **filter/group by architecture family** (based on `architecture.architecture_type` in the JSON)
+- Convenience actions: **Select all** and **Clear**
+- All charts and tables update instantly when selection changes
+
+**Notes:**
+- Colors are assigned per run and used consistently across charts
+- Filtering by family disables (but does not delete) runs outside the selected families
 
 **Use cases:**
-- Compare two specific models by hiding the third
-- Focus on a single model by hiding all others
-- View all three models simultaneously (default)
+- Compare two specific architectures by selecting only those runs
+- Compare multiple runs of the same family (e.g., different optimizers)
+- Focus on a single run for debugging/regression checks
 
 ### Summary Table
 
@@ -299,24 +318,18 @@ start demo/architecture_dashboard.html
 
 ### Training Curves
 
-**Validation Accuracy Chart:**
-- Line chart showing validation accuracy vs. epoch
-- One line per active model
-- Color-coded by model
-- Smooth curves (tension: 0.3)
-- Interactive tooltips show exact values
+The dashboard shows two levels of training-curve visualization:
 
-**Training Loss Chart:**
-- Displays both training and validation loss
-- Solid lines: Training loss
-- Dashed lines: Validation loss
-- Helps identify overfitting (training loss << validation loss)
+**Combined charts (overlay):**
+- **Validation Accuracy**: line chart of `val_accuracy` vs. epoch (one line per selected run)
+- **Loss**: line chart of `train_loss` (and `val_loss` if present) vs. epoch
 
-**Features:**
-- Zoom: Scroll wheel on chart area
-- Pan: Click and drag
-- Reset: Double-click chart
-- Hover: Tooltips show epoch and exact metric values
+**Side-by-side (small multiples):**
+- A grid of per-run charts, useful when overlayed lines get cluttered
+- Each run gets its own mini accuracy chart and mini loss chart
+
+**Notes:**
+- If a run has no validation metrics, the validation series is omitted and the table shows `N/A`.
 
 ### Performance Metrics
 

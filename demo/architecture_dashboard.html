@@ -93,13 +93,101 @@
             background: var(--mlp-bg);
         }
 
+        /* ========== Controls ========== */
+        .controls {
+            margin-bottom: var(--spacing-lg);
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-md);
+        }
+
+        .control-row {
+            background: var(--card-background);
+            border-radius: 12px;
+            padding: var(--spacing-md);
+            border: 1px solid var(--border-color);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        }
+
+        .control-title {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: var(--spacing-sm);
+        }
+
         /* ========== Model Toggle Bar ========== */
         .toggle-bar {
             display: flex;
             justify-content: center;
             gap: var(--spacing-md);
-            margin-bottom: var(--spacing-lg);
             flex-wrap: wrap;
+        }
+
+        /* ========== Run Selection ========== */
+        .run-controls {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: var(--spacing-md);
+            align-items: start;
+        }
+
+        .run-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: var(--spacing-sm);
+        }
+
+        .run-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+            background: #fff;
+        }
+
+        .run-meta {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .run-name {
+            font-weight: 600;
+            font-size: 0.95rem;
+            line-height: 1.1;
+        }
+
+        .run-sub {
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            line-height: 1.1;
+        }
+
+        .run-actions {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-sm);
+        }
+
+        .btn {
+            appearance: none;
+            border: 1px solid var(--border-color);
+            background: #fff;
+            color: var(--text-color);
+            padding: 8px 12px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background var(--transition-fast), border-color var(--transition-fast);
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .btn:hover {
+            background: var(--background-color);
+            border-color: var(--secondary-color);
         }
 
         .toggle-item {
@@ -160,6 +248,20 @@
         .chart-wrapper {
             position: relative;
             height: 300px;
+        }
+
+        /* ========== Small Multiples ========== */
+        .small-multiples {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: var(--spacing-md);
+        }
+
+        .small-multiple-title {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 6px;
         }
 
         /* ========== Summary Table ========== */
@@ -331,8 +433,24 @@
             </nav>
         </header>
 
-        <!-- Model Toggles -->
-        <div class="toggle-bar" id="toggle-bar"></div>
+        <!-- Comparison Controls -->
+        <div class="controls">
+            <div class="control-row">
+                <div class="control-title">Architecture Family Filter</div>
+                <div class="toggle-bar" id="toggle-bar"></div>
+            </div>
+
+            <div class="control-row">
+                <div class="control-title">Runs to Compare</div>
+                <div class="run-controls">
+                    <div class="run-list" id="run-list"></div>
+                    <div class="run-actions">
+                        <button class="btn" id="btn-select-all">Select all</button>
+                        <button class="btn" id="btn-clear">Clear</button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <!-- Dashboard Grid -->
         <div class="dashboard-grid">
@@ -343,11 +461,15 @@
                     <thead>
                         <tr>
                             <th>Model</th>
+                            <th>Epochs</th>
+                            <th>Final Train Loss</th>
+                            <th>Final Val Loss</th>
+                            <th>Final Val Acc</th>
+                            <th>Best Accuracy</th>
+                            <th>Total Training Time</th>
                             <th>Parameters</th>
                             <th>FLOPS (batch=1)</th>
                             <th>Memory</th>
-                            <th>Best Accuracy</th>
-                            <th>Total Training Time</th>
                         </tr>
                     </thead>
                     <tbody id="summary-body"></tbody>
@@ -401,6 +523,10 @@
             </div>
         </div>
 
+        <div id="small-multiples"></div>
+
+        <div id="diagnostics"></div>
+
         <footer>
             <p>
                 Generated from real training data.
@@ -414,12 +540,22 @@
     // State
     // ========================================================================
     let dashboardData = null;
-    const activeModels = new Set();
+    const activeModels = new Set(); // architecture family filter
+    const activeRuns = new Set();   // run selection
     const modelColors = {
         mnist_mlp:       { color: '#4A90E2', bg: 'rgba(74, 144, 226, 0.15)' },
         mnist_cnn:       { color: '#5CB85C', bg: 'rgba(92, 184, 92, 0.15)' },
         mnist_attention: { color: '#F0AD4E', bg: 'rgba(240, 173, 78, 0.15)' },
     };
+
+    // "Small multiples" charts (side-by-side per-run)
+    let smallAccuracyCharts = [];
+    let smallLossCharts = [];
+
+    function destroyCharts(list) {
+        list.forEach(ch => { try { ch.destroy(); } catch (_) {} });
+        list.length = 0;
+    }
 
     // Chart instances
     let accuracyChart, lossChart, paramsChart, flopsChart, timeChart;
@@ -427,8 +563,66 @@
     // ========================================================================
     // Data Loading
     // ========================================================================
+    function mergeDashboardData(datasets) {
+        const merged = {
+            generated_at: new Date().toISOString(),
+            models: [],
+        };
+
+        const seen = new Set();
+        for (const data of datasets) {
+            if (!data || !Array.isArray(data.models)) continue;
+            for (const model of data.models) {
+                const key = model && model.id ? model.id : JSON.stringify(model);
+                if (seen.has(key)) continue;
+                seen.add(key);
+                merged.models.push(model);
+            }
+        }
+
+        return merged;
+    }
+
     async function loadData() {
+        const url = new URL(window.location.href);
+        const modelsParam = url.searchParams.get('models');
+        const modelsPath = url.searchParams.get('models_path');
+
+        // Supported usage:
+        //   - default:        architecture_dashboard.html
+        //   - list via query: architecture_dashboard.html?models=run1.json,run2.json
+        //   - directory:      architecture_dashboard.html?models_path=./runs/
         try {
+            if (modelsParam) {
+                const files = modelsParam.split(',').map(s => s.trim()).filter(Boolean);
+                const responses = await Promise.all(files.map(f => fetch(f)));
+                const bad = responses.find(r => !r.ok);
+                if (bad) throw new Error(`HTTP ${bad.status} loading ${bad.url}`);
+
+                const jsons = await Promise.all(responses.map(r => r.json()));
+                dashboardData = mergeDashboardData(jsons);
+                init();
+                return;
+            }
+
+            if (modelsPath) {
+                const base = modelsPath.replace(/\/+$/, '');
+                const indexUrl = base + '/index.json';
+                const indexResp = await fetch(indexUrl);
+                if (!indexResp.ok) throw new Error(`HTTP ${indexResp.status} loading ${indexUrl}`);
+                const index = await indexResp.json();
+                const files = (index && Array.isArray(index.files)) ? index.files : [];
+
+                const responses = await Promise.all(files.map(f => fetch(base + '/' + f)));
+                const bad = responses.find(r => !r.ok);
+                if (bad) throw new Error(`HTTP ${bad.status} loading ${bad.url}`);
+
+                const jsons = await Promise.all(responses.map(r => r.json()));
+                dashboardData = mergeDashboardData(jsons);
+                init();
+                return;
+            }
+
             const resp = await fetch('dashboard_data.json');
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             dashboardData = await resp.json();
@@ -439,31 +633,34 @@
                     <div class="instructions-panel">
                         <h3>📊 Dashboard Data Not Found</h3>
                         <p>
-                            This dashboard requires training data from the MNIST models.
-                            The data file <code>dashboard_data.json</code> needs to be generated first.
+                            This dashboard requires training data JSON files.
+                            By default it loads <code>dashboard_data.json</code> from the same directory.
                         </p>
 
                         <div class="info-box">
-                            <strong>Quick Start:</strong> Generate the dashboard data by running the data generation binary.
+                            <strong>Load multiple runs:</strong>
+                            <div style="margin-top: 8px;">
+                                <div><code>?models=run1.json,run2.json</code></div>
+                                <div style="margin-top: 6px;"><code>?models_path=./runs/</code> (expects <code>./runs/index.json</code> with <code>{\"files\":[...]}</code>)</div>
+                            </div>
+                        </div>
+
+                        <div class="info-box">
+                            <strong>Quick Start:</strong> Generate the default dashboard data by running the data generation binary.
                         </div>
 
                         <p><strong>Step 1:</strong> Generate the dashboard data</p>
                         <div class="command-block">cargo run --release --bin generate_dashboard_data</div>
 
                         <p><strong>Step 2:</strong> Refresh this page</p>
-                        <p>
-                            The script will automatically train all three MNIST models (MLP, CNN, and Attention)
-                            and collect their metrics into <code>demo/dashboard_data.json</code>.
-                        </p>
-
-                        <div class="info-box">
-                            <strong>Note:</strong> Training all three models takes approximately 5-10 minutes on most systems.
-                            The script will show progress for each model as it trains.
-                        </div>
 
                         <p style="margin-top: var(--spacing-md);">
                             <strong>Regenerating Data:</strong> Run the same command anytime to update the dashboard with fresh training runs.
                         </p>
+
+                        <div class="info-box">
+                            <strong>Note:</strong> Loading multiple files requires serving this directory via HTTP (e.g. <code>python3 -m http.server</code>) due to browser fetch/CORS restrictions.
+                        </div>
                     </div>
                 </div>`;
         }
@@ -473,9 +670,14 @@
     // Initialization
     // ========================================================================
     function init() {
-        // Enable all models by default
-        dashboardData.models.forEach(m => activeModels.add(m.id));
+        // Enable all models/runs by default
+        dashboardData.models.forEach(m => {
+            activeModels.add(m.id);
+            activeRuns.add(m.id);
+        });
         buildToggles();
+        buildRunList();
+        wireRunActions();
         createCharts();
         updateAll();
     }
@@ -486,30 +688,141 @@
     function buildToggles() {
         const bar = document.getElementById('toggle-bar');
         bar.innerHTML = '';
-        dashboardData.models.forEach(m => {
+
+        // Build family toggles from architecture_type
+        const familySet = new Set(architectureFamilies());
+        const families = Array.from(familySet).sort();
+
+        const familyLabels = {
+            mlp: 'MLP',
+            cnn: 'CNN',
+            attention: 'Attention',
+        };
+
+        families.forEach(family => {
             const div = document.createElement('div');
             div.className = 'toggle-item active';
-            div.dataset.model = m.id;
-            div.innerHTML = `<span class="toggle-dot"></span><span class="toggle-label">${m.name}</span>`;
+            div.dataset.family = family;
+
+            // Pick a representative model's color for the family toggle
+            const rep = dashboardData.models.find(m => m.architecture?.architecture_type === family);
+            const c = rep ? (modelColors[rep.id]?.color || '#888') : '#888';
+
+            div.innerHTML = `
+                <span class="toggle-dot" style="background:${c}"></span>
+                <span class="toggle-label">${familyLabels[family] || family}</span>
+            `;
+
             div.addEventListener('click', () => {
-                if (activeModels.has(m.id)) {
-                    activeModels.delete(m.id);
-                    div.classList.remove('active');
-                } else {
-                    activeModels.add(m.id);
-                    div.classList.add('active');
-                }
+                const isActive = div.classList.contains('active');
+                div.classList.toggle('active');
+
+                // Apply family filter by updating activeModels set
+                dashboardData.models
+                    .filter(m => m.architecture?.architecture_type === family)
+                    .forEach(m => {
+                        if (isActive) activeModels.delete(m.id);
+                        else activeModels.add(m.id);
+                    });
+
+                // Keep run checkboxes in sync
+                syncRunListCheckboxes();
+
                 updateAll();
             });
+
             bar.appendChild(div);
         });
+    }
+
+    function buildRunList() {
+        const list = document.getElementById('run-list');
+        if (!list) return;
+
+        const labelFor = {
+            mlp: 'MLP',
+            cnn: 'CNN',
+            attention: 'Attention',
+        };
+
+        list.innerHTML = '';
+        dashboardData.models.forEach(m => {
+            const item = document.createElement('label');
+            item.className = 'run-item';
+
+            const c = modelColors[m.id]?.color || '#888';
+            const family = m.architecture?.architecture_type || 'unknown';
+
+            item.innerHTML = `
+                <input type="checkbox" data-run="${m.id}" checked />
+                <span class="model-badge" style="background:${c}"></span>
+                <span class="run-meta">
+                    <span class="run-name">${m.name}</span>
+                    <span class="run-sub">${labelFor[family] || family}</span>
+                </span>
+            `;
+
+            item.querySelector('input').addEventListener('change', (e) => {
+                const checked = e.target.checked;
+                if (checked) activeRuns.add(m.id);
+                else activeRuns.delete(m.id);
+                updateAll();
+            });
+
+            list.appendChild(item);
+        });
+
+        syncRunListCheckboxes();
+    }
+
+    function syncRunListCheckboxes() {
+        const list = document.getElementById('run-list');
+        if (!list) return;
+
+        list.querySelectorAll('input[type="checkbox"][data-run]').forEach(cb => {
+            const runId = cb.dataset.run;
+            cb.checked = activeRuns.has(runId);
+            cb.disabled = !activeModels.has(runId);
+        });
+    }
+
+    function wireRunActions() {
+        const btnAll = document.getElementById('btn-select-all');
+        const btnClear = document.getElementById('btn-clear');
+
+        if (btnAll) {
+            btnAll.addEventListener('click', () => {
+                // Select all runs within the active family filter
+                dashboardData.models.forEach(m => {
+                    if (activeModels.has(m.id)) activeRuns.add(m.id);
+                });
+                syncRunListCheckboxes();
+                updateAll();
+            });
+        }
+
+        if (btnClear) {
+            btnClear.addEventListener('click', () => {
+                activeRuns.clear();
+                syncRunListCheckboxes();
+                updateAll();
+            });
+        }
     }
 
     // ========================================================================
     // Helpers
     // ========================================================================
     function visibleModels() {
-        return dashboardData.models.filter(m => activeModels.has(m.id));
+        return dashboardData.models
+            .filter(m => activeModels.has(m.id))
+            .filter(m => activeRuns.has(m.id));
+    }
+
+    function architectureFamilies() {
+        return dashboardData.models
+            .map(m => m.architecture?.architecture_type)
+            .filter(Boolean);
     }
 
     function fmtNum(n) {
@@ -538,6 +851,8 @@
         updateLossChart();
         updateBarCharts();
         updateLayerBreakdown();
+        updateSmallMultiples();
+        updateDiagnostics();
     }
 
     // ========================================================================
@@ -548,16 +863,43 @@
         tbody.innerHTML = '';
         visibleModels().forEach(m => {
             const c = modelColors[m.id]?.color || '#888';
-            const bestAcc = m.training ? m.training.best_accuracy.toFixed(2) + '%' : 'N/A';
-            const totalTime = m.training ? fmtTime(m.training.total_time) : 'N/A';
+
+            const bestAcc = (m.training && Number.isFinite(m.training.best_accuracy))
+                ? m.training.best_accuracy.toFixed(2) + '%'
+                : 'N/A';
+
+            const totalTime = (m.training && Number.isFinite(m.training.total_time))
+                ? fmtTime(m.training.total_time)
+                : 'N/A';
+
+            const finalTrainLoss = (m.training && Number.isFinite(m.training.final_train_loss))
+                ? m.training.final_train_loss.toFixed(4)
+                : 'N/A';
+
+            const finalValLoss = (m.training && Number.isFinite(m.training.final_val_loss))
+                ? m.training.final_val_loss.toFixed(4)
+                : 'N/A';
+
+            const finalValAcc = (m.training && Number.isFinite(m.training.final_val_accuracy))
+                ? m.training.final_val_accuracy.toFixed(2) + '%'
+                : 'N/A';
+
+            const epochs = (m.training && Array.isArray(m.training.epochs) && m.training.epochs.length > 0)
+                ? m.training.epochs.length
+                : 'N/A';
+
             const row = document.createElement('tr');
             row.innerHTML = `
                 <td><span class="model-badge" style="background:${c}"></span>${m.name}</td>
+                <td>${epochs}</td>
+                <td>${finalTrainLoss}</td>
+                <td>${finalValLoss}</td>
+                <td><strong>${finalValAcc}</strong></td>
+                <td>${bestAcc}</td>
+                <td>${totalTime}</td>
                 <td>${fmtNum(m.architecture.total_params)}</td>
                 <td>${fmtNum(m.architecture.total_flops)}</td>
                 <td>${fmtBytes(m.architecture.memory_bytes)}</td>
-                <td><strong>${bestAcc}</strong></td>
-                <td>${totalTime}</td>
             `;
             tbody.appendChild(row);
         });
@@ -622,46 +964,178 @@
 
     function updateAccuracyChart() {
         const datasets = visibleModels()
-            .filter(m => m.training)
-            .map(m => ({
-                label: m.name,
-                data: m.training.epochs.map(e => ({ x: e.epoch, y: e.val_accuracy })),
-                borderColor: modelColors[m.id]?.color || '#888',
-                backgroundColor: modelColors[m.id]?.bg || 'rgba(0,0,0,0.1)',
-                tension: 0.3,
-                pointRadius: 4,
-                pointHoverRadius: 6,
-                fill: false,
-            }));
+            .filter(m => m.training && Array.isArray(m.training.epochs))
+            .map(m => {
+                const points = m.training.epochs
+                    .filter(e => Number.isFinite(e.epoch) && Number.isFinite(e.val_accuracy))
+                    .map(e => ({ x: e.epoch, y: e.val_accuracy }));
+
+                return {
+                    label: m.name,
+                    data: points,
+                    borderColor: modelColors[m.id]?.color || '#888',
+                    backgroundColor: modelColors[m.id]?.bg || 'rgba(0,0,0,0.1)',
+                    tension: 0.3,
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    fill: false,
+                };
+            })
+            .filter(ds => ds.data.length > 0);
+
         accuracyChart.data.datasets = datasets;
         accuracyChart.update();
     }
 
     function updateLossChart() {
         const datasets = [];
-        visibleModels().filter(m => m.training).forEach(m => {
+        visibleModels().filter(m => m.training && Array.isArray(m.training.epochs)).forEach(m => {
             const c = modelColors[m.id]?.color || '#888';
-            datasets.push({
-                label: m.name + ' (train)',
-                data: m.training.epochs.map(e => ({ x: e.epoch, y: e.train_loss })),
+
+            const trainPts = m.training.epochs
+                .filter(e => Number.isFinite(e.epoch) && Number.isFinite(e.train_loss))
+                .map(e => ({ x: e.epoch, y: e.train_loss }));
+            if (trainPts.length > 0) {
+                datasets.push({
+                    label: m.name + ' (train)',
+                    data: trainPts,
+                    borderColor: c,
+                    borderDash: [],
+                    tension: 0.3,
+                    pointRadius: 3,
+                    fill: false,
+                });
+            }
+
+            const valPts = m.training.epochs
+                .filter(e => Number.isFinite(e.epoch) && Number.isFinite(e.val_loss))
+                .map(e => ({ x: e.epoch, y: e.val_loss }));
+            if (valPts.length > 0) {
+                datasets.push({
+                    label: m.name + ' (val)',
+                    data: valPts,
+                    borderColor: c,
+                    borderDash: [5, 5],
+                    tension: 0.3,
+                    pointRadius: 3,
+                    fill: false,
+                });
+            }
+        });
+
+        lossChart.data.datasets = datasets;
+        lossChart.update();
+    }
+
+    // ========================================================================
+    // Side-by-side small multiples (per-run)
+    // ========================================================================
+    function buildSmallMultipleCard(title, canvases) {
+        return `<div class="card card-full">
+            <div class="card-title">${title}</div>
+            <div class="small-multiples">${canvases.join('')}</div>
+        </div>`;
+    }
+
+    function updateSmallMultiples() {
+        const container = document.getElementById('small-multiples');
+        if (!container) return;
+
+        destroyCharts(smallAccuracyCharts);
+        destroyCharts(smallLossCharts);
+
+        const visible = visibleModels();
+        if (visible.length === 0) {
+            container.innerHTML = '<div class="card card-full"><div class="no-data">Select a model to see side-by-side curves.</div></div>';
+            return;
+        }
+
+        const accCanvases = visible.map(m => `
+            <div class="small-multiple">
+                <div class="small-multiple-title">${m.name}</div>
+                <div class="chart-wrapper" style="height:240px"><canvas id="small-acc-${m.id}"></canvas></div>
+            </div>`);
+
+        const lossCanvases = visible.map(m => `
+            <div class="small-multiple">
+                <div class="small-multiple-title">${m.name}</div>
+                <div class="chart-wrapper" style="height:240px"><canvas id="small-loss-${m.id}"></canvas></div>
+            </div>`);
+
+        container.innerHTML =
+            buildSmallMultipleCard('Accuracy Curves (Per Run)', accCanvases) +
+            buildSmallMultipleCard('Loss Curves (Per Run)', lossCanvases);
+
+        const mkSmallOpts = (yLabel) => ({
+            ...lineChartOpts(yLabel),
+            plugins: { ...lineChartOpts(yLabel).plugins, legend: { display: true, position: 'top' } },
+        });
+
+        visible.forEach(m => {
+            const c = modelColors[m.id]?.color || '#888';
+
+            // Accuracy: show val_accuracy when present
+            const accPts = (m.training && Array.isArray(m.training.epochs))
+                ? m.training.epochs
+                    .filter(e => Number.isFinite(e.epoch) && Number.isFinite(e.val_accuracy))
+                    .map(e => ({ x: e.epoch, y: e.val_accuracy }))
+                : [];
+
+            const accCtx = document.getElementById(`small-acc-${m.id}`);
+            smallAccuracyCharts.push(new Chart(accCtx, {
+                type: 'line',
+                data: {
+                    datasets: accPts.length > 0 ? [{
+                        label: 'Val Accuracy',
+                        data: accPts,
+                        borderColor: c,
+                        tension: 0.3,
+                        pointRadius: 3,
+                        fill: false,
+                    }] : [],
+                },
+                options: mkSmallOpts('Accuracy (%)'),
+            }));
+
+            // Loss: show train_loss and val_loss when present
+            const trainPts = (m.training && Array.isArray(m.training.epochs))
+                ? m.training.epochs
+                    .filter(e => Number.isFinite(e.epoch) && Number.isFinite(e.train_loss))
+                    .map(e => ({ x: e.epoch, y: e.train_loss }))
+                : [];
+            const valPts = (m.training && Array.isArray(m.training.epochs))
+                ? m.training.epochs
+                    .filter(e => Number.isFinite(e.epoch) && Number.isFinite(e.val_loss))
+                    .map(e => ({ x: e.epoch, y: e.val_loss }))
+                : [];
+
+            const lossCtx = document.getElementById(`small-loss-${m.id}`);
+            const ds = [];
+            if (trainPts.length > 0) ds.push({
+                label: 'Train Loss',
+                data: trainPts,
                 borderColor: c,
                 borderDash: [],
                 tension: 0.3,
                 pointRadius: 3,
                 fill: false,
             });
-            datasets.push({
-                label: m.name + ' (val)',
-                data: m.training.epochs.map(e => ({ x: e.epoch, y: e.val_loss })),
+            if (valPts.length > 0) ds.push({
+                label: 'Val Loss',
+                data: valPts,
                 borderColor: c,
                 borderDash: [5, 5],
                 tension: 0.3,
                 pointRadius: 3,
                 fill: false,
             });
+
+            smallLossCharts.push(new Chart(lossCtx, {
+                type: 'line',
+                data: { datasets: ds },
+                options: mkSmallOpts('Loss'),
+            }));
         });
-        lossChart.data.datasets = datasets;
-        lossChart.update();
     }
 
     // ========================================================================
@@ -754,6 +1228,43 @@
             `;
             container.appendChild(section);
         });
+    }
+
+    // ========================================================================
+    // Optional diagnostics
+    // ========================================================================
+    function updateDiagnostics() {
+        const container = document.getElementById('diagnostics');
+        if (!container) return;
+
+        // Currently we don't emit gradient-flow or attention-map data in dashboard_data.json.
+        // We still surface a helpful panel with pointers to the existing gradient visualizer.
+        container.innerHTML = '';
+
+        const visible = visibleModels();
+        if (visible.length === 0) {
+            container.innerHTML = '<div class="card card-full"><div class="no-data">Select a model to see diagnostics.</div></div>';
+            return;
+        }
+
+        container.innerHTML = `
+            <div class="card card-full">
+                <div class="card-title">Diagnostics (Optional)</div>
+                <div class="no-data" style="text-align:left">
+                    <p style="margin-bottom: 10px;">
+                        This dashboard dataset does not currently include per-epoch gradient-flow stats or attention-map summaries.
+                    </p>
+                    <p style="margin-bottom: 10px;">
+                        If you have a gradient CSV log (format: <code>epoch,layer_name,grad_norm_weights,grad_norm_biases</code>),
+                        you can inspect it using the companion <a href="gradient_viz.html">Gradient Flow Visualizer</a>.
+                    </p>
+                    <p>
+                        To integrate diagnostics into this dashboard in the future, extend <code>dashboard_data.json</code> generation to
+                        embed (or reference) gradient logs per run.
+                    </p>
+                </div>
+            </div>
+        `;
     }
 
     // ========================================================================

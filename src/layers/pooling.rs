@@ -1,4 +1,4 @@
-//! Global average pooling layer implementation
+//! Pooling layer implementations
 //!
 //! This module provides a `GlobalAvgPoolLayer` that averages activations over all
 //! spatial positions (height × width) for each channel independently, reducing a
@@ -41,6 +41,402 @@
 
 use crate::layers::Layer;
 use crate::optimizers::Optimizer;
+
+fn pooled_dim(input: usize, pool: usize, stride: usize, padding: isize) -> usize {
+    let num = input as isize + 2 * padding - pool as isize;
+    // validation ensures num >= 0
+    (num as usize) / stride + 1
+}
+
+/// 2D max pooling over channels-last input (H×W×C).
+///
+/// Input layout matches [`Conv2DLayer`] output: (H, W, C) per sample stored as
+/// h-major, then w, then channels.
+pub struct MaxPool2DLayer {
+    channels: usize,
+    in_height: usize,
+    in_width: usize,
+    pool_size: usize,
+    stride: usize,
+    padding: isize,
+}
+
+impl MaxPool2DLayer {
+    pub fn new(
+        channels: usize,
+        in_height: usize,
+        in_width: usize,
+        pool_size: usize,
+        stride: usize,
+        padding: isize,
+    ) -> Self {
+        assert!(channels > 0);
+        assert!(in_height > 0);
+        assert!(in_width > 0);
+        assert!(pool_size > 0);
+        assert!(stride > 0);
+        Self {
+            channels,
+            in_height,
+            in_width,
+            pool_size,
+            stride,
+            padding,
+        }
+    }
+
+    pub fn out_height(&self) -> usize {
+        pooled_dim(self.in_height, self.pool_size, self.stride, self.padding)
+    }
+
+    pub fn out_width(&self) -> usize {
+        pooled_dim(self.in_width, self.pool_size, self.stride, self.padding)
+    }
+
+    fn input_index(&self, h: usize, w: usize, c: usize) -> usize {
+        (h * self.in_width + w) * self.channels + c
+    }
+
+    fn output_index(&self, oh: usize, ow: usize, c: usize) -> usize {
+        (oh * self.out_width() + ow) * self.channels + c
+    }
+}
+
+impl Layer for MaxPool2DLayer {
+    fn forward(&self, input: &[f32], output: &mut [f32], batch_size: usize) {
+        let in_hw = self.in_height * self.in_width * self.channels;
+        let out_h = self.out_height();
+        let out_w = self.out_width();
+        let out_hw = out_h * out_w * self.channels;
+
+        assert_eq!(input.len(), batch_size * in_hw);
+        assert_eq!(output.len(), batch_size * out_hw);
+
+        for b in 0..batch_size {
+            let in_base = b * in_hw;
+            let out_base = b * out_hw;
+
+            for oh in 0..out_h {
+                for ow in 0..out_w {
+                    let h_start = oh as isize * self.stride as isize - self.padding;
+                    let w_start = ow as isize * self.stride as isize - self.padding;
+
+                    for c in 0..self.channels {
+                        let mut best = f32::NEG_INFINITY;
+                        for kh in 0..self.pool_size {
+                            let ih = h_start + kh as isize;
+                            if ih < 0 || ih >= self.in_height as isize {
+                                continue;
+                            }
+                            for kw in 0..self.pool_size {
+                                let iw = w_start + kw as isize;
+                                if iw < 0 || iw >= self.in_width as isize {
+                                    continue;
+                                }
+                                let idx = in_base + self.input_index(ih as usize, iw as usize, c);
+                                best = best.max(input[idx]);
+                            }
+                        }
+                        output[out_base + self.output_index(oh, ow, c)] = best;
+                    }
+                }
+            }
+        }
+    }
+
+    fn backward(
+        &self,
+        input: &[f32],
+        grad_output: &[f32],
+        grad_input: &mut [f32],
+        batch_size: usize,
+    ) {
+        let in_hw = self.in_height * self.in_width * self.channels;
+        let out_h = self.out_height();
+        let out_w = self.out_width();
+        let out_hw = out_h * out_w * self.channels;
+
+        assert_eq!(input.len(), batch_size * in_hw);
+        assert_eq!(grad_output.len(), batch_size * out_hw);
+        assert_eq!(grad_input.len(), batch_size * in_hw);
+
+        grad_input.fill(0.0);
+
+        for b in 0..batch_size {
+            let in_base = b * in_hw;
+            let out_base = b * out_hw;
+
+            for oh in 0..out_h {
+                for ow in 0..out_w {
+                    let h_start = oh as isize * self.stride as isize - self.padding;
+                    let w_start = ow as isize * self.stride as isize - self.padding;
+
+                    for c in 0..self.channels {
+                        let mut best = f32::NEG_INFINITY;
+                        let mut best_idx: Option<usize> = None;
+
+                        for kh in 0..self.pool_size {
+                            let ih = h_start + kh as isize;
+                            if ih < 0 || ih >= self.in_height as isize {
+                                continue;
+                            }
+                            for kw in 0..self.pool_size {
+                                let iw = w_start + kw as isize;
+                                if iw < 0 || iw >= self.in_width as isize {
+                                    continue;
+                                }
+                                let idx = in_base + self.input_index(ih as usize, iw as usize, c);
+                                let val = input[idx];
+                                if val > best {
+                                    best = val;
+                                    best_idx = Some(idx);
+                                }
+                            }
+                        }
+
+                        if let Some(idx) = best_idx {
+                            grad_input[idx] += grad_output[out_base + self.output_index(oh, ow, c)];
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn update_parameters(&mut self, _learning_rate: f32) {}
+
+    fn update_with_optimizer(&mut self, _optimizer: &mut dyn Optimizer) {}
+
+    fn input_size(&self) -> usize {
+        self.in_height * self.in_width * self.channels
+    }
+
+    fn output_size(&self) -> usize {
+        self.out_height() * self.out_width() * self.channels
+    }
+
+    fn parameter_count(&self) -> usize {
+        0
+    }
+
+    fn parameter_memory_bytes(&self) -> usize {
+        0
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn std::any::Any> {
+        self
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
+/// 2D average pooling over channels-last input (H×W×C).
+pub struct AvgPool2DLayer {
+    channels: usize,
+    in_height: usize,
+    in_width: usize,
+    pool_size: usize,
+    stride: usize,
+    padding: isize,
+}
+
+impl AvgPool2DLayer {
+    pub fn new(
+        channels: usize,
+        in_height: usize,
+        in_width: usize,
+        pool_size: usize,
+        stride: usize,
+        padding: isize,
+    ) -> Self {
+        assert!(channels > 0);
+        assert!(in_height > 0);
+        assert!(in_width > 0);
+        assert!(pool_size > 0);
+        assert!(stride > 0);
+        Self {
+            channels,
+            in_height,
+            in_width,
+            pool_size,
+            stride,
+            padding,
+        }
+    }
+
+    pub fn out_height(&self) -> usize {
+        pooled_dim(self.in_height, self.pool_size, self.stride, self.padding)
+    }
+
+    pub fn out_width(&self) -> usize {
+        pooled_dim(self.in_width, self.pool_size, self.stride, self.padding)
+    }
+
+    fn input_index(&self, h: usize, w: usize, c: usize) -> usize {
+        (h * self.in_width + w) * self.channels + c
+    }
+
+    fn output_index(&self, oh: usize, ow: usize, c: usize) -> usize {
+        (oh * self.out_width() + ow) * self.channels + c
+    }
+}
+
+impl Layer for AvgPool2DLayer {
+    fn forward(&self, input: &[f32], output: &mut [f32], batch_size: usize) {
+        let in_hw = self.in_height * self.in_width * self.channels;
+        let out_h = self.out_height();
+        let out_w = self.out_width();
+        let out_hw = out_h * out_w * self.channels;
+
+        assert_eq!(input.len(), batch_size * in_hw);
+        assert_eq!(output.len(), batch_size * out_hw);
+
+        for b in 0..batch_size {
+            let in_base = b * in_hw;
+            let out_base = b * out_hw;
+
+            for oh in 0..out_h {
+                for ow in 0..out_w {
+                    let h_start = oh as isize * self.stride as isize - self.padding;
+                    let w_start = ow as isize * self.stride as isize - self.padding;
+
+                    for c in 0..self.channels {
+                        let mut sum = 0.0_f32;
+                        let mut count = 0usize;
+
+                        for kh in 0..self.pool_size {
+                            let ih = h_start + kh as isize;
+                            if ih < 0 || ih >= self.in_height as isize {
+                                continue;
+                            }
+                            for kw in 0..self.pool_size {
+                                let iw = w_start + kw as isize;
+                                if iw < 0 || iw >= self.in_width as isize {
+                                    continue;
+                                }
+                                let idx = in_base + self.input_index(ih as usize, iw as usize, c);
+                                sum += input[idx];
+                                count += 1;
+                            }
+                        }
+
+                        output[out_base + self.output_index(oh, ow, c)] =
+                            if count == 0 { 0.0 } else { sum / count as f32 };
+                    }
+                }
+            }
+        }
+    }
+
+    fn backward(
+        &self,
+        _input: &[f32],
+        grad_output: &[f32],
+        grad_input: &mut [f32],
+        batch_size: usize,
+    ) {
+        let in_hw = self.in_height * self.in_width * self.channels;
+        let out_h = self.out_height();
+        let out_w = self.out_width();
+        let out_hw = out_h * out_w * self.channels;
+
+        assert_eq!(grad_output.len(), batch_size * out_hw);
+        assert_eq!(grad_input.len(), batch_size * in_hw);
+
+        grad_input.fill(0.0);
+
+        for b in 0..batch_size {
+            let in_base = b * in_hw;
+            let out_base = b * out_hw;
+
+            for oh in 0..out_h {
+                for ow in 0..out_w {
+                    let h_start = oh as isize * self.stride as isize - self.padding;
+                    let w_start = ow as isize * self.stride as isize - self.padding;
+
+                    for c in 0..self.channels {
+                        let mut count = 0usize;
+                        for kh in 0..self.pool_size {
+                            let ih = h_start + kh as isize;
+                            if ih < 0 || ih >= self.in_height as isize {
+                                continue;
+                            }
+                            for kw in 0..self.pool_size {
+                                let iw = w_start + kw as isize;
+                                if iw < 0 || iw >= self.in_width as isize {
+                                    continue;
+                                }
+                                count += 1;
+                            }
+                        }
+                        if count == 0 {
+                            continue;
+                        }
+
+                        let go =
+                            grad_output[out_base + self.output_index(oh, ow, c)] / count as f32;
+
+                        for kh in 0..self.pool_size {
+                            let ih = h_start + kh as isize;
+                            if ih < 0 || ih >= self.in_height as isize {
+                                continue;
+                            }
+                            for kw in 0..self.pool_size {
+                                let iw = w_start + kw as isize;
+                                if iw < 0 || iw >= self.in_width as isize {
+                                    continue;
+                                }
+                                let idx = in_base + self.input_index(ih as usize, iw as usize, c);
+                                grad_input[idx] += go;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn update_parameters(&mut self, _learning_rate: f32) {}
+
+    fn update_with_optimizer(&mut self, _optimizer: &mut dyn Optimizer) {}
+
+    fn input_size(&self) -> usize {
+        self.in_height * self.in_width * self.channels
+    }
+
+    fn output_size(&self) -> usize {
+        self.out_height() * self.out_width() * self.channels
+    }
+
+    fn parameter_count(&self) -> usize {
+        0
+    }
+
+    fn parameter_memory_bytes(&self) -> usize {
+        0
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn std::any::Any> {
+        self
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
+pub use AvgPool2DLayer as AvgPoolLayer;
+pub use MaxPool2DLayer as MaxPoolLayer;
 
 /// Global average pooling layer.
 ///

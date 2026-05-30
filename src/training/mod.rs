@@ -31,7 +31,10 @@ mod loss;
 mod metrics;
 
 pub use self::batch::gather_batch;
-pub use self::cli::{parse_config_path, parse_step_flag, print_training_config};
+pub use self::cli::{
+    parse_config_path, parse_registry_dir, parse_run_name, parse_seed_override, parse_step_flag,
+    print_training_config,
+};
 pub use self::early_stopping::{EarlyStopping, EarlyStoppingAction};
 #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
 pub use self::gpu::upgrade_layers_to_gpu;

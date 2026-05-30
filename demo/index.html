@@ -39,6 +39,43 @@
             <!-- Predictions Section -->
             <section class="predictions-section">
                 <h2>Predictions</h2>
+
+                <!-- Preprocessing: 28x28 preview -->
+                <div class="preprocess-panel">
+                    <h3>What the model sees (28×28 input)</h3>
+                    <p class="preprocess-subtitle">
+                        The model does not see your 280×280 strokes directly — it receives a tiny 28×28 grayscale image.
+                    </p>
+                    <div class="preprocess-preview-row">
+                        <canvas id="preprocess-canvas" width="28" height="28" aria-label="28 by 28 preprocessed input"></canvas>
+                        <div class="preprocess-bullets" aria-label="Preprocessing steps">
+                            <ul>
+                                <li>Scale 280×280 drawing to 28×28</li>
+                                <li>Use the canvas grayscale value (R channel)</li>
+                                <li>Normalize each pixel: <code>pixel / 255</code> → [0, 1]</li>
+                            </ul>
+                            <p class="preprocess-note">
+                                Tip: if your digit looks faint in the 28×28 preview, the model will likely be less confident.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Model metadata -->
+                <div class="metadata-panel" id="metadata-panel" aria-label="Model metadata">
+                    <h3>Model Metadata</h3>
+                    <div class="metadata-content" id="metadata-content">Loading model metadata…</div>
+                </div>
+
+                <!-- Intermediate Signal: Hidden Layer Activations -->
+                <div class="introspection-panel">
+                    <h3>Hidden Layer Activations (512 features)</h3>
+                    <p class="introspection-subtitle">
+                        These are the first dense layer's post-ReLU activations. Higher values mean a feature is more "on" for your drawing.
+                    </p>
+                    <div class="activation-summary" id="activation-summary">—</div>
+                    <div class="activation-bars" id="activation-bars" aria-label="Hidden layer activation bars"></div>
+                </div>
                 <div id="predictions-container" class="predictions-container">
                     <!-- Prediction bars for digits 0-9 -->
                     <div class="prediction-row" data-digit="0">

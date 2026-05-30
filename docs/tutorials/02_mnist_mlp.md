@@ -1529,6 +1529,10 @@ Epoch 10/10, Loss: 0.0591, Val Loss: 0.0842, Val Acc: 97.57%, Time: 2.3s (LR dec
 
 **Running on held-out test set:**
 ```bash
+# Verify dataset is in the expected layout under ./data
+cargo run --bin dataset-helper -- verify --mnist
+
+# Train
 cargo run --release --bin mnist_mlp
 ```
 

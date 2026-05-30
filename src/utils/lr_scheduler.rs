@@ -95,7 +95,9 @@ pub fn create_scheduler_from_config(
         match crate::config::load_config(path) {
             Ok(config) => {
                 println!("Loaded config from: {}", path);
-                match config.scheduler_type.as_str() {
+
+                let mut base_scheduler: Box<dyn LRScheduler> = match config.scheduler_type.as_str()
+                {
                     "step_decay" => {
                         let step_size = config.step_size.unwrap_or(3);
                         let gamma = config.gamma.unwrap_or(0.5);
@@ -153,7 +155,45 @@ pub fn create_scheduler_from_config(
                         );
                         Box::new(ConstantLR::new(initial_lr))
                     }
+                };
+
+                if let Some(cyclical) = config.cyclical_lr {
+                    match cyclical {
+                        crate::config::CyclicalLRConfig::Triangular {
+                            base_lr,
+                            max_lr,
+                            step_size,
+                        } => {
+                            println!(
+                                "Using Triangular cyclical LR: base_lr={}, max_lr={}, step_size={}",
+                                base_lr, max_lr, step_size
+                            );
+                            base_scheduler = Box::new(CyclicalLRScheduler::triangular(
+                                base_lr, max_lr, step_size,
+                            ));
+                        }
+                    }
                 }
+
+                if let Some(warmup) = config.warmup {
+                    match warmup {
+                        crate::config::WarmupConfig::Linear { epochs, start_lr } => {
+                            let warmup_start_lr = start_lr.unwrap_or(0.0);
+                            println!(
+                                "Using Linear warmup: epochs={}, start_lr={} (base_lr={})",
+                                epochs, warmup_start_lr, initial_lr
+                            );
+                            base_scheduler = Box::new(WarmupScheduler::new(
+                                warmup_start_lr,
+                                initial_lr,
+                                epochs,
+                                base_scheduler,
+                            ));
+                        }
+                    }
+                }
+
+                base_scheduler
             }
             Err(e) => {
                 eprintln!(
@@ -172,11 +212,135 @@ pub fn create_scheduler_from_config(
     }
 }
 
+/// Cyclical learning rate scheduler.
+///
+/// This scheduler oscillates between `base_lr` and `max_lr` with a triangular policy
+/// (linearly increases, then linearly decreases). `step_size` is the number of epochs
+/// in a half-cycle.
+pub struct CyclicalLRScheduler {
+    base_lr: f32,
+    max_lr: f32,
+    step_size: usize,
+    epoch: usize,
+}
+
+impl CyclicalLRScheduler {
+    pub fn triangular(base_lr: f32, max_lr: f32, step_size: usize) -> Self {
+        Self {
+            base_lr,
+            max_lr,
+            step_size,
+            epoch: 0,
+        }
+    }
+
+    fn lr_at(&self, epoch: usize) -> f32 {
+        // Avoid division by zero; config validation should prevent this.
+        if self.step_size == 0 {
+            return self.base_lr;
+        }
+
+        let cycle = 2 * self.step_size;
+        let pos_in_cycle = epoch % cycle;
+
+        let amplitude = self.max_lr - self.base_lr;
+        if pos_in_cycle < self.step_size {
+            // rising: base -> max
+            let t = pos_in_cycle as f32 / self.step_size as f32;
+            self.base_lr + t * amplitude
+        } else {
+            // falling: max -> base
+            let t = (pos_in_cycle - self.step_size) as f32 / self.step_size as f32;
+            self.max_lr - t * amplitude
+        }
+    }
+}
+
+impl LRScheduler for CyclicalLRScheduler {
+    fn get_lr(&self) -> f32 {
+        self.lr_at(self.epoch)
+    }
+
+    fn step(&mut self) {
+        self.epoch += 1;
+    }
+
+    fn reset(&mut self) {
+        self.epoch = 0;
+    }
+}
+
 /// Constant learning rate scheduler (no decay).
 ///
 /// This scheduler maintains a fixed learning rate throughout training.
 pub struct ConstantLR {
     lr: f32,
+}
+
+/// Warmup scheduler that composes with another scheduler.
+///
+/// For the first `warmup_epochs` epochs, it linearly increases the LR from
+/// `start_lr` to `base_lr`. After warmup, it delegates to the inner scheduler.
+pub struct WarmupScheduler {
+    start_lr: f32,
+    base_lr: f32,
+    warmup_epochs: usize,
+    epoch: usize,
+    inner: Box<dyn LRScheduler>,
+}
+
+impl WarmupScheduler {
+    pub fn new(
+        start_lr: f32,
+        base_lr: f32,
+        warmup_epochs: usize,
+        inner: Box<dyn LRScheduler>,
+    ) -> Self {
+        Self {
+            start_lr,
+            base_lr,
+            warmup_epochs,
+            epoch: 0,
+            inner,
+        }
+    }
+
+    fn warmup_lr(&self) -> f32 {
+        if self.warmup_epochs == 0 {
+            return self.base_lr;
+        }
+
+        // epoch 0 -> start_lr
+        // epoch warmup_epochs -> base_lr (though validation should prevent reaching this)
+        let t = (self.epoch as f32) / (self.warmup_epochs as f32);
+        self.start_lr + t * (self.base_lr - self.start_lr)
+    }
+}
+
+impl LRScheduler for WarmupScheduler {
+    fn get_lr(&self) -> f32 {
+        if self.epoch < self.warmup_epochs {
+            self.warmup_lr()
+        } else {
+            self.inner.get_lr()
+        }
+    }
+
+    fn step(&mut self) {
+        if self.epoch < self.warmup_epochs {
+            self.epoch += 1;
+            if self.epoch == self.warmup_epochs {
+                self.inner.reset();
+            }
+        } else {
+            self.inner.step();
+        }
+    }
+
+    fn reset(&mut self) {
+        self.epoch = 0;
+        self.inner.reset();
+    }
 }
 
 impl ConstantLR {

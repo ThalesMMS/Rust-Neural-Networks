@@ -37,6 +37,67 @@ Layers are applied in the order they appear in the configuration.
 
 ## Layer Types
 
+### Pooling Layer (MaxPool / AvgPool)
+
+2D pooling layer that reduces spatial dimensions by applying a fixed window over each channel.
+
+Pooling layers can be specified in two equivalent ways:
+
+1) Use explicit layer types:
+- `layer_type`: `"maxpool"`
+- `layer_type`: `"avgpool"`
+
+2) Use the generic `"pool"` type with a mode:
+- `layer_type`: `"pool"`
+- `pool_mode`: `"max"` or `"avg"`
+
+**Required parameters:**
+- `pool_size`: Pool window size (positive integer, square window)
+- `pool_input_height`: Input height (positive integer)
+- `pool_input_width`: Input width (positive integer)
+- `pool_channels`: Number of channels (positive integer)
+
+**Optional parameters:**
+- `pool_stride`: Stride (default: `pool_size`)
+- `pool_padding`: Padding (default: 0)
+
+**Output size calculation:**
+```
+output_height = ((pool_input_height + 2 * pool_padding - pool_size) / pool_stride) + 1
+output_width  = ((pool_input_width  + 2 * pool_padding - pool_size) / pool_stride) + 1
+output_size   = pool_channels * output_height * output_width
+```
+
+**Examples:**
+
+Max pooling via explicit type:
+```json
+{
+  "layer_type": "maxpool",
+  "pool_size": 2,
+  "pool_stride": 2,
+  "pool_padding": 0,
+  "pool_input_height": 28,
+  "pool_input_width": 28,
+  "pool_channels": 8
+}
+```
+
+Average pooling via `pool_mode`:
+```json
+{
+  "layer_type": "pool",
+  "pool_mode": "avg",
+  "pool_size": 2,
+  "pool_stride": 2,
+  "pool_padding": 0,
+  "pool_input_height": 28,
+  "pool_input_width": 28,
+  "pool_channels": 8
+}
+```
+
+
 ### Dense Layer
 
 Fully-connected (dense) layer with weight matrix and bias vector. Uses BLAS-accelerated matrix multiplication.
@@ -96,7 +157,7 @@ output_size = out_channels * output_height * output_width
 
 This example produces an output size of `8 * 28 * 28 = 6272` (same spatial dimensions due to padding=1, stride=1, kernel=3).
 
-**Implementation:** Uses `Conv2DLayer` from `src/layers/conv2d.rs`
+**Implementation:** Uses `Conv2DLayer` from `src/layers/conv2d/mod.rs`
 
 ### BatchNorm Layer
 
@@ -566,7 +627,7 @@ Solution: Add at least one layer to the `layers` array.
 ## Limitations
 
 - **Fixed activation functions**: Activation functions (ReLU, sigmoid, softmax) are not configurable and must be applied in the training code
-- **No pooling layers**: MaxPool layers are not yet supported in the config system
+- **Pooling layers**: MaxPool and AvgPool are supported via `layer_type`: `"maxpool"` / `"avgpool"` or `layer_type`: `"pool"` with `pool_mode`: `"max"` / `"avg"`
 - **No skip connections**: ResNet-style skip connections require code modifications
 - **No attention layers**: Transformer attention layers are not configurable
 - **Sequential only**: Only sequential layer stacking is supported (no branching/merging)
@@ -576,7 +637,7 @@ Solution: Add at least one layer to the `layers` array.
 Potential improvements to the architecture configuration system:
 
 - [ ] Configurable activation functions per layer
-- [ ] Pooling layer support (MaxPool, AvgPool)
+- [x] Pooling layer support (MaxPool, AvgPool)
 - [ ] Skip connections and residual blocks
 - [ ] Multi-branch architectures (inception-style)
 - [ ] Attention layer configurations
@@ -588,7 +649,7 @@ Potential improvements to the architecture configuration system:
 
 - [Layer Trait Implementation](../src/layers/trait.rs) - Common interface for all layers
 - [Dense Layer](../src/layers/dense.rs) - BLAS-accelerated dense layer implementation
-- [Conv2D Layer](../src/layers/conv2d.rs) - 2D convolutional layer implementation
+- [Conv2D Layer](../src/layers/conv2d/mod.rs) - 2D convolutional layer implementation
 - [BatchNorm Layer](../src/layers/batchnorm.rs) - Batch normalization implementation
 - [Dropout Layer](../src/layers/dropout.rs) - Dropout regularization implementation
 - [CLAUDE.md](../CLAUDE.md) - Project overview and build instructions

@@ -12,11 +12,237 @@ This repository contains small neural networks in Rust for:
 
 Python utilities are included for visualization and digit recognition. The Swift implementation lives in the companion Swift-Neural-Networks repository. The design and binary model format are inspired by https://github.com/djbyrne/mlp.c.
 
+## Setup (start here)
+
+Run the preflight command first. It prints platform-specific setup notes (BLAS, Metal/CUDA, Python tooling, datasets, WASM) and recommended Cargo commands.
+
+```bash
+cargo run --bin preflight
+
+# Machine-readable output (for CI/scripts)
+cargo run --bin preflight -- --format json
+```
+
+This command is safe to run in CI: it does **not** require special privileges and does **not** perform any network access.
+
+## CPU-only (golden path)
+
+## Smoke tests (quick verification)
+
+## Maintainer verification checklist (manual matrix)
+
+Use this checklist before releases (or after big dependency changes) to ensure the documented setup paths still work.
+
+- **Always (any platform)**
+  - `cargo run --bin preflight`
+  - `cargo test`
+
+- **macOS**
+  - CPU-only: `cargo test`
+  - Metal (requires Apple Silicon or supported GPU + Xcode CLT): `cargo test --features gpu-metal`
+
+- **Linux**
+  - CPU-only: `cargo test`
+  - CUDA (requires NVIDIA GPU + driver + CUDA toolkit):
+    - `cargo run --bin preflight` (should show CUDA as PASS)
+    - `cargo test --features gpu-cuda`
+
+- **Windows (MSVC)**
+  - CPU-only (requires OpenBLAS via vcpkg):
+    - `cargo run --bin preflight` (should find `vcpkg`)
+    - `cargo test`
+  - CUDA (requires NVIDIA GPU + driver + CUDA toolkit):
+    - `cargo run --bin preflight` (should show CUDA as PASS)
+    - `cargo test --features gpu-cuda`
+
+- **WASM (any OS)**
+  - `cargo run --bin preflight` (should find wasm-pack + wasm32 target)
+  - `cd wasm && wasm-pack build --target web`
+
+Notes:
+- CUDA paths require appropriate hardware; CI can still run `preflight` and CPU tests.
+- If anything fails, start by re-running `cargo run --bin preflight` and follow the remediation hints.
+
+
+These are lightweight commands you can run to confirm each supported path is working.
+
+### CPU (all platforms)
+
+```bash
+cargo run --bin preflight
+cargo test
+```
+
+### Metal (macOS)
+
+```bash
+cargo run --bin preflight
+cargo test --features gpu-metal
+```
+
+### CUDA (Linux / Windows)
+
+```bash
+cargo run --bin preflight
+cargo test --features gpu-cuda
+```
+
+### WebAssembly demo
+
+```bash
+cargo run --bin preflight
+cd wasm
+wasm-pack build --target web
+```
+
+Then serve the `wasm/` directory (see the WebAssembly Demo section below).
+
+
+If you want the simplest setup with the fewest external dependencies, stick to the default **CPU-only** build (no GPU feature flags).
+
+```bash
+# 1) Sanity-check your environment (Rust toolchain, BLAS notes, Python tooling, datasets, WASM)
+cargo run --bin preflight
+
+# 2) Run unit tests (CPU-only)
+cargo test
+```
+
+Minimal runnable example:
+
+```bash
+# Note: this runs a tiny XOR MLP training loop (no datasets required)
+cargo run --bin mlp_simple
+```
+
+> Notes
+> - On macOS, BLAS is provided by **Accelerate** automatically.
+> - On Linux, **OpenBLAS** is built automatically (you still need basic build tools like a C compiler).
+> - On Windows, you typically need to install OpenBLAS (see the Windows section below).
+
+## Platform setup notes
+
+### macOS (CPU and Metal)
+
+- **CPU-only (default):** no extra feature flags.
+  - BLAS: uses Apple **Accelerate** via `blas-src` automatically.
+- **Metal (optional):** enable the Cargo feature `gpu-metal`.
+  - Prereq: Xcode Command Line Tools.
+
+Commands:
+
+```bash
+# CPU-only
+cargo test
+
+# Metal (macOS only)
+cargo test --features gpu-metal
+```
+
+If Metal builds fail due to missing toolchain components, install Xcode Command Line Tools:
+
+```bash
+xcode-select --install
+```
+
+You can also re-run the preflight tool to confirm Metal/toolchain detection:
+
+```bash
+cargo run --bin preflight
+```
+
+### Linux (CPU and CUDA)
+
+- **CPU-only (default):** no extra feature flags.
+  - BLAS: uses **OpenBLAS** via `openblas-src` (built automatically as part of the Rust build).
+  - Prereqs: a C/C++ toolchain and basic build tools (e.g., `gcc`/`clang`, `make`).
+- **CUDA (optional):** enable the Cargo feature `gpu-cuda`.
+  - Prereqs: NVIDIA driver + CUDA toolkit (so `nvidia-smi` and `nvcc` are available).
+
+Commands:
+
+```bash
+# CPU-only
+cargo test
+
+# CUDA (Linux only; requires CUDA toolkit)
+cargo test --features gpu-cuda
+```
+
+If you hit build/link errors on Linux, re-run preflight for actionable hints (toolchain, CUDA detection):
+
+```bash
+cargo run --bin preflight
+```
+
+### Windows (CPU and CUDA)
+
+- **Prereq (Rust toolchain):** install the *MSVC* toolchain (recommended) via Rustup.
+- **CPU-only (default):** no extra feature flags.
+  - BLAS: uses **OpenBLAS** via `openblas-src` configured for a *system-provided* OpenBLAS on Windows.
+  - Recommended path: install OpenBLAS via **vcpkg**.
+- **CUDA (optional):** enable the Cargo feature `gpu-cuda`.
+  - Prereqs: NVIDIA driver + CUDA toolkit (`nvcc`), and (optionally) `nvidia-smi`.
+
+Commands (PowerShell):
+
+```powershell
+# CPU-only
+cargo test
+
+# CUDA (Windows only; requires CUDA toolkit)
+cargo test --features gpu-cuda
+```
+
+#### Install OpenBLAS (vcpkg)
+
+1. Install vcpkg: https://github.com/microsoft/vcpkg
+2. Install OpenBLAS:
+
+```powershell
+vcpkg install openblas
+```
+
+3. Ensure the `VCPKG_ROOT` environment variable is set and the vcpkg tool is on your PATH.
+
+If linking still fails, re-run preflight for the exact remediation text:
+
+```powershell
+cargo run --bin preflight
+```
+
+#### CUDA notes
+
+If `nvcc` is not found, install the CUDA toolkit from NVIDIA and ensure its `bin/` directory is on PATH. Preflight will report what it can detect:
+
+```powershell
+cargo run --bin preflight
+```
+
+## Dataset setup (MNIST / CIFAR-10)
+
+Before running any training binaries, verify that the expected datasets are present under `./data`:
+
+```bash
+# Verify MNIST + CIFAR-10 (default)
+cargo run --bin dataset-helper -- verify
+
+# Or verify individually
+cargo run --bin dataset-helper -- verify --mnist
+cargo run --bin dataset-helper -- verify --cifar10
+```
+
+If a dataset is missing or mis-extracted (e.g., extra directory nesting, archives not unpacked), the helper prints the expected paths and the official source URLs.
+
 ## Learning Tutorials
 
-**New to neural networks?** Start with our comprehensive step-by-step tutorials that guide you through building each architecture from scratch:
+**New to neural networks?** Start with our curated learning paths (Beginner / Intermediate / Advanced) and corresponding reproducibility checks:
 
-→ **[Step-by-Step Tutorials](docs/tutorials/README.md)** - Progressive learning path with worked examples
+→ **[Curated Learning Paths](docs/learning_paths.md)** - Tiered paths, prerequisites, and smoke-check commands
+
+You can also browse the full tutorial list directly:
+
+→ **[Step-by-Step Tutorials](docs/tutorials/README.md)** - Progressive tutorial series with worked examples
 
 **Tutorial series:**
 1. **[XOR MLP](docs/tutorials/01_xor_mlp.md)** (30-45 min) - Build your first network, understand backpropagation
@@ -88,8 +314,65 @@ Data and outputs:
 
 - `data/` (MNIST IDX files, CIFAR-10 binary files)
 - `logs/` (training metrics logs)
+- `runs/` (experiment registry: one folder per run with `run.json` + artifacts)
 - `mnist_model.bin`, `mnist_model_best.bin` (example and best-checkpoint files)
 - `mnist_cnn_model_best.bin`, `mnist_attention_model_best.bin` (generated during training)
+
+## Experiment registry (runs/)
+
+Training binaries continue to write CSV logs under `logs/`, but they also write a structured *run record* under `runs/`.
+
+Each run creates a directory like:
+
+```
+runs/<run_id>/
+  run.json
+  artifacts/...
+```
+
+The `run.json` record includes:
+
+- `run_id`, `timestamp`, `run_name` (optional)
+- `model_type`
+- config snapshot (the full training config JSON)
+- the actual RNG `seed`
+- final metrics (loss/accuracy/time/epochs)
+- artifact paths (training CSV log, checkpoints, etc.)
+- environment metadata (Rust version, OS, git commit if available)
+
+### List runs
+
+```bash
+cargo run --bin registry -- list
+# optionally:
+cargo run --bin registry -- list --registry-dir runs
+```
+
+### Compare runs
+
+```bash
+cargo run --bin registry -- compare <run_id_1> <run_id_2>
+```
+
+### Export sweep-compatible summaries for Python plotting
+
+`compare_sweep_results.py` expects a flat JSON/CSV table of sweep results.
+You can export that table from the registry runs:
+
+```bash
+# JSON (default)
+cargo run --bin registry -- export-sweep --registry-dir runs --format json > sweep_results.json
+
+# CSV
+cargo run --bin registry -- export-sweep --registry-dir runs --format csv > sweep_results.csv
+
+# then:
+python compare_sweep_results.py sweep_results.json
+```
+
+### Hyperparameter sweeps
+
+The sweep orchestrator also understands the registry output. It will prefer reading final metrics from `runs/<run_id>/run.json`, but remains backward-compatible with parsing the newest `logs/*.csv` when a run record is missing.
 
 ## Models
 
@@ -184,7 +467,17 @@ Architecture config: `config/architectures/cifar10_deep_cnn.json`
 Training config: `config/training/cifar10_deep_cnn_default.json`
 Design rationale: `docs/cifar10_architecture_design.md`
 
-**Status:** Architecture fully designed and tested, but training blocked by implementation constraint (binary expects 2 layers, architecture has 17). Target performance: 70%+ test accuracy.
+**Status:** Architecture fully designed and tested. Train it by passing the architecture JSON at runtime:
+
+```bash
+# Verify dataset is present under ./data
+cargo run --bin dataset-helper -- verify --cifar10
+
+# Train
+cargo run --release --bin cifar10_cnn -- --arch config/architectures/cifar10_deep_cnn.json
+```
+
+Target performance: 70%+ test accuracy.
 
 **Note:** CIFAR-10 is significantly harder than MNIST. The baseline CNN architecture is intentionally simple for educational purposes. State-of-the-art models typically achieve 90%+ accuracy with deeper architectures, data augmentation, and more training. The deep architecture design demonstrates how architectural choices (depth, normalization, regularization) can significantly improve performance.
 
@@ -559,6 +852,10 @@ cargo run --release --bin mnist_attention_pool
 Run CIFAR-10 CNN:
 
 ```bash
+# Verify dataset is present under ./data
+cargo run --bin dataset-helper -- verify --cifar10
+
+# Train
 cargo run --release --bin cifar10_cnn
 ```
 
@@ -628,21 +925,42 @@ For more details on the CIFAR-10 format and RGB handling, see `docs/cifar10_data
 
 Try the neural network in your browser with the interactive WebAssembly demo! Draw digits and see real-time predictions, all running client-side with no server required.
 
+### WASM setup (build/run)
+
+Prerequisites:
+
+- Rust toolchain (cargo/rustc)
+- wasm-pack
+- rustup target `wasm32-unknown-unknown`
+- (Optional) node/npm for some wasm-pack workflows
+
+You can also run the preflight tool to check these automatically:
+
+```bash
+cargo run --bin preflight
+```
+
 **Quick Start:**
 
 ```bash
-# 1. Build the WASM module (one-time setup)
+# 1. Install wasm-pack (if needed)
+# https://rustwasm.github.io/wasm-pack/installer/
+
+# 2. Ensure the WASM target is installed
+rustup target add wasm32-unknown-unknown
+
+# 3. Build the WASM module
 cd wasm
 wasm-pack build --target web --release
 
-# 2. Copy WASM package to demo directory
+# 4. Copy WASM package to demo directory
 cp -r pkg ../demo/
 
-# 3. Start a local HTTP server
+# 5. Start a local HTTP server
 cd ../demo
 python3 -m http.server 8080
 
-# 4. Open in browser
+# 6. Open in browser
 # Visit http://localhost:8080/index.html
 ```
 
@@ -696,6 +1014,131 @@ demo/
 The demo is a static site that can be deployed to GitHub Pages, Netlify, Vercel, or any static hosting service. A GitHub Actions workflow is included for automated deployment.
 
 For comprehensive documentation including build instructions, architecture details, browser compatibility, troubleshooting, and deployment guides, see [`docs/wasm_demo.md`](docs/wasm_demo.md).
+
+## Troubleshooting
+
+When something fails to build or run, start by running:
+
+```bash
+cargo run --bin preflight
+```
+
+It prints platform-specific remediation steps and the recommended `cargo` commands/feature flags.
+
+### Missing OpenBLAS / BLAS link errors
+
+Symptoms:
+- Windows: linker errors mentioning `openblas`, `blas`, or missing `.lib` files
+- Linux: build failures while compiling OpenBLAS (toolchain issues)
+
+Remedies:
+- **Windows (MSVC)**: install OpenBLAS via vcpkg and ensure `VCPKG_ROOT` is set:
+
+  ```powershell
+  git clone https://github.com/microsoft/vcpkg
+  .\vcpkg\bootstrap-vcpkg.bat
+  .\vcpkg\vcpkg.exe install openblas:x64-windows
+  $env:VCPKG_ROOT = (Resolve-Path .\vcpkg)
+  ```
+
+- **Linux**: ensure you have a working C toolchain available (`gcc`/`clang`, `make`, etc.). Re-run the build; `openblas-src` builds OpenBLAS from source by default.
+- **macOS**: BLAS uses Accelerate via `blas-src` (no OpenBLAS install needed). If you see linker/toolchain failures, install Xcode Command Line Tools:
+
+  ```bash
+  xcode-select --install
+  ```
+
+### Missing Xcode Command Line Tools (macOS)
+
+Symptoms:
+- `xcode-select: error: tool 'xcodebuild' requires Xcode`
+- compilation/link failures on macOS
+
+Remedy:
+
+```bash
+xcode-select --install
+```
+
+After installing, re-run:
+
+```bash
+cargo run --bin preflight
+```
+
+### CUDA not found (nvcc / driver)
+
+Symptoms:
+- `nvcc: command not found`
+- build errors when using `--features gpu-cuda`
+
+Remedies:
+- Install the NVIDIA driver + CUDA toolkit appropriate for your OS.
+- Verify detection:
+
+  ```bash
+  nvcc --version
+  nvidia-smi
+  ```
+
+If CUDA is not installed, stick to the CPU path:
+
+```bash
+cargo test
+```
+
+### Metal feature build failures (macOS)
+
+Symptoms:
+- errors when building with `--features gpu-metal`
+
+Remedies:
+- Ensure Xcode Command Line Tools are installed (see above).
+- If you don't need Metal acceleration, use the CPU-only path:
+
+  ```bash
+  cargo test
+  ```
+
+### wasm-pack / wasm32 target missing
+
+Symptoms:
+- `wasm-pack: command not found`
+- `error: toolchain ... does not have the target 'wasm32-unknown-unknown'`
+
+Remedies:
+
+```bash
+cargo install wasm-pack
+rustup target add wasm32-unknown-unknown
+```
+
+### Python module not found / scripts fail
+
+Symptoms:
+- `ModuleNotFoundError: No module named ...`
+- plotting/visualization scripts fail
+
+Remedy (from project root):
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
+python3 -m pip install -r requirements.txt
+```
+
+### Dataset missing (MNIST / CIFAR-10)
+
+Symptoms:
+- training/bench binaries fail because files under `./data` are missing
+
+Remedy:
+
+```bash
+cargo run --bin dataset-helper -- verify
+```
+
+If verification fails, follow the output instructions to download/prepare the datasets.
 
 ## Visualization
 

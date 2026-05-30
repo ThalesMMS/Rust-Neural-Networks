@@ -7,6 +7,43 @@ use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fs;
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum WarmupConfig {
+    /// Linear warmup from `start_lr` to the base learning rate over `epochs` epochs.
+    Linear {
+        epochs: usize,
+        start_lr: Option<f32>,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum CyclicalLRConfig {
+    /// Triangular cyclical learning rate policy.
+    /// `step_size` is the number of steps in a half-cycle (up then down).
+    Triangular {
+        base_lr: f32,
+        max_lr: f32,
+        step_size: usize,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct RegularizationConfig {
+    pub l1: Option<f32>,
+    pub l2: Option<f32>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum GradientClippingConfig {
+    /// Clip gradients by global norm.
+    Norm { max_norm: f32 },
+    /// Clip gradients by absolute value.
+    Value { max_value: f32 },
+}
+
 pub const SCHEDULER_ALLOWLIST: [&str; 3] = ["step_decay", "exponential", "cosine_annealing"];
 pub const ACTIVATION_ALLOWLIST: [&str; 6] = ["relu", "leaky_relu", "elu", "gelu", "swish", "tanh"];
 
@@ -57,10 +94,13 @@ pub const ACTIVATION_ALLOWLIST: [&str; 6] = ["relu", "leaky_relu", "elu", "gelu"
 ///   "early_stopping_min_delta": 0.001
 /// }
 /// ```
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[allow(non_snake_case)]
 pub struct TrainingConfig {
     /// Type of learning rate scheduler: "step_decay", "exponential", or "cosine_annealing"
+    ///
+    /// Note: This is a required field. We intentionally do not provide a default so that
+    /// empty/malformed configs fail fast (see tests/test_config/error_handling_tests.rs).
     pub scheduler_type: String,
 
     /// Step size for StepDecay scheduler (epochs between LR reductions)
@@ -172,6 +212,23 @@ pub struct TrainingConfig {
 
     /// Enable interactive step-through debugging during training (optional, default false)
     pub step_debug: Option<bool>,
+
+    // --- Training controls ---
+    /// Optional warmup schedule configuration. When omitted, warmup is disabled.
+    #[serde(default)]
+    pub warmup: Option<WarmupConfig>,
+
+    /// Optional cyclical learning rate configuration. When omitted, cyclical LR is disabled.
+    #[serde(default)]
+    pub cyclical_lr: Option<CyclicalLRConfig>,
+
+    /// Optional regularization configuration (L1/L2). When omitted, regularization is disabled.
+    #[serde(default)]
+    pub regularization: Option<RegularizationConfig>,
+
+    /// Optional gradient clipping configuration. When omitted, clipping is disabled.
+    #[serde(default)]
+    pub gradient_clipping: Option<GradientClippingConfig>,
 }
 
 /// Loads a training configuration from a JSON file.
@@ -277,7 +334,7 @@ pub fn load_config(path: &str) -> Result<TrainingConfig, Box<dyn Error>> {
 ///
 /// assert!(validate_config(&cfg).is_ok());
 /// ```
-fn validate_config(config: &TrainingConfig) -> Result<(), Box<dyn Error>> {
+pub fn validate_config(config: &TrainingConfig) -> Result<(), Box<dyn Error>> {
     // Validate scheduler-specific required fields
     match config.scheduler_type.as_str() {
         "step_decay" => {
@@ -530,6 +587,154 @@ fn validate_config(config: &TrainingConfig) -> Result<(), Box<dyn Error>> {
                 std::io::ErrorKind::InvalidData,
                 "saturation_jitter must be non-negative",
             )));
+        }
+    }
+
+    // Validate training controls
+    if let Some(ref warmup) = config.warmup {
+        match warmup {
+            WarmupConfig::Linear { epochs, start_lr } => {
+                if *epochs == 0 {
+                    return Err(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "warmup.epochs must be positive",
+                    )));
+                }
+                if let Some(start_lr) = *start_lr {
+                    if start_lr < 0.0 {
+                        return Err(Box::new(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "warmup.start_lr must be non-negative",
+                        )));
+                    }
+                    if let Some(base_lr) = config.learning_rate {
+                        if start_lr > base_lr {
+                            return Err(Box::new(std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                "warmup.start_lr must be <= learning_rate",
+                            )));
+                        }
+                    }
+                }
+                if let Some(total_epochs) = config.epochs {
+                    if *epochs >= total_epochs {
+                        return Err(Box::new(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "warmup.epochs must be < epochs",
+                        )));
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(ref cyclical) = config.cyclical_lr {
+        match cyclical {
+            CyclicalLRConfig::Triangular {
+                base_lr,
+                max_lr,
+                step_size,
+            } => {
+                if *base_lr <= 0.0 {
+                    return Err(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "cyclical_lr.base_lr must be positive",
+                    )));
+                }
+                if *max_lr <= 0.0 {
+                    return Err(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "cyclical_lr.max_lr must be positive",
+                    )));
+                }
+                if *max_lr <= *base_lr {
+                    return Err(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "cyclical_lr.max_lr must be > cyclical_lr.base_lr",
+                    )));
+                }
+                if *step_size == 0 {
+                    return Err(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "cyclical_lr.step_size must be positive",
+                    )));
+                }
+            }
+        }
+
+        // If cyclical LR is enabled, the base learning_rate should not be set,
+        // to avoid ambiguity about which one is actually used.
+        if config.learning_rate.is_some() {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "learning_rate must be omitted when cyclical_lr is enabled (use cyclical_lr.base_lr/max_lr instead)",
+            )));
+        }
+
+        // Likewise, the epoch-level scheduler_type shouldn't be set to a non-empty value.
+        // (It is not optional today; keep allowing unknown scheduler types as 'constant',
+        // but disallow mixing with cyclical to keep behavior deterministic.)
+        if config.scheduler_type.as_str() != "constant" {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "scheduler_type must be 'constant' (or empty) when cyclical_lr is enabled",
+            )));
+        }
+    }
+
+    if let Some(ref regularization) = config.regularization {
+        if let Some(l1) = regularization.l1 {
+            if l1 < 0.0 {
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "regularization.l1 must be non-negative",
+                )));
+            }
+        }
+        if let Some(l2) = regularization.l2 {
+            if l2 < 0.0 {
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "regularization.l2 must be non-negative",
+                )));
+            }
+        }
+
+        // Weight-decay style regularization is only implemented via AdamW today.
+        // If users request L2 but are not using AdamW, fail early with guidance.
+        if regularization.l2.unwrap_or(0.0) > 0.0 {
+            let optimizer = config
+                .optimizer_type
+                .as_deref()
+                .unwrap_or("adamw")
+                .to_lowercase();
+            if optimizer != "adamw" {
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "regularization.l2 is currently only supported with optimizer_type='adamw' (uses adamw_weight_decay)",
+                )));
+            }
+        }
+    }
+
+    if let Some(ref clipping) = config.gradient_clipping {
+        match clipping {
+            GradientClippingConfig::Norm { max_norm } => {
+                if *max_norm <= 0.0 {
+                    return Err(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "gradient_clipping.max_norm must be positive",
+                    )));
+                }
+            }
+            GradientClippingConfig::Value { max_value } => {
+                if *max_value <= 0.0 {
+                    return Err(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "gradient_clipping.max_value must be positive",
+                    )));
+                }
+            }
         }
     }
 

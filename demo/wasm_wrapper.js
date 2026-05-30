@@ -127,6 +127,37 @@ export class MnistWasmWrapper {
     }
 
     /**
+     * Predicts probabilities for all 10 digit classes (0-9) and returns the hidden-layer
+     * (Dense1) post-ReLU activations.
+     *
+     * @param {Float32Array} imageData - Flattened 28×28 image (784 pixels), normalized to [0, 1]
+     * @returns {{ probabilities: Float32Array, hidden: Float32Array }}
+     */
+    predictWithHidden(imageData) {
+        if (!this.isReady()) {
+            throw new Error('MNIST classifier not initialized. Call initialize() first.');
+        }
+
+        if (!(imageData instanceof Float32Array)) {
+            throw new Error('Input must be a Float32Array');
+        }
+
+        if (imageData.length !== 784) {
+            throw new Error(`Invalid input size: expected 784 pixels, got ${imageData.length}`);
+        }
+
+        try {
+            const result = this.classifier.predict_with_hidden(imageData);
+            return {
+                probabilities: new Float32Array(result.probabilities),
+                hidden: new Float32Array(result.hidden)
+            };
+        } catch (error) {
+            throw new Error(`Prediction failed: ${error.message}`);
+        }
+    }
+
+    /**
      * Predicts the most likely digit class (0-9).
      *
      * @param {Float32Array} imageData - Flattened 28×28 image (784 pixels),

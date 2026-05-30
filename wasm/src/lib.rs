@@ -141,6 +141,30 @@ impl MnistClassifier {
         Ok(probabilities)
     }
 
+    /// Predicts probabilities and also returns the hidden-layer activations (post-ReLU).
+    ///
+    /// Intended for lightweight model introspection in the static browser demo.
+    ///
+    /// # Returns
+    ///
+    /// A JS object: `{ probabilities: number[], hidden: number[] }`.
+    pub fn predict_with_hidden(&self, image_data: &[f32]) -> Result<JsValue, JsValue> {
+        if image_data.len() != 784 {
+            return Err(JsValue::from_str(&format!(
+                "Invalid input size: expected 784 pixels, got {}",
+                image_data.len()
+            )));
+        }
+
+        let (probabilities, hidden) = self.model.predict_with_hidden(image_data);
+
+        let result = js_sys::Object::new();
+        js_sys::Reflect::set(&result, &JsValue::from_str("probabilities"), &serde_wasm_bindgen::to_value(&probabilities).map_err(|e| JsValue::from_str(&e.to_string()))?)?;
+        js_sys::Reflect::set(&result, &JsValue::from_str("hidden"), &serde_wasm_bindgen::to_value(&hidden).map_err(|e| JsValue::from_str(&e.to_string()))?)?;
+
+        Ok(result.into())
+    }
+
     /// Predicts the most likely digit class (0-9).
     ///
     /// # Arguments

@@ -1,5 +1,16 @@
 # GAN Tutorial: Generative Adversarial Networks for MNIST
 
+## At a glance
+
+- **Level:** Advanced (optional branch)
+- **Estimated time:** 60–120 minutes
+- **Prerequisites:** Familiarity with MNIST training from the earlier tutorials (e.g. `docs/tutorials/02_mnist_mlp.md`) and basic probability/optimization
+- **How to run (smoke check):**
+  ```bash
+  cargo run --bin mnist_gan -- --help
+  ```
+- **Expected output/artifacts:** Help text printed; full training produces sample images/checkpoints under `artifacts/` (see below)
+
 This document explains GAN theory, the architecture implemented in this project, common training challenges, mode collapse detection, and a complete usage guide for the `mnist_gan` binary.
 
 ## Table of Contents

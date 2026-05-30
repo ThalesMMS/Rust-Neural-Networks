@@ -67,6 +67,9 @@ impl TransformerBlock {
     /// # Examples
     ///
     /// ```
+    /// use rust_neural_networks::layers::TransformerBlock;
+    /// use rust_neural_networks::utils::rng::SimpleRng;
+    ///
     /// let mut rng = SimpleRng::new(42);
     /// let block = TransformerBlock::new(256, 8, 1024, &mut rng);
     /// assert_eq!(block.d_model(), 256);

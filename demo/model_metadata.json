@@ -1,0 +1,35 @@
+{
+  "name": "MNIST MLP",
+  "task": "Handwritten digit classification (0–9)",
+  "input": "28×28 grayscale image (flattened to 784 floats in [0,1])",
+  "output": "10-class probabilities",
+  "architecture": {
+    "layers": [
+      {
+        "name": "Dense 1",
+        "type": "dense",
+        "input_size": 784,
+        "output_size": 512,
+        "activation": "ReLU"
+      },
+      {
+        "name": "Dense 2",
+        "type": "dense",
+        "input_size": 512,
+        "output_size": 10,
+        "activation": "Softmax"
+      }
+    ],
+    "parameter_count": {
+      "total": 407050,
+      "breakdown": [
+        { "layer": "Dense 1", "weights": 401408, "biases": 512, "total": 401920 },
+        { "layer": "Dense 2", "weights": 5120, "biases": 10, "total": 5130 }
+      ]
+    }
+  },
+  "training_reference": {
+    "dataset": "MNIST",
+    "note": "This demo ships a pre-trained model included in the repository. Training hyperparameters/accuracy may vary by run; see project README/benchmarks for details."
+  }
+}

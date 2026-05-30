@@ -1,5 +1,16 @@
 # ResNet & Residual Learning: Theory and Implementation
 
+## At a glance
+
+- **Level:** Advanced (optional deep-dive)
+- **Estimated time:** 45–90 minutes
+- **Prerequisites:** Comfort with backprop/vanishing gradients; recommended after `docs/tutorials/03_mnist_cnn.md`
+- **How to run (smoke check):**
+  ```bash
+  cargo test -q
+  ```
+- **Expected output/artifacts:** Test suite completes successfully; no artifacts expected for the smoke check
+
 > **Learning Objectives**
 >
 > After reading this tutorial you will understand:

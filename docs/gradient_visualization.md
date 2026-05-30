@@ -1,5 +1,16 @@
 # Gradient Visualization Tool
 
+## At a glance
+
+- **Level:** Intermediate/Advanced (tooling + interpretability)
+- **Estimated time:** 20–45 minutes (excluding model training time)
+- **Prerequisites:** A completed training run that emits gradient logs (or willingness to run an example training binary)
+- **How to run (smoke check):**
+  ```bash
+  cargo run --bin preflight
+  ```
+- **Expected output/artifacts:** Preflight completes; full usage generates plots/CSVs (see "Output Files" below)
+
 This document explains how to use the interactive gradient visualization tool to understand gradient flow through neural networks during training. The tool helps learners diagnose vanishing and exploding gradient problems and understand training dynamics.
 
 ## Table of Contents

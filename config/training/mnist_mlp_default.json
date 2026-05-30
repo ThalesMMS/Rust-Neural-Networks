@@ -2,6 +2,23 @@
   "scheduler_type": "step_decay",
   "step_size": 3,
   "gamma": 0.5,
+
+  "warmup": {
+    "type": "linear",
+    "epochs": 2,
+    "start_lr": 0.001
+  },
+
+  "regularization": {
+    "l1": 0.0,
+    "l2": 0.00001
+  },
+
+  "gradient_clipping": {
+    "type": "norm",
+    "max_norm": 1.0
+  },
+
   "activation_function": "relu",
   "learning_rate": 0.01,
   "epochs": 10,

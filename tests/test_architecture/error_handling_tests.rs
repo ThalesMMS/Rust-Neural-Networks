@@ -221,3 +221,122 @@ fn test_invalid_batchnorm_momentum() {
     let error_msg = result.unwrap_err().to_string();
     assert!(error_msg.contains("momentum"));
 }
+
+#[test]
+fn test_missing_required_field_maxpool() {
+    let config_json = r#"{
+  "layers": [
+{
+  "layer_type": "maxpool",
+  "pool_size": 2,
+  "pool_input_height": 28,
+  "pool_input_width": 28
+}
+  ]
+}"#;
+
+    let temp_file = write_temp_config(config_json);
+    let result = load_architecture(temp_file.path().to_str().unwrap());
+
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(error_msg.contains("pool_channels"));
+}
+
+#[test]
+fn test_invalid_pool_size_zero() {
+    let config_json = r#"{
+  "layers": [
+{
+  "layer_type": "avgpool",
+  "pool_size": 0,
+  "pool_stride": 2,
+  "pool_padding": 0,
+  "pool_input_height": 28,
+  "pool_input_width": 28,
+  "pool_channels": 8
+}
+  ]
+}"#;
+
+    let temp_file = write_temp_config(config_json);
+    let result = load_architecture(temp_file.path().to_str().unwrap());
+
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(error_msg.contains("pool_size"));
+    assert!(error_msg.contains("greater than 0"));
+}
+
+#[test]
+fn test_invalid_pool_stride_zero() {
+    let config_json = r#"{
+  "layers": [
+{
+  "layer_type": "maxpool",
+  "pool_size": 2,
+  "pool_stride": 0,
+  "pool_padding": 0,
+  "pool_input_height": 28,
+  "pool_input_width": 28,
+  "pool_channels": 8
+}
+  ]
+}"#;
+
+    let temp_file = write_temp_config(config_json);
+    let result = load_architecture(temp_file.path().to_str().unwrap());
+
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(error_msg.contains("pool_stride"));
+    assert!(error_msg.contains("greater than 0"));
+}
+
+#[test]
+fn test_invalid_pooling_shape_too_large_kernel() {
+    let config_json = r#"{
+  "layers": [
+{
+  "layer_type": "avgpool",
+  "pool_size": 5,
+  "pool_stride": 1,
+  "pool_padding": 0,
+  "pool_input_height": 3,
+  "pool_input_width": 3,
+  "pool_channels": 8
+}
+  ]
+}"#;
+
+    let temp_file = write_temp_config(config_json);
+    let result = load_architecture(temp_file.path().to_str().unwrap());
+
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(error_msg.contains("invalid pooling configuration"));
+}
+
+#[test]
+fn test_pool_layer_requires_pool_mode() {
+    let config_json = r#"{
+  "layers": [
+{
+  "layer_type": "pool",
+  "pool_size": 2,
+  "pool_stride": 2,
+  "pool_padding": 0,
+  "pool_input_height": 28,
+  "pool_input_width": 28,
+  "pool_channels": 8
+}
+  ]
+}"#;
+
+    let temp_file = write_temp_config(config_json);
+    let result = load_architecture(temp_file.path().to_str().unwrap());
+
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(error_msg.contains("requires 'pool_mode'"));
+}

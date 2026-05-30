@@ -246,6 +246,10 @@ fn test_create_optimizer_from_config() {
             gpu_backend: None,
             gpu_device_id: None,
             step_debug: None,
+            warmup: None,
+            cyclical_lr: None,
+            regularization: None,
+            gradient_clipping: None,
         }
     }
 

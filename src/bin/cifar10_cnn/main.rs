@@ -80,10 +80,9 @@ use persistence::*;
 /// main();
 /// ```
 fn main() {
-    // Parse command-line arguments for config file paths
+    // Parse command-line arguments for config/architecture file paths
     let args: Vec<String> = env::args().collect();
-    let arch_path = parse_arch_path(&args);
-    let config_path = parse_config_path(&args, DEFAULT_CONFIG_PATH);
+    let (config_path, arch_path) = parse_config_paths(&args);
 
     // Load config
     println!("=== CIFAR-10 CNN Training ===");
@@ -383,6 +382,32 @@ fn main() {
                 &mut grad_buffer1,
                 &mut grad_buffer2,
             );
+
+            // Apply optional regularization and gradient clipping before updating parameters.
+            if let Some(ref reg) = config.regularization {
+                for layer in model.layers.iter() {
+                    let any_layer = layer.as_ref().as_any();
+                    if let Some(dense_layer) = any_layer.downcast_ref::<DenseLayer>() {
+                        if let Some(l2) = reg.l2 {
+                            if l2 > 0.0 {
+                                dense_layer.apply_l2_regularization(l2);
+                            }
+                        }
+                        if let Some(l1) = reg.l1 {
+                            if l1 > 0.0 {
+                                dense_layer.apply_l1_regularization(l1);
+                            }
+                        }
+                    }
+                }
+            }
+
+            for layer in model.layers.iter() {
+                let any_layer = layer.as_ref().as_any();
+                if let Some(dense_layer) = any_layer.downcast_ref::<DenseLayer>() {
+                    dense_layer.apply_gradient_clipping(&config.gradient_clipping);
+                }
+            }
 
             // Log gradient magnitudes before parameter update (accumulate for epoch).
             // Also collect current batch gradients for debugger.

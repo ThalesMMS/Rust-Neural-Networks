@@ -1,0 +1,23 @@
+{
+  "scheduler_type": "constant",
+  "activation_function": "relu",
+  "learning_rate": 0.01,
+  "epochs": 10,
+  "batch_size": 64,
+  "validation_split": 0.1,
+  "early_stopping_patience": 3,
+  "early_stopping_min_delta": 0.001,
+  "warmup": {
+    "warmup_type": "linear",
+    "epochs": 3,
+    "start_lr": 0.001
+  },
+  "regularization": {
+    "l1_lambda": 0.0,
+    "l2_lambda": 0.0001
+  },
+  "gradient_clipping": {
+    "clip_type": "norm",
+    "max_norm": 1.0
+  }
+}

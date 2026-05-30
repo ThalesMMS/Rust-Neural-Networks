@@ -1,0 +1,10 @@
+{
+  "scheduler_type": "constant",
+  "activation_function": "relu",
+  "learning_rate": 0.001,
+  "epochs": 10,
+  "batch_size": 32,
+  "validation_split": 0.1,
+  "early_stopping_patience": 3,
+  "early_stopping_min_delta": 0.001
+}

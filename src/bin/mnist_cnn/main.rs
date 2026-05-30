@@ -24,8 +24,8 @@ use rust_neural_networks::layers::{DenseLayer, Layer};
 use rust_neural_networks::step_debug::StepDebugger;
 use rust_neural_networks::training::{
     compute_softmax_cross_entropy, evaluate_batch_accuracy, gather_batch, parse_config_path,
-    parse_step_flag, print_training_config, CsvTrainingLogger, EarlyStopping, EarlyStoppingAction,
-    TrainingMetrics,
+    parse_registry_dir, parse_run_name, parse_seed_override, parse_step_flag,
+    print_training_config, CsvTrainingLogger, EarlyStopping, EarlyStoppingAction, TrainingMetrics,
 };
 use rust_neural_networks::utils::activations::{relu_inplace, softmax_rows};
 use rust_neural_networks::utils::lr_scheduler::{create_scheduler_from_config, LRScheduler};
@@ -222,7 +222,18 @@ fn main() {
         actual_train_samples, validation_samples, test_n
     );
 
-    let mut rng = SimpleRng::new(1);
+    // Registry-related CLI args (optional)
+    let run_name = parse_run_name(&args);
+    let registry_dir = parse_registry_dir(&args).unwrap_or_else(|| "runs".to_string());
+
+    // Log paths that we want to capture in the run record.
+    let training_log_path = "./logs/training_loss_cnn.csv".to_string();
+    let gradient_log_path = "./logs/gradients_cnn.csv".to_string();
+
+    let seed = parse_seed_override(&args).unwrap_or(1);
+    let run_id = rust_neural_networks::experiment_registry_run_id::generate_run_id();
+    let timestamp_start = chrono::Utc::now().to_rfc3339();
+    let mut rng = SimpleRng::new(seed);
 
     // Augmentation RNG for use with gather_batch
     let mut aug_rng = SimpleRng::new(2);
@@ -285,6 +296,7 @@ fn main() {
         epochs, batch_size, learning_rate
     );
 
+    let training_start = Instant::now();
     for epoch in 0..epochs {
         let start_time = Instant::now();
         rng.shuffle_usize(&mut indices);
@@ -584,7 +596,55 @@ fn main() {
 
     save_model(&model, "mnist_cnn_model_final.bin");
 
+    // Registry artifacts captured (minimum: training log path; plus any obvious artifacts).
+    let artifacts = rust_neural_networks::experiment_registry::Artifacts {
+        training_log_csv: Some(training_log_path),
+        checkpoints: vec![
+            "mnist_cnn_model_best.bin".to_string(),
+            "mnist_cnn_model_final.bin".to_string(),
+        ],
+        plots: vec![],
+        extra: Some(serde_json::json!({
+            "gradient_log_csv": gradient_log_path,
+        })),
+    };
+
     println!("Testing...");
     let acc = test_accuracy(&mut model, &test_images, &test_labels);
     println!("Test Accuracy: {:.2}%", acc);
+
+    let record = rust_neural_networks::experiment_registry::RunRecord {
+        schema_version: rust_neural_networks::experiment_registry::RUN_RECORD_SCHEMA_VERSION
+            .to_string(),
+        run_id,
+        run_name,
+        timestamp_start,
+        timestamp_end: Some(chrono::Utc::now().to_rfc3339()),
+        model_type: "mnist_cnn".to_string(),
+        command: Some(std::env::args().collect::<Vec<_>>().join(" ")),
+        status: rust_neural_networks::experiment_registry::RunStatus::Completed,
+        seed,
+        config: rust_neural_networks::experiment_registry::ConfigSnapshot {
+            config_path: Some(config_path.clone()),
+            config_format: Some("json".to_string()),
+            raw: std::fs::read_to_string(&config_path).ok(),
+            parsed: None,
+        },
+        dataset: Some(rust_neural_networks::experiment_registry::dataset_placeholder("mnist")),
+        metrics: Some(rust_neural_networks::experiment_registry::Metrics {
+            epochs_completed: epochs,
+            final_train_loss: Some(early_stopping.best_val_loss as f64),
+            final_val_loss: Some(early_stopping.best_val_loss as f64),
+            final_val_accuracy: Some(acc as f64),
+            total_training_time_seconds: Some(training_start.elapsed().as_secs_f64()),
+        }),
+        artifacts: Some(artifacts),
+        environment: Some(rust_neural_networks::experiment_registry::collect_environment()),
+    };
+
+    if let Err(e) =
+        rust_neural_networks::experiment_registry::write_run_record(&registry_dir, &record)
+    {
+        eprintln!("Warning: failed to write run record: {e}");
+    }
 }

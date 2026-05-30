@@ -25,6 +25,8 @@ pub mod benchmark;
 pub mod compression;
 pub mod config;
 pub mod data;
+pub mod experiment_registry;
+pub mod experiment_registry_run_id;
 #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
 pub mod gpu;
 pub mod layers;

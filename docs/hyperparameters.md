@@ -768,7 +768,7 @@ Use when training on larger datasets where larger batches are beneficial.
 **Solutions:**
 - Reduce model complexity (fewer layers or units)
 - Increase validation split to 0.2
-- Add regularization (not yet supported in config)
+- Add regularization (see **Regularization** section below)
 - Use early stopping with patience=2
 
 ### Training Too Slow
@@ -795,11 +795,72 @@ Use when training on larger datasets where larger batches are beneficial.
 
 ### Learning Rate Warmup
 
-Not yet supported in configuration, but planned for future releases. Warmup gradually increases learning rate from 0 to target value over initial epochs.
+Supported via the `warmup` section in the JSON config. Warmup gradually increases learning rate from a starting value to the base learning rate over the first N epochs.
+
+**Fields:**
+- `warmup.epochs` (integer, > 0)
+- `warmup.start_lr` (float, > 0)
+- `warmup.warmup_type` (string; currently `"linear"`)
+
+**Example:**
+```json
+{
+  "scheduler_type": "constant",
+  "learning_rate": 0.01,
+  "warmup": {
+    "warmup_type": "linear",
+    "epochs": 3,
+    "start_lr": 0.001
+  }
+}
+```
 
 ### Cyclical Learning Rates
 
-Not yet supported. Cyclical LR repeatedly cycles between minimum and maximum learning rates.
+Supported via the `cyclical_lr` section in the JSON config. Cyclical LR repeatedly cycles between minimum and maximum learning rates.
+
+**Important:** When using `cyclical_lr`, set `"scheduler_type": "constant"` and do not set `learning_rate` separately (the scheduler controls the LR).
+
+**Fields:**
+- `cyclical_lr.min_lr` (float, > 0)
+- `cyclical_lr.max_lr` (float, > 0; must be > `min_lr`)
+- `cyclical_lr.step_size` (integer, > 0)
+- `cyclical_lr.mode` (string; currently `"triangular"`)
+
+**Example:**
+```json
+{
+  "scheduler_type": "constant",
+  "cyclical_lr": {
+    "mode": "triangular",
+    "min_lr": 0.0005,
+    "max_lr": 0.01,
+    "step_size": 200
+  }
+}
+```
+
+### Regularization
+
+Supported via the `regularization` section in the JSON config.
+
+**Fields:**
+- `regularization.l1_lambda` (float, >= 0)
+- `regularization.l2_lambda` (float, >= 0)
+
+**Notes:**
+- Set either/both to `0.0` to disable.
+- Some models/optimizers may restrict which regularization modes are supported; invalid combinations are rejected at config validation time.
+
+**Example:**
+```json
+{
+  "regularization": {
+    "l1_lambda": 0.0,
+    "l2_lambda": 0.0001
+  }
+}
+```
 
 ### Adaptive Optimizers
 
@@ -807,7 +868,31 @@ Current models support SGD and Adam optimizers (hardcoded). Future releases may 
 
 ### Gradient Clipping
 
-Not yet supported in configuration. Gradient clipping prevents exploding gradients by capping gradient magnitude.
+Supported via the `gradient_clipping` section in the JSON config. Gradient clipping prevents exploding gradients by capping gradient magnitude.
+
+**Modes:**
+- `"norm"`: clip global gradient norm to `max_norm`
+- `"value"`: clip each gradient value into `[-clip_value, +clip_value]`
+
+**Example (norm clipping):**
+```json
+{
+  "gradient_clipping": {
+    "clip_type": "norm",
+    "max_norm": 1.0
+  }
+}
+```
+
+**Example (value clipping):**
+```json
+{
+  "gradient_clipping": {
+    "clip_type": "value",
+    "clip_value": 0.1
+  }
+}
+```
 
 ## See Also
 

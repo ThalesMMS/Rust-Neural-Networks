@@ -396,7 +396,15 @@ ae.update_with_optimizer(&mut optimizer);
 
 ### Prerequisites
 
-Ensure the MNIST data is in the `data/` directory. See `docs/2b MNIST-Data-Setup.md` for download instructions.
+Ensure the MNIST data is in the `data/` directory.
+
+You can verify the dataset layout with:
+
+```bash
+cargo run --bin dataset-helper -- verify --mnist
+```
+
+(Download instructions: see the MNIST dataset notes in this repo's docs/tutorials.)
 
 ### Build and Run
 

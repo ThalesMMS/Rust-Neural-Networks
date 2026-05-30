@@ -74,6 +74,14 @@ data/cifar-10-batches-bin/
 - Validation: 5,000 images (10% of training set)
 - Test: 10,000 images (separate test set)
 
+## Quick Verification (Recommended)
+
+After downloading/extracting, verify the expected file layout under `./data`:
+
+```bash
+cargo run --bin dataset-helper -- verify --cifar10
+```
+
 ## Download Instructions
 
 ### Official Source
@@ -457,7 +465,14 @@ cargo run --release --bin cifar10_cnn
 
 **With configuration file (recommended):**
 ```bash
-cargo run --release --bin cifar10_cnn config/cifar10_cnn_baseline.json
+cargo run --release --bin cifar10_cnn -- --config config/training/cifar10_cnn_default.json
+```
+
+**With deep architecture (optional):**
+```bash
+cargo run --release --bin cifar10_cnn -- \
+  --arch config/architectures/cifar10_deep_cnn.json \
+  --config config/training/cifar10_deep_cnn_default.json
 ```
 
 **Expected output:**
@@ -712,8 +727,9 @@ thread 'main' panicked at 'allocation failed'
 ### Implementation Details
 
 - **Data loader**: `src/data/cifar10.rs`
-- **CNN binary**: `cifar10_cnn.rs`
-- **Configuration**: `config/cifar10_cnn_baseline.json`
+- **CNN binary**: `src/bin/cifar10_cnn/main.rs`
+- **Training configs**: `config/training/cifar10_cnn_default.json`, `config/training/cifar10_deep_cnn_default.json`
+- **Architecture configs**: `config/architectures/cifar10_cnn_baseline.json`, `config/architectures/cifar10_deep_cnn.json`
 - **Tests**: `tests/test_cifar10_loader.rs`
 
 ### Related Documentation

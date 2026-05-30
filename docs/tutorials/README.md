@@ -2,6 +2,12 @@
 
 This directory contains comprehensive step-by-step tutorials for building neural network architectures from scratch. Each tutorial progressively introduces concepts, layers, and operations with detailed explanations, worked examples, and expected outputs for verification.
 
+## Start here: curated learning paths
+
+If you want a guided, end-to-end progression (with suggested smoke-check commands to confirm each step still runs), see:
+
+- **[Curated Learning Paths](../learning_paths.md)** (Beginner / Intermediate / Advanced)
+
 ## Overview
 
 These tutorials provide a guided learning path through neural network implementation, starting from the simplest XOR classifier and progressing to convolutional networks for image recognition. Each tutorial is designed to be self-contained while building on concepts from previous tutorials.

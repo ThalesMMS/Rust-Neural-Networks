@@ -9,6 +9,12 @@ use serde::Deserialize;
 ///   and optional `padding` (default 0), `stride` (default 1)
 /// - **BatchNorm**: Requires `size`, and optional `epsilon` (default 1e-5), `momentum` (default 0.9)
 /// - **Dropout**: Requires `size` and `drop_rate` (probability of dropping units, range [0.0, 1.0))
+/// - **Pooling**: Supported via:
+///   - `layer_type`: "maxpool" or "avgpool" and pooling fields (see below), or
+///   - `layer_type`: "pool" with `pool_mode`: "max" or "avg" and pooling fields
+///
+///   Pooling requires `pool_size`, `pool_input_height`, `pool_input_width`, and `pool_channels`, and
+///   supports optional `pool_stride` (default: `pool_size`) and `pool_padding` (default: 0).
 ///
 /// # Examples
 ///
@@ -32,10 +38,22 @@ use serde::Deserialize;
 ///   "input_width": 28
 /// }
 /// ```
+///
+/// ```json
+/// {
+///   "layer_type": "maxpool",
+///   "pool_size": 2,
+///   "pool_stride": 2,
+///   "pool_padding": 0,
+///   "pool_input_height": 28,
+///   "pool_input_width": 28,
+///   "pool_channels": 8
+/// }
+/// ```
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LayerConfig {
-    /// Type of layer: "dense", "conv2d", "batchnorm", or "dropout"
+    /// Type of layer: "dense", "conv2d", "batchnorm", "dropout", "maxpool", "avgpool", or "pool"
     pub layer_type: String,
 
     // Dense layer parameters
@@ -71,6 +89,22 @@ pub struct LayerConfig {
     // Dropout layer parameters
     /// Drop rate for Dropout layer (probability of dropping units)
     pub drop_rate: Option<f32>,
+
+    // Pooling layer parameters
+    /// Window size for pooling layers (assumes square window)
+    pub pool_size: Option<usize>,
+    /// Stride for pooling layers (default: pool_size)
+    pub pool_stride: Option<usize>,
+    /// Input height for pooling layers
+    pub pool_input_height: Option<usize>,
+    /// Input width for pooling layers
+    pub pool_input_width: Option<usize>,
+    /// Number of channels for pooling layers
+    pub pool_channels: Option<usize>,
+    /// Padding for pooling layers (default: 0)
+    pub pool_padding: Option<isize>,
+    /// Pooling mode for pooling layers: "max" or "avg" (optional; alternative to layer_type variants)
+    pub pool_mode: Option<String>,
 }
 
 /// Configuration for the entire neural network architecture.

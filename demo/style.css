@@ -221,6 +221,60 @@ header h1 {
     flex-direction: column;
 }
 
+/* ========== Preprocessing Preview ========== */
+.preprocess-panel {
+    margin: 0 0 var(--spacing-md);
+    padding: var(--spacing-md);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: rgba(74, 144, 226, 0.05);
+}
+
+.preprocess-panel h3 {
+    margin: 0 0 var(--spacing-xs);
+    font-size: 1rem;
+}
+
+.preprocess-subtitle {
+    margin: 0 0 var(--spacing-sm);
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+.preprocess-preview-row {
+    display: flex;
+    gap: var(--spacing-md);
+    align-items: flex-start;
+}
+
+#preprocess-canvas {
+    width: 140px;
+    height: 140px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: #000;
+    image-rendering: pixelated;
+}
+
+.preprocess-bullets ul {
+    margin: 0;
+    padding-left: 1.25rem;
+    color: var(--text-color);
+    font-size: 0.9rem;
+}
+
+.preprocess-bullets code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.85em;
+}
+
+.preprocess-note {
+    margin: 0.5rem 0 0;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    line-height: 1.4;
+}
+
 .predictions-section h2 {
     font-size: 1.5rem;
     font-weight: 600;
@@ -233,6 +287,102 @@ header h1 {
     flex-direction: column;
     gap: var(--spacing-sm);
     margin-bottom: var(--spacing-md);
+}
+
+/* ========== Model Metadata ========== */
+.metadata-panel {
+    margin: var(--spacing-sm) 0 var(--spacing-md);
+    padding: var(--spacing-md);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: rgba(74, 144, 226, 0.04);
+}
+
+.metadata-panel h3 {
+    margin: 0 0 var(--spacing-xs);
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.metadata-content {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+.metadata-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.metadata-row {
+    display: grid;
+    grid-template-columns: 170px 1fr;
+    gap: 0.75rem;
+}
+
+.metadata-key {
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.metadata-value {
+    color: var(--text-color);
+}
+
+.metadata-list {
+    margin: 0.25rem 0 0;
+    padding-left: 1.25rem;
+    color: var(--text-color);
+}
+
+.metadata-small {
+    margin-top: 0.5rem;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+/* ========== Intermediate Signal Introspection ========== */
+.introspection-panel {
+    margin: var(--spacing-sm) 0 var(--spacing-md);
+    padding: var(--spacing-md);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 10px;
+    background: #fafafa;
+}
+
+.introspection-panel h3 {
+    margin: 0 0 var(--spacing-xs);
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.introspection-subtitle {
+    margin: 0 0 var(--spacing-sm);
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    line-height: 1.3;
+}
+
+.activation-summary {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.85rem;
+    color: var(--text-color);
+    margin-bottom: var(--spacing-sm);
+}
+
+.activation-bars {
+    display: grid;
+    grid-template-columns: repeat(64, 1fr);
+    gap: 2px;
+}
+
+.activation-bar {
+    height: 16px;
+    background: #ddd;
+    border-radius: 2px;
 }
 
 /* ========== Prediction Rows & Bars ========== */

@@ -198,6 +198,17 @@ impl MnistModel {
     /// assert!((sum - 1.0).abs() < 1e-5, "Probabilities should sum to 1.0");
     /// ```
     pub fn predict(&self, input: &[f32]) -> Vec<f32> {
+        self.predict_with_hidden(input).0
+    }
+
+    /// Runs inference and also returns the hidden-layer activations (post-ReLU).
+    ///
+    /// This is useful for educational introspection in the browser demo.
+    ///
+    /// # Returns
+    ///
+    /// (probabilities, hidden_activations)
+    pub fn predict_with_hidden(&self, input: &[f32]) -> (Vec<f32>, Vec<f32>) {
         assert_eq!(
             input.len(),
             NUM_INPUTS,
@@ -216,7 +227,7 @@ impl MnistModel {
         self.output_layer.forward(&hidden, &mut output, 1);
         softmax_rows(&mut output, 1, NUM_OUTPUTS);
 
-        output
+        (output, hidden)
     }
 
     /// Returns the predicted digit class (0-9) for the given input.

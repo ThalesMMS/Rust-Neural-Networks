@@ -1,5 +1,16 @@
 # WebAssembly Demo
 
+## At a glance
+
+- **Level:** Advanced (deployment)
+- **Estimated time:** 30–60 minutes
+- **Prerequisites:** Rust toolchain, `wasm-pack`, and a local static file server
+- **How to run (smoke check):**
+  ```bash
+  cargo run --bin preflight
+  ```
+- **Expected output/artifacts:** Preflight completes; full build produces WASM + JS bindings under `wasm_demo/pkg/`
+
 This document provides comprehensive documentation for the browser-based MNIST digit recognition demo built with WebAssembly (WASM). The demo allows users to draw digits in their browser and see real-time predictions from a neural network, all running client-side with no server required.
 
 ## Table of Contents
@@ -47,13 +58,14 @@ The WebAssembly demo brings the Rust MNIST neural network implementation to the 
 - **Client-side inference**: All computation happens in the browser
 - **No server required**: Completely static, can be hosted anywhere
 - **Cross-platform**: Works on desktop and mobile devices
-- **Educational**: Visual feedback shows model confidence for all digits
+- **Educational**: Visual feedback shows model confidence for all digits, plus intermediate hidden-layer activations and preprocessing/model metadata panels
 
 **Key Benefits:**
 - Zero installation for users - just open a webpage
 - Privacy-preserving - no data leaves the browser
 - Fast inference - compiled WASM runs at near-native speed
 - Accessible - demonstrates ML concepts interactively
+- More explainable: see preprocessing (28×28 input), hidden-layer activations, and per-class confidence
 
 ## Quick Start
 
@@ -80,8 +92,9 @@ wasm-pack build --target web
 # 2. Copy WASM package to demo directory
 cp -r pkg ../demo/
 
-# 3. Ensure model file is in demo directory
-cp ../mnist_model.bin ../demo/
+# 3. Ensure the curated model file is present
+# The demo expects: demo/mnist_model.bin (tracked as a curated asset)
+ls -lh ../demo/mnist_model.bin
 
 # 4. Start HTTP server and test
 cd ../demo
@@ -298,7 +311,8 @@ The WASM demo consists of three main layers:
 
 - `model.rs` - Neural network model structure
   - `MnistModel` - Loads model from binary format
-  - `predict()` - Runs inference on 28×28 input
+  - `predict()` - Runs inference on 28×28 input (returns probabilities)
+  - `predict_with_hidden()` - Runs inference and returns (probabilities + hidden-layer activations)
   - `predict_class()` - Returns predicted digit
 
 - `layer.rs` - Dense layer implementation
@@ -324,19 +338,26 @@ The WASM demo consists of three main layers:
 - `wasm_wrapper.js` - WASM lifecycle management
   - `MnistWasmWrapper` - Manages WASM module and model
   - `init()` - Initializes WASM module
-  - `predict()` - Calls WASM inference
+  - `predict()` - Calls WASM inference (probabilities only)
+  - `predictWithHidden()` - Calls WASM inference and returns probabilities + hidden activations
 
 - `app.js` - Main application controller
   - `DigitRecognizerApp` - Coordinates all components
   - Canvas drawing with mouse/touch events
   - Image preprocessing (280×280 → 28×28 grayscale)
+  - Preprocessing preview (magnified 28×28 input)
   - Real-time prediction updates
+  - Introspection UI: hidden-layer activation grid + summary stats
+  - Metadata panel: loads and renders `model_metadata.json`
 
 **3. User Interface (`demo/`):**
 
 - `index.html` - Page structure
   - Drawing canvas (280×280 pixels)
   - 10 prediction bars (one per digit)
+  - Preprocessing preview (28×28 input)
+  - Introspection panel (hidden-layer activations)
+  - Model metadata panel
   - Control buttons (Clear, Predict)
   - Status messages
 
@@ -375,9 +396,11 @@ The complete inference flow from user input to prediction display:
    ↓
 9. Returns Float32Array(10) probabilities
    ↓
-10. JavaScript updates prediction bars
+10. (Optional introspection) Also returns hidden-layer activations (Float32Array(512))
    ↓
-11. Top prediction highlighted green
+11. JavaScript updates prediction bars, preprocessing preview, and activation grid
+   ↓
+12. Top prediction highlighted green
 ```
 
 **Timing (on modern hardware):**
@@ -1135,8 +1158,10 @@ Solution:
 - [ ] Lazy loading of components
 
 **Educational features:**
-- [ ] Layer activation visualization
-- [ ] Confidence explanation
+- [x] Layer activation visualization (Dense1 post-ReLU activations)
+- [x] Confidence visualization (10-class probability bars)
+- [x] Preprocessing explanation + 28×28 input preview
+- [x] Model metadata panel (architecture + parameter count)
 - [ ] Comparison with server-side inference
 - [ ] Training data examples
 - [ ] Interactive architecture diagram

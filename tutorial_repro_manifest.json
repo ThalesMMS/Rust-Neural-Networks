@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": 1,
+  "paths": {
+    "beginner": {
+      "title": "Beginner learning path",
+      "checks": [
+        {
+          "id": "preflight",
+          "description": "Verify toolchain, repo layout, and basic prerequisites.",
+          "command": ["cargo", "run", "--quiet", "--bin", "preflight"],
+          "workdir": ".",
+          "timeout_seconds": 180,
+          "expect": { "stdout_contains": ["Result: PASS"] },
+          "require": []
+        },
+        {
+          "id": "xor_mlp",
+          "description": "Run XOR MLP tutorial smoke check.",
+          "command": ["cargo", "run", "--quiet", "--bin", "mlp_simple"],
+          "workdir": ".",
+          "timeout_seconds": 180,
+          "expect": { "stdout_contains": ["XOR"] }
+        }
+      ]
+    },
+    "intermediate": {
+      "title": "Intermediate learning path",
+      "checks": [
+        {
+          "id": "preflight",
+          "description": "Verify toolchain, repo layout, and basic prerequisites.",
+          "command": ["cargo", "run", "--quiet", "--bin", "preflight"],
+          "workdir": ".",
+          "timeout_seconds": 180,
+          "expect": { "stdout_contains": ["Result: PASS"] },
+          "require": []
+        },
+        {
+          "id": "mnist_mlp_help",
+          "description": "MNIST MLP binary responds and prints usage/help (fast smoke check).",
+          "command": ["cargo", "run", "--quiet", "--bin", "mnist_mlp", "--", "--help"],
+          "workdir": ".",
+          "timeout_seconds": 120,
+          "expect": { "stdout_contains": ["mnist", "Usage"] }
+        },
+        {
+          "id": "mnist_cnn_help",
+          "description": "MNIST CNN binary responds and prints usage/help (fast smoke check).",
+          "command": ["cargo", "run", "--quiet", "--bin", "mnist_cnn", "--", "--help"],
+          "workdir": ".",
+          "timeout_seconds": 120,
+          "expect": { "stdout_contains": ["mnist", "Usage"] }
+        }
+      ]
+    },
+    "advanced": {
+      "title": "Advanced learning path",
+      "checks": [
+        {
+          "id": "preflight",
+          "description": "Verify toolchain, repo layout, and basic prerequisites.",
+          "command": ["cargo", "run", "--quiet", "--bin", "preflight"],
+          "workdir": ".",
+          "timeout_seconds": 180,
+          "expect": { "stdout_contains": ["Result: PASS"] },
+          "require": []
+        },
+        {
+          "id": "char_rnn_help",
+          "description": "Char-level RNN/LSTM binary responds and prints usage/help.",
+          "command": ["cargo", "run", "--quiet", "--bin", "rnn_char_level", "--", "--help"],
+          "workdir": ".",
+          "timeout_seconds": 120,
+          "expect": { "stdout_contains": ["Usage"] }
+        },
+        {
+          "id": "vit_help",
+          "description": "Vision Transformer binary responds and prints usage/help.",
+          "command": ["cargo", "run", "--quiet", "--bin", "cifar10_vit", "--", "--help"],
+          "workdir": ".",
+          "timeout_seconds": 120,
+          "expect": { "stdout_contains": ["Usage"] }
+        },
+        {
+          "id": "benchmarks_smoke",
+          "description": "Run the benchmark runner in CPU-only mode (smoke check: completes successfully).",
+          "command": ["cargo", "run", "--quiet", "--release", "--bin", "run_benchmarks", "--", "--cpu-only"],
+          "workdir": ".",
+          "timeout_seconds": 300,
+          "expect": { "stdout_contains": ["benchmark"] }
+        }
+      ]
+    }
+  }
+}

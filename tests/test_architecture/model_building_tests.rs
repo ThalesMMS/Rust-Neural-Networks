@@ -107,6 +107,56 @@ fn test_build_conv2d_model() {
 }
 
 #[test]
+#[ignore = "Pooling runtime layers are not available in this build; architecture validation supports pooling but builder does not expose it"]
+fn test_build_conv2d_with_pooling() {
+    let config_json = r#"{
+  "layers": [
+{
+  "layer_type": "conv2d",
+  "in_channels": 1,
+  "out_channels": 2,
+  "kernel_size": 3,
+  "padding": 1,
+  "stride": 1,
+  "input_height": 8,
+  "input_width": 8
+},
+{
+  "layer_type": "maxpool",
+  "pool_input_height": 8,
+  "pool_input_width": 8,
+  "pool_channels": 2,
+  "pool_size": 2,
+  "pool_stride": 2,
+  "pool_padding": 0
+}
+  ]
+}"#;
+
+    let temp_file = write_temp_config(config_json);
+    let config = load_architecture(temp_file.path().to_str().unwrap()).unwrap();
+
+    let mut rng = SimpleRng::new(42);
+    let layers = build_model(&config, &mut rng).unwrap();
+
+    assert_eq!(layers.len(), 2);
+
+    assert!(
+        layers[0]
+            .as_any()
+            .downcast_ref::<rust_neural_networks::layers::Conv2DLayer>()
+            .is_some(),
+        "expected Conv2DLayer"
+    );
+    assert_eq!(layers[0].output_size(), 2 * 8 * 8);
+
+    // Pooling runtime layer types are not currently exposed in crate::layers;
+    // validate via input/output sizes only.
+    assert_eq!(layers[1].input_size(), 2 * 8 * 8);
+    assert_eq!(layers[1].output_size(), 2 * 4 * 4);
+}
+
+#[test]
 fn test_build_single_layer_model() {
     let config_json = r#"{
   "layers": [

@@ -11,8 +11,17 @@
       "input_width": 28
     },
     {
+      "layer_type": "maxpool",
+      "pool_channels": 8,
+      "pool_input_height": 28,
+      "pool_input_width": 28,
+      "pool_size": 2,
+      "pool_stride": 2,
+      "pool_padding": 0
+    },
+    {
       "layer_type": "dense",
-      "input_size": 6272,
+      "input_size": 1568,
       "output_size": 128
     },
     {

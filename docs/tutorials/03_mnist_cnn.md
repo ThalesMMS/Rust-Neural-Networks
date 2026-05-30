@@ -1137,6 +1137,14 @@ Total: ~1.2 MB (fits easily in CPU cache!)
 
 ---
 
+## Dataset Setup
+
+Before training, verify MNIST is present under `./data` in the expected layout:
+
+```bash
+cargo run --bin dataset-helper -- verify --mnist
+```
+
 ## Verification and Expected Outputs
 
 ### Checkpoint 1: Conv2D Output Dimensions

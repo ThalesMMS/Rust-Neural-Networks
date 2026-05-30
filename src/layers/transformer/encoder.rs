@@ -51,6 +51,9 @@ impl TransformerEncoder {
     /// # Examples
     ///
     /// ```
+    /// use rust_neural_networks::layers::TransformerEncoder;
+    /// use rust_neural_networks::utils::rng::SimpleRng;
+    ///
     /// let mut rng = SimpleRng::new(42);
     /// let encoder = TransformerEncoder::new(6, 512, 8, 2048, &mut rng);
     /// assert_eq!(encoder.num_layers(), 6);

@@ -31,6 +31,22 @@ fn get_layer_input_size(layer: &LayerConfig) -> Result<usize, Box<dyn Error>> {
                 .and_then(|v| v.checked_mul(input_width))
                 .ok_or_else(|| invalid_data("Conv2D input size overflow"))
         }
+        "maxpool" | "avgpool" | "pool" => {
+            let channels = layer
+                .pool_channels
+                .ok_or_else(|| invalid_data("Pooling layer missing pool_channels"))?;
+            let input_height = layer
+                .pool_input_height
+                .ok_or_else(|| invalid_data("Pooling layer missing pool_input_height"))?;
+            let input_width = layer
+                .pool_input_width
+                .ok_or_else(|| invalid_data("Pooling layer missing pool_input_width"))?;
+
+            channels
+                .checked_mul(input_height)
+                .and_then(|v| v.checked_mul(input_width))
+                .ok_or_else(|| invalid_data("Pooling input size overflow"))
+        }
         "batchnorm" | "dropout" => layer
             .size
             .ok_or_else(|| invalid_data(format!("{} layer missing size", layer.layer_type))),
@@ -83,6 +99,42 @@ fn get_layer_output_size(layer: &LayerConfig) -> Result<usize, Box<dyn Error>> {
                 .and_then(|v| v.checked_mul(out_width))
                 .ok_or_else(|| invalid_data("Conv2D output size overflow"))
         }
+        "maxpool" | "avgpool" | "pool" => {
+            let channels = layer
+                .pool_channels
+                .ok_or_else(|| invalid_data("Pooling layer missing pool_channels"))?;
+            let input_height = layer
+                .pool_input_height
+                .ok_or_else(|| invalid_data("Pooling layer missing pool_input_height"))?;
+            let input_width = layer
+                .pool_input_width
+                .ok_or_else(|| invalid_data("Pooling layer missing pool_input_width"))?;
+            let pool_size = layer
+                .pool_size
+                .ok_or_else(|| invalid_data("Pooling layer missing pool_size"))?;
+            let pool_padding = layer.pool_padding.unwrap_or(0);
+            let pool_stride = layer.pool_stride.unwrap_or(pool_size);
+
+            let out_height_isize = (input_height as isize + 2 * pool_padding - pool_size as isize)
+                / pool_stride as isize
+                + 1;
+            if out_height_isize < 0 {
+                return Err(invalid_data("Pooling output height is negative"));
+            }
+            let out_width_isize = (input_width as isize + 2 * pool_padding - pool_size as isize)
+                / pool_stride as isize
+                + 1;
+            if out_width_isize < 0 {
+                return Err(invalid_data("Pooling output width is negative"));
+            }
+            let out_height = out_height_isize as usize;
+            let out_width = out_width_isize as usize;
+
+            channels
+                .checked_mul(out_height)
+                .and_then(|v| v.checked_mul(out_width))
+                .ok_or_else(|| invalid_data("Pooling output size overflow"))
+        }
         "batchnorm" | "dropout" => layer
             .size
             .ok_or_else(|| invalid_data(format!("{} layer missing size", layer.layer_type))),
@@ -90,6 +142,157 @@ fn get_layer_output_size(layer: &LayerConfig) -> Result<usize, Box<dyn Error>> {
             "Unknown layer type: {}",
             layer.layer_type
         ))),
+    }
+}
+
+fn validate_layer_connection(
+    current: &LayerConfig,
+    next: &LayerConfig,
+    index: usize,
+) -> Result<(), Box<dyn Error>> {
+    // If both layers declare full spatial shapes, validate H/W/C compatibility.
+    // Otherwise fall back to the scalar size check.
+    if let (Some(curr_h), Some(curr_w), Some(curr_c)) = (
+        get_layer_output_height(current),
+        get_layer_output_width(current),
+        get_layer_output_channels(current),
+    ) {
+        if let (Some(next_h), Some(next_w), Some(next_c)) = (
+            get_layer_input_height(next),
+            get_layer_input_width(next),
+            get_layer_input_channels(next),
+        ) {
+            if curr_c != next_c {
+                return Err(invalid_data(format!(
+                    "Layer connection mismatch: Layer {} output channels ({}) does not match Layer {} input channels ({})",
+                    index,
+                    curr_c,
+                    index + 1,
+                    next_c
+                )));
+            }
+            if curr_h != next_h {
+                return Err(invalid_data(format!(
+                    "Layer connection mismatch: Layer {} output height ({}) does not match Layer {} input height ({})",
+                    index,
+                    curr_h,
+                    index + 1,
+                    next_h
+                )));
+            }
+            if curr_w != next_w {
+                return Err(invalid_data(format!(
+                    "Layer connection mismatch: Layer {} output width ({}) does not match Layer {} input width ({})",
+                    index,
+                    curr_w,
+                    index + 1,
+                    next_w
+                )));
+            }
+
+            return Ok(());
+        }
+    }
+
+    let current_output = get_layer_output_size(current)?;
+    let next_input = get_layer_input_size(next)?;
+
+    if current_output != next_input {
+        return Err(invalid_data(format!(
+            "Layer connection mismatch: Layer {} output size ({}) does not match Layer {} input size ({})",
+            index,
+            current_output,
+            index + 1,
+            next_input
+        )));
+    }
+
+    Ok(())
+}
+
+fn get_layer_input_height(layer: &LayerConfig) -> Option<usize> {
+    match layer.layer_type.to_lowercase().as_str() {
+        "conv2d" => layer.input_height,
+        "maxpool" | "avgpool" | "pool" => layer.pool_input_height,
+        _ => None,
+    }
+}
+
+fn get_layer_input_width(layer: &LayerConfig) -> Option<usize> {
+    match layer.layer_type.to_lowercase().as_str() {
+        "conv2d" => layer.input_width,
+        "maxpool" | "avgpool" | "pool" => layer.pool_input_width,
+        _ => None,
+    }
+}
+
+fn get_layer_input_channels(layer: &LayerConfig) -> Option<usize> {
+    match layer.layer_type.to_lowercase().as_str() {
+        "conv2d" => layer.in_channels,
+        "maxpool" | "avgpool" | "pool" => layer.pool_channels,
+        _ => None,
+    }
+}
+
+fn get_layer_output_height(layer: &LayerConfig) -> Option<usize> {
+    match layer.layer_type.to_lowercase().as_str() {
+        "conv2d" => {
+            let input_height = layer.input_height?;
+            let kernel_size = layer.kernel_size?;
+            let padding = layer.padding.unwrap_or(0);
+            let stride = layer.stride.unwrap_or(1);
+
+            let out_height_isize =
+                (input_height as isize + 2 * padding - kernel_size as isize) / stride as isize + 1;
+            (out_height_isize >= 0).then_some(out_height_isize as usize)
+        }
+        "maxpool" | "avgpool" | "pool" => {
+            let input_height = layer.pool_input_height?;
+            let pool_size = layer.pool_size?;
+            let pool_padding = layer.pool_padding.unwrap_or(0);
+            let pool_stride = layer.pool_stride.unwrap_or(pool_size);
+
+            let out_height_isize = (input_height as isize + 2 * pool_padding - pool_size as isize)
+                / pool_stride as isize
+                + 1;
+            (out_height_isize >= 0).then_some(out_height_isize as usize)
+        }
+        _ => None,
+    }
+}
+
+fn get_layer_output_width(layer: &LayerConfig) -> Option<usize> {
+    match layer.layer_type.to_lowercase().as_str() {
+        "conv2d" => {
+            let input_width = layer.input_width?;
+            let kernel_size = layer.kernel_size?;
+            let padding = layer.padding.unwrap_or(0);
+            let stride = layer.stride.unwrap_or(1);
+
+            let out_width_isize =
+                (input_width as isize + 2 * padding - kernel_size as isize) / stride as isize + 1;
+            (out_width_isize >= 0).then_some(out_width_isize as usize)
+        }
+        "maxpool" | "avgpool" | "pool" => {
+            let input_width = layer.pool_input_width?;
+            let pool_size = layer.pool_size?;
+            let pool_padding = layer.pool_padding.unwrap_or(0);
+            let pool_stride = layer.pool_stride.unwrap_or(pool_size);
+
+            let out_width_isize = (input_width as isize + 2 * pool_padding - pool_size as isize)
+                / pool_stride as isize
+                + 1;
+            (out_width_isize >= 0).then_some(out_width_isize as usize)
+        }
+        _ => None,
+    }
+}
+
+fn get_layer_output_channels(layer: &LayerConfig) -> Option<usize> {
+    match layer.layer_type.to_lowercase().as_str() {
+        "conv2d" => layer.out_channels,
+        "maxpool" | "avgpool" | "pool" => layer.pool_channels,
+        _ => None,
     }
 }
 
@@ -120,15 +323,7 @@ pub(super) fn validate_architecture(config: &ArchitectureConfig) -> Result<(), B
     }
 
     for i in 0..config.layers.len() - 1 {
-        let current_output = get_layer_output_size(&config.layers[i])?;
-        let next_input = get_layer_input_size(&config.layers[i + 1])?;
-
-        if current_output != next_input {
-            return Err(invalid_data(format!(
-                "Layer connection mismatch: Layer {} output size ({}) does not match Layer {} input size ({})",
-                i, current_output, i + 1, next_input
-            )));
-        }
+        validate_layer_connection(&config.layers[i], &config.layers[i + 1], i)?;
     }
 
     Ok(())
@@ -293,9 +488,79 @@ fn validate_layer(layer: &LayerConfig, index: usize) -> Result<(), Box<dyn Error
                 "drop_rate must be in range [0.0, 1.0)",
             )?;
         }
+        "maxpool" | "avgpool" | "pool" => {
+            require(
+                layer.pool_size.is_some(),
+                "Pooling layer requires 'pool_size'",
+            )?;
+            require(
+                layer.pool_input_height.is_some(),
+                "Pooling layer requires 'pool_input_height'",
+            )?;
+            require(
+                layer.pool_input_width.is_some(),
+                "Pooling layer requires 'pool_input_width'",
+            )?;
+            require(
+                layer.pool_channels.is_some(),
+                "Pooling layer requires 'pool_channels'",
+            )?;
+
+            require(
+                layer.pool_size.unwrap() > 0,
+                "pool_size must be greater than 0",
+            )?;
+            require(
+                layer.pool_stride.unwrap_or(layer.pool_size.unwrap()) > 0,
+                "pool_stride must be greater than 0",
+            )?;
+            require(
+                layer.pool_input_height.unwrap() > 0,
+                "pool_input_height must be greater than 0",
+            )?;
+            require(
+                layer.pool_input_width.unwrap() > 0,
+                "pool_input_width must be greater than 0",
+            )?;
+            require(
+                layer.pool_channels.unwrap() > 0,
+                "pool_channels must be greater than 0",
+            )?;
+
+            let padding = layer.pool_padding.unwrap_or(0);
+            require(
+                padding >= 0,
+                "invalid pooling configuration: pool_padding must be >= 0",
+            )?;
+
+            let pool_size = layer.pool_size.unwrap();
+            let h_num =
+                layer.pool_input_height.unwrap() as isize + 2 * padding - pool_size as isize;
+            require(
+                h_num >= 0,
+                "invalid pooling configuration: pool_input_height + 2*pool_padding - pool_size must be >= 0",
+            )?;
+            let w_num = layer.pool_input_width.unwrap() as isize + 2 * padding - pool_size as isize;
+            require(
+                w_num >= 0,
+                "invalid pooling configuration: pool_input_width + 2*pool_padding - pool_size must be >= 0",
+            )?;
+
+            if layer.layer_type.to_lowercase() == "pool" {
+                require(
+                    layer.pool_mode.is_some(),
+                    "Pooling layer with layer_type='pool' requires 'pool_mode'",
+                )?;
+                let mode = layer.pool_mode.as_ref().unwrap().to_lowercase();
+                require(
+                    mode == "max" || mode == "avg",
+                    "pool_mode must be either 'max' or 'avg'",
+                )?;
+            }
+        }
         _ => {
             return Err(invalid_data(format!(
-                "Layer {}: Invalid layer type '{}'. Must be one of: dense, conv2d, batchnorm, dropout",
+                "Layer {}: Invalid layer type '{}'. Must be one of: dense, conv2d, batchnorm, dropout, maxpool, avgpool, pool",
                 index, layer.layer_type
             )));
         }
@@ -349,6 +614,7 @@ mod tests {
             epsilon: None,
             momentum: None,
             drop_rate: None,
+            ..Default::default()
         };
 
         let err = validate_layer(&layer, 0).unwrap_err();

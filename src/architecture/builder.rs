@@ -1,6 +1,9 @@
 use super::config::ArchitectureConfig;
 use super::validation::validate_architecture;
-use crate::layers::{BatchNormLayer, Conv2DLayer, DenseLayer, DropoutLayer, Layer};
+use crate::layers::pooling::{AvgPoolLayer, MaxPoolLayer};
+use crate::layers::{
+    BatchNormLayer, Conv2DLayer, DenseLayer, DropoutLayer, GlobalAvgPoolLayer, Layer,
+};
 use crate::utils::rng::SimpleRng;
 use std::error::Error;
 
@@ -109,9 +112,77 @@ pub fn build_model(
                 let drop_rate = layer_config.drop_rate.ok_or_else(|| missing("drop_rate"))?;
                 layers.push(Box::new(DropoutLayer::new(size, drop_rate, rng)));
             }
+            "globalavgpool" => {
+                let input_height = layer_config
+                    .pool_input_height
+                    .ok_or_else(|| missing("pool_input_height"))?;
+                let input_width = layer_config
+                    .pool_input_width
+                    .ok_or_else(|| missing("pool_input_width"))?;
+                let channels = layer_config
+                    .pool_channels
+                    .ok_or_else(|| missing("pool_channels"))?;
+
+                layers.push(Box::new(GlobalAvgPoolLayer::new(
+                    input_height,
+                    input_width,
+                    channels,
+                )));
+            }
+            "maxpool" | "avgpool" | "pool" => {
+                let pool_size = layer_config.pool_size.ok_or_else(|| missing("pool_size"))?;
+                let pool_stride = layer_config
+                    .pool_stride
+                    .ok_or_else(|| missing("pool_stride"))?;
+                let pool_padding = layer_config.pool_padding.unwrap_or(0);
+                let input_height = layer_config
+                    .pool_input_height
+                    .ok_or_else(|| missing("pool_input_height"))?;
+                let input_width = layer_config
+                    .pool_input_width
+                    .ok_or_else(|| missing("pool_input_width"))?;
+                let channels = layer_config
+                    .pool_channels
+                    .ok_or_else(|| missing("pool_channels"))?;
+
+                let mode = match layer_config.layer_type.to_lowercase().as_str() {
+                    "maxpool" => "max",
+                    "avgpool" => "avg",
+                    "pool" => layer_config
+                        .pool_mode
+                        .as_deref()
+                        .ok_or_else(|| missing("pool_mode"))?,
+                    _ => unreachable!(),
+                };
+
+                match mode {
+                    "max" => layers.push(Box::new(MaxPoolLayer::new(
+                        channels,
+                        input_height,
+                        input_width,
+                        pool_size,
+                        pool_stride,
+                        pool_padding,
+                    ))),
+                    "avg" => layers.push(Box::new(AvgPoolLayer::new(
+                        channels,
+                        input_height,
+                        input_width,
+                        pool_size,
+                        pool_stride,
+                        pool_padding,
+                    ))),
+                    _ => {
+                        return Err(invalid_data(format!(
+                            "Layer {}: Invalid pool_mode '{}'. Must be one of: max, avg",
+                            i, mode
+                        )));
+                    }
+                };
+            }
             _ => {
                 return Err(invalid_data(format!(
-                    "Layer {}: Invalid layer type '{}'. Must be one of: dense, conv2d, batchnorm, dropout",
+                    "Layer {}: Invalid layer type '{}'. Must be one of: dense, conv2d, batchnorm, dropout, globalavgpool, maxpool, avgpool, pool",
                     i, layer_config.layer_type
                 )));
             }
@@ -246,6 +317,59 @@ mod tests {
             .expect("expected BatchNormLayer");
         assert!((batchnorm.epsilon() - 1e-5f32).abs() < f32::EPSILON);
         assert!((batchnorm.momentum() - 0.9f32).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_build_model_with_pooling_layers() {
+        let config = ArchitectureConfig {
+            layers: vec![
+                LayerConfig {
+                    layer_type: "conv2d".to_string(),
+                    in_channels: Some(1),
+                    out_channels: Some(2),
+                    kernel_size: Some(3),
+                    padding: Some(1),
+                    stride: Some(1),
+                    input_height: Some(8),
+                    input_width: Some(8),
+                    ..Default::default()
+                },
+                LayerConfig {
+                    layer_type: "maxpool".to_string(),
+                    pool_size: Some(2),
+                    pool_stride: Some(2),
+                    pool_padding: Some(0),
+                    pool_input_height: Some(8),
+                    pool_input_width: Some(8),
+                    pool_channels: Some(2),
+                    ..Default::default()
+                },
+                LayerConfig {
+                    layer_type: "pool".to_string(),
+                    pool_mode: Some("avg".to_string()),
+                    pool_size: Some(2),
+                    pool_stride: Some(2),
+                    pool_padding: Some(0),
+                    pool_input_height: Some(4),
+                    pool_input_width: Some(4),
+                    pool_channels: Some(2),
+                    ..Default::default()
+                },
+            ],
+        };
+
+        let mut rng = SimpleRng::new(42);
+        let layers = build_model(&config, &mut rng).unwrap();
+        assert_eq!(layers.len(), 3);
+        assert_eq!(layers[0].input_size(), 8 * 8);
+        assert_eq!(layers[0].output_size(), 2 * 8 * 8);
+        assert_eq!(layers[1].input_size(), 2 * 8 * 8);
+        assert_eq!(layers[1].output_size(), 2 * 4 * 4);
+        assert_eq!(layers[2].input_size(), 2 * 4 * 4);
+        assert_eq!(layers[2].output_size(), 2 * 2 * 2);
+
+        assert!(layers[1].as_any().downcast_ref::<MaxPoolLayer>().is_some());
+        assert!(layers[2].as_any().downcast_ref::<AvgPoolLayer>().is_some());
     }
 
     #[test]

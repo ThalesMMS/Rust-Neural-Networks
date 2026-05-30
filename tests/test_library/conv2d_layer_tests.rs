@@ -1,4 +1,15 @@
 use super::*;
+use approx::assert_relative_eq;
+
+fn assert_all_close(a: &[f32], b: &[f32], abs: f32, rel: f32) {
+    assert_eq!(a.len(), b.len());
+    for (i, (&x, &y)) in a.iter().zip(b.iter()).enumerate() {
+        assert_relative_eq!(x, y, epsilon = abs, max_relative = rel);
+        if !((x - y).abs() <= abs + rel * y.abs()) {
+            panic!("mismatch at index {i}: {x} vs {y}");
+        }
+    }
+}
 
 #[test]
 fn test_conv2d_creation_basic() {
@@ -249,4 +260,193 @@ fn test_conv2d_training_loop() {
     let mut final_output = vec![0.0; 32];
     layer.forward(&input, &mut final_output, 1);
     assert!(final_output.iter().all(|&x| x.is_finite()));
+}
+
+fn naive_conv2d_forward_nhwc(
+    input: &[f32],
+    weights: &[f32],
+    bias: &[f32],
+    batch_size: usize,
+    in_h: usize,
+    in_w: usize,
+    in_c: usize,
+    out_c: usize,
+    k: usize,
+    padding: usize,
+    stride: usize,
+    out_h: usize,
+    out_w: usize,
+) -> Vec<f32> {
+    let mut out = vec![0.0f32; batch_size * out_c * out_h * out_w];
+
+    for b in 0..batch_size {
+        for oc in 0..out_c {
+            for oh in 0..out_h {
+                for ow in 0..out_w {
+                    let mut sum = bias[oc];
+                    for ic in 0..in_c {
+                        for kh in 0..k {
+                            for kw in 0..k {
+                                let ih = oh * stride + kh;
+                                let iw = ow * stride + kw;
+                                let ih = ih as isize - padding as isize;
+                                let iw = iw as isize - padding as isize;
+
+                                if (0..in_h as isize).contains(&ih)
+                                    && (0..in_w as isize).contains(&iw)
+                                {
+                                    let ih = ih as usize;
+                                    let iw = iw as usize;
+                                    let x_idx = ((b * in_h + ih) * in_w + iw) * in_c + ic; // NHWC
+                                    let w_idx = ((oc * in_c + ic) * k + kh) * k + kw;
+                                    sum += input[x_idx] * weights[w_idx];
+                                }
+                            }
+                        }
+                    }
+                    let y_idx = ((b * out_c + oc) * out_h + oh) * out_w + ow; // NCHW
+                    out[y_idx] = sum;
+                }
+            }
+        }
+    }
+
+    out
+}
+
+#[test]
+fn test_conv2d_forward_matches_naive_reference() {
+    let in_channels = 2;
+    let out_channels = 3;
+    let kernel_size = 3;
+    let padding = 1;
+    let stride = 2;
+    let in_h = 7;
+    let in_w = 6;
+
+    let out_h = (in_h + 2 * padding - kernel_size) / stride + 1;
+    let out_w = (in_w + 2 * padding - kernel_size) / stride + 1;
+
+    let batch_size = 2;
+
+    // Deterministic, non-trivial values
+    let mut input = vec![0.0f32; batch_size * in_h * in_w * in_channels];
+    for (i, v) in input.iter_mut().enumerate() {
+        *v = (i as f32 * 0.01).sin();
+    }
+
+    let weight_count = out_channels * in_channels * kernel_size * kernel_size;
+    let mut weights = vec![0.0f32; weight_count];
+    for (i, w) in weights.iter_mut().enumerate() {
+        *w = ((i as f32) * 0.03).cos() * 0.1;
+    }
+
+    let mut bias = vec![0.0f32; out_channels];
+    for (i, b) in bias.iter_mut().enumerate() {
+        *b = (i as f32) * 0.01;
+    }
+
+    let layer = Conv2DLayer::new_with_weights(
+        in_channels,
+        out_channels,
+        kernel_size,
+        padding as isize,
+        stride,
+        in_h,
+        in_w,
+        weights.clone(),
+        bias.clone(),
+    );
+
+    let expected = naive_conv2d_forward_nhwc(
+        &input,
+        &weights,
+        &bias,
+        batch_size,
+        in_h,
+        in_w,
+        in_channels,
+        out_channels,
+        kernel_size,
+        padding,
+        stride,
+        out_h,
+        out_w,
+    );
+
+    let mut actual = vec![0.0f32; batch_size * out_channels * out_h * out_w];
+    layer.forward(&input, &mut actual, batch_size);
+
+    assert_all_close(&actual, &expected, 1e-5, 1e-5);
+}
+
+#[test]
+fn test_conv2d_forward_padding_partial_overlap_matches_reference() {
+    // Small input + larger padding so many kernel taps fall outside.
+    let in_channels = 1;
+    let out_channels = 1;
+    let kernel_size = 3;
+    let padding = 2;
+    let stride = 1;
+    let in_h = 2;
+    let in_w = 3;
+
+    let out_h = (in_h + 2 * padding - kernel_size) / stride + 1;
+    let out_w = (in_w + 2 * padding - kernel_size) / stride + 1;
+    let batch_size = 1;
+
+    let input: Vec<f32> = (0..(batch_size * in_h * in_w * in_channels))
+        .map(|i| (i as f32) * 0.1 - 0.2)
+        .collect();
+
+    // Simple weights so edge effects are easy to catch.
+    let weights = vec![
+        0.1f32, 0.2, 0.3, //
+        0.4, 0.5, 0.6, //
+        0.7, 0.8, 0.9,
+    ];
+    let bias = vec![0.01f32];
+
+    let layer = Conv2DLayer::new_with_weights(
+        in_channels,
+        out_channels,
+        kernel_size,
+        padding as isize,
+        stride,
+        in_h,
+        in_w,
+        weights.clone(),
+        bias.clone(),
+    );
+
+    let expected = naive_conv2d_forward_nhwc(
+        &input,
+        &weights,
+        &bias,
+        batch_size,
+        in_h,
+        in_w,
+        in_channels,
+        out_channels,
+        kernel_size,
+        padding,
+        stride,
+        out_h,
+        out_w,
+    );
+
+    let mut actual = vec![0.0f32; batch_size * out_channels * out_h * out_w];
+    layer.forward(&input, &mut actual, batch_size);
+
+    // Explicitly ensure some border positions match the reference.
+    // This primarily targets padding semantics.
+    assert_all_close(&actual, &expected, 1e-5, 1e-5);
+    assert_relative_eq!(actual[0], expected[0], epsilon = 1e-5, max_relative = 1e-5);
+    let center_idx = (out_h / 2) * out_w + (out_w / 2);
+    assert_relative_eq!(
+        actual[center_idx],
+        expected[center_idx],
+        epsilon = 1e-5,
+        max_relative = 1e-5
+    );
 }

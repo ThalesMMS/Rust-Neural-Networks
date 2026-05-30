@@ -9,8 +9,72 @@
 use crate::layers::Layer;
 use crate::optimizers::Optimizer;
 use crate::utils::rng::SimpleRng;
+use cblas::{Layout, Transpose};
 use std::any::Any;
 use std::cell::RefCell;
+
+#[derive(Default)]
+struct AttentionScratch {
+    // [total_tokens, d_model]
+    grad_attn_out: Vec<f32>,
+    grad_q: Vec<f32>,
+    grad_k: Vec<f32>,
+    grad_v: Vec<f32>,
+
+    // [batch_size * num_heads, seq_len, seq_len]
+    grad_attn_weights: Vec<f32>,
+
+    // Packed contiguous per-head matrices (reused)
+    // [seq_len, d_head]
+    grad_context_contig: Vec<f32>,
+    v_contig: Vec<f32>,
+    grad_v_contig: Vec<f32>,
+
+    // Temporary [seq_len, seq_len] matrix for grad_scores_scaled copy
+    grad_scores_mat: Vec<f32>,
+
+    // Per-(batch, head, query) temporaries
+    grad_scores: Vec<f32>,
+    grad_alpha: Vec<f32>,
+}
+
+impl AttentionScratch {
+    fn ensure_sizes(
+        &mut self,
+        total_tokens: usize,
+        d_model: usize,
+        d_head: usize,
+        attn_size: usize,
+        seq_len: usize,
+    ) {
+        let qkv_size = total_tokens * d_model;
+        self.grad_attn_out.resize(qkv_size, 0.0);
+        self.grad_q.resize(qkv_size, 0.0);
+        self.grad_k.resize(qkv_size, 0.0);
+        self.grad_v.resize(qkv_size, 0.0);
+        self.grad_attn_weights.resize(attn_size, 0.0);
+
+        // Packed contiguous per-head matrices for GEMM (seq_len x d_head)
+        let head_mat_size = seq_len * d_head;
+        self.grad_context_contig.resize(head_mat_size, 0.0);
+        self.v_contig.resize(head_mat_size, 0.0);
+        self.grad_v_contig.resize(head_mat_size, 0.0);
+
+        // [seq_len, seq_len]
+        self.grad_scores_mat.resize(seq_len * seq_len, 0.0);
+
+        self.grad_scores.resize(seq_len, 0.0);
+        self.grad_alpha.resize(seq_len, 0.0);
+    }
+
+    fn zero_used(&mut self) {
+        self.grad_attn_out.fill(0.0);
+        self.grad_q.fill(0.0);
+        self.grad_k.fill(0.0);
+        self.grad_v.fill(0.0);
+        self.grad_attn_weights.fill(0.0);
+    }
+}
 
 /// Multi-Head Attention layer with learnable Q/K/V projection matrices.
 ///
@@ -88,6 +152,9 @@ pub struct MultiHeadAttentionLayer {
     cached_attn_out: RefCell<Vec<f32>>,
     cached_batch_size: RefCell<usize>,
     cached_seq_len: RefCell<usize>,
+
+    // Scratch buffers reused across backward calls (resized on demand)
+    scratch: RefCell<AttentionScratch>,
 }
 
 impl MultiHeadAttentionLayer {
@@ -168,6 +235,8 @@ impl MultiHeadAttentionLayer {
             cached_attn_out: RefCell::new(Vec::new()),
             cached_batch_size: RefCell::new(0),
             cached_seq_len: RefCell::new(0),
+
+            scratch: RefCell::new(AttentionScratch::default()),
         }
     }
 
@@ -245,34 +314,100 @@ impl MultiHeadAttentionLayer {
         v: &mut [f32],
     ) {
         let total_tokens = batch_size * seq_len;
+        let m = total_tokens as i32;
+        let n = self.d_model as i32;
+        let k_dim = self.d_model as i32;
 
-        // Initialize outputs
+        // Q = input[m x d_model] * W_q[d_model x d_model] + b_q
+        // Shapes (row-major):
+        //   A=input:  (m=total_tokens) x (k=d_model), lda=k
+        //   B=W_q:    (k=d_model) x (n=d_model),     ldb=n
+        //   C=Q:      (m=total_tokens) x (n=d_model),ldc=n
         q.fill(0.0);
+        unsafe {
+            cblas::sgemm(
+                Layout::RowMajor,
+                Transpose::None,
+                Transpose::None,
+                m,
+                n,
+                k_dim,
+                1.0,
+                input,
+                k_dim,
+                &self.w_q,
+                n,
+                0.0,
+                q,
+                n,
+            );
+        }
+        for tok in 0..total_tokens {
+            let base = tok * self.d_model;
+            for d in 0..self.d_model {
+                q[base + d] += self.b_q[d];
+            }
+        }
+
+        // K = input[m x d_model] * W_k[d_model x d_model] + b_k
+        // Shapes (row-major):
+        //   A=input:  (m=total_tokens) x (k=d_model), lda=k
+        //   B=W_k:    (k=d_model) x (n=d_model),     ldb=n
+        //   C=K:      (m=total_tokens) x (n=d_model),ldc=n
         k.fill(0.0);
+        unsafe {
+            cblas::sgemm(
+                Layout::RowMajor,
+                Transpose::None,
+                Transpose::None,
+                m,
+                n,
+                k_dim,
+                1.0,
+                input,
+                k_dim,
+                &self.w_k,
+                n,
+                0.0,
+                k,
+                n,
+            );
+        }
+        for tok in 0..total_tokens {
+            let base = tok * self.d_model;
+            for d in 0..self.d_model {
+                k[base + d] += self.b_k[d];
+            }
+        }
+
+        // V = input[m x d_model] * W_v[d_model x d_model] + b_v
+        // Shapes (row-major):
+        //   A=input:  (m=total_tokens) x (k=d_model), lda=k
+        //   B=W_v:    (k=d_model) x (n=d_model),     ldb=n
+        //   C=V:      (m=total_tokens) x (n=d_model),ldc=n
         v.fill(0.0);
-
-        // For each token in the batch
-        for tok_idx in 0..total_tokens {
-            let input_base = tok_idx * self.d_model;
-            let output_base = tok_idx * self.d_model;
-
-            // Compute Q, K, V projections for this token
-            for d_out in 0..self.d_model {
-                let mut sum_q = self.b_q[d_out];
-                let mut sum_k = self.b_k[d_out];
-                let mut sum_v = self.b_v[d_out];
-
-                for d_in in 0..self.d_model {
-                    let x = input[input_base + d_in];
-                    // Weights are stored in row-major: [d_in * d_model + d_out]
-                    sum_q += x * self.w_q[d_in * self.d_model + d_out];
-                    sum_k += x * self.w_k[d_in * self.d_model + d_out];
-                    sum_v += x * self.w_v[d_in * self.d_model + d_out];
-                }
-
-                q[output_base + d_out] = sum_q;
-                k[output_base + d_out] = sum_k;
-                v[output_base + d_out] = sum_v;
+        unsafe {
+            cblas::sgemm(
+                Layout::RowMajor,
+                Transpose::None,
+                Transpose::None,
+                m,
+                n,
+                k_dim,
+                1.0,
+                input,
+                k_dim,
+                &self.w_v,
+                n,
+                0.0,
+                v,
+                n,
+            );
+        }
+        for tok in 0..total_tokens {
+            let base = tok * self.d_model;
+            for d in 0..self.d_model {
+                v[base + d] += self.b_v[d];
             }
         }
     }
@@ -301,38 +436,70 @@ impl MultiHeadAttentionLayer {
         // Process each head separately
         for batch in 0..batch_size {
             for head in 0..self.num_heads {
-                // For each query position
-                for i in 0..seq_len {
-                    let attn_row_base = ((batch * self.num_heads + head) * seq_len + i) * seq_len;
+                let q_base = (batch * seq_len) * self.d_model + head * self.d_head;
+                let k_base = (batch * seq_len) * self.d_model + head * self.d_head;
 
-                    // Compute attention scores: Q * K^T / sqrt(d_head)
-                    for j in 0..seq_len {
-                        let q_base = (batch * seq_len + i) * self.d_model + head * self.d_head;
-                        let k_base = (batch * seq_len + j) * self.d_model + head * self.d_head;
+                // scores[seq_len x seq_len] = Q_h[seq_len x d_head] * K_h^T[d_head x seq_len]
+                // Shapes (row-major, using strided views with lda/ldb=d_model):
+                //   A=Q_h: (m=seq_len) x (k=d_head),  lda=d_model
+                //   B=K_h: (n=seq_len) x (k=d_head),  but transposed -> (k=d_head) x (n=seq_len), ldb=d_model
+                //   C=scores: (m=seq_len) x (n=seq_len), ldc=seq_len
+                let bh = batch * self.num_heads + head;
+                let scores_base = bh * seq_len * seq_len;
+                let scores = &mut attn_weights[scores_base..scores_base + seq_len * seq_len];
 
-                        let mut score = 0.0f32;
-                        for d in 0..self.d_head {
-                            score += q[q_base + d] * k[k_base + d];
-                        }
-
-                        attn_weights[attn_row_base + j] = score * inv_sqrt_d;
-                    }
-
-                    // Apply softmax to get attention probabilities
-                    Self::softmax_inplace(
-                        &mut attn_weights[attn_row_base..attn_row_base + seq_len],
+                let q_ptr = &q[q_base..];
+                let k_ptr = &k[k_base..];
+                unsafe {
+                    cblas::sgemm(
+                        Layout::RowMajor,
+                        Transpose::None,
+                        Transpose::Ordinary,
+                        seq_len as i32,
+                        seq_len as i32,
+                        self.d_head as i32,
+                        inv_sqrt_d,
+                        q_ptr,
+                        self.d_model as i32,
+                        k_ptr,
+                        self.d_model as i32,
+                        0.0,
+                        scores,
+                        seq_len as i32,
                     );
+                }
 
-                    // Compute weighted sum of values
-                    let out_base = (batch * seq_len + i) * self.d_model + head * self.d_head;
-                    for j in 0..seq_len {
-                        let alpha = attn_weights[attn_row_base + j];
-                        let v_base = (batch * seq_len + j) * self.d_model + head * self.d_head;
+                // Row-wise softmax
+                for i in 0..seq_len {
+                    let row_base = i * seq_len;
+                    Self::softmax_inplace(&mut scores[row_base..row_base + seq_len]);
+                }
 
-                        for d in 0..self.d_head {
-                            attn_out[out_base + d] += alpha * v[v_base + d];
-                        }
-                    }
+                // context_h[seq_len x d_head] = alpha[seq_len x seq_len] * V_h[seq_len x d_head]
+                // Shapes (row-major; V_h and output are strided views with ld*=d_model):
+                //   A=alpha: (m=seq_len) x (k=seq_len), lda=seq_len
+                //   B=V_h:   (k=seq_len) x (n=d_head),  ldb=d_model
+                //   C=out_h: (m=seq_len) x (n=d_head),  ldc=d_model
+                let v_ptr = &v[(batch * seq_len) * self.d_model + head * self.d_head..];
+                let out_ptr =
+                    &mut attn_out[(batch * seq_len) * self.d_model + head * self.d_head..];
+                unsafe {
+                    cblas::sgemm(
+                        Layout::RowMajor,
+                        Transpose::None,
+                        Transpose::None,
+                        seq_len as i32,
+                        self.d_head as i32,
+                        seq_len as i32,
+                        1.0,
+                        scores,
+                        seq_len as i32,
+                        v_ptr,
+                        self.d_model as i32,
+                        1.0,
+                        out_ptr,
+                        self.d_model as i32,
+                    );
                 }
             }
         }
@@ -347,21 +514,40 @@ impl MultiHeadAttentionLayer {
         output: &mut [f32],
     ) {
         let total_tokens = batch_size * seq_len;
+        let m = total_tokens;
+        let n = self.d_model;
+        let k = self.d_model;
 
+        // output[m x n] = attn_out[m x k] * w_o[k x n]
+        // Shapes (row-major):
+        //   A=attn_out: (m=total_tokens) x (k=d_model), lda=k
+        //   B=W_o:      (k=d_model) x (n=d_model),     ldb=n
+        //   C=output:   (m=total_tokens) x (n=d_model),ldc=n
         output.fill(0.0);
+        unsafe {
+            cblas::sgemm(
+                Layout::RowMajor,
+                Transpose::None,
+                Transpose::None,
+                m as i32,
+                n as i32,
+                k as i32,
+                1.0,
+                attn_out,
+                k as i32,
+                &self.w_o,
+                n as i32,
+                0.0,
+                output,
+                n as i32,
+            );
+        }
 
-        for tok_idx in 0..total_tokens {
-            let input_base = tok_idx * self.d_model;
-            let output_base = tok_idx * self.d_model;
-
-            for d_out in 0..self.d_model {
-                let mut sum = self.b_o[d_out];
-
-                for d_in in 0..self.d_model {
-                    sum += attn_out[input_base + d_in] * self.w_o[d_in * self.d_model + d_out];
-                }
-
-                output[output_base + d_out] = sum;
+        // Bias: broadcast over tokens
+        for tok in 0..total_tokens {
+            let base = tok * self.d_model;
+            for d in 0..self.d_model {
+                output[base + d] += self.b_o[d];
             }
         }
     }
@@ -437,11 +623,18 @@ impl Layer for MultiHeadAttentionLayer {
         let attn_weights = self.cached_attn_weights.borrow();
         let attn_out = self.cached_attn_out.borrow();
 
-        // Gradient buffers
-        let mut grad_attn_out = vec![0.0f32; total_tokens * self.d_model];
-        let mut grad_q = vec![0.0f32; total_tokens * self.d_model];
-        let mut grad_k = vec![0.0f32; total_tokens * self.d_model];
-        let mut grad_v = vec![0.0f32; total_tokens * self.d_model];
+        let attn_size = batch_size * self.num_heads * seq_len * seq_len;
+
+        // Gradient + scratch buffers (reused across calls)
+        let mut scratch = self.scratch.borrow_mut();
+        scratch.ensure_sizes(total_tokens, self.d_model, self.d_head, attn_size, seq_len);
+        scratch.zero_used();
+        scratch.grad_context_contig.fill(0.0);
+        scratch.v_contig.fill(0.0);
+        scratch.grad_v_contig.fill(0.0);
+
+        // We'll access scratch buffers directly via `scratch` to avoid borrow conflicts
+        // with the attention-score workspace.
 
         // Get mutable references to gradient accumulators
         let mut grad_w_o = self.grad_w_o.borrow_mut();
@@ -454,77 +647,298 @@ impl Layer for MultiHeadAttentionLayer {
         let mut grad_b_v = self.grad_b_v.borrow_mut();
 
         // Step 1: Backprop through output projection
-        // grad_attn_out and gradient for W_o, b_o
+        // Shapes (RowMajor):
+        //  - attn_out: [total_tokens, d_model]
+        //  - W_o:     [d_model, d_model]
+        //  - dY:      [total_tokens, d_model]
+        //  - dW_o = attn_out^T * dY  => [d_model, d_model]
+        //  - d_attn_out = dY * W_o^T => [total_tokens, d_model]
+
+        // b_o gradient: sum over tokens
         for tok_idx in 0..total_tokens {
             let grad_out_base = tok_idx * self.d_model;
-            let attn_out_base = tok_idx * self.d_model;
-
             for d_out in 0..self.d_model {
-                let grad = grad_output[grad_out_base + d_out];
-                grad_b_o[d_out] += grad;
-
-                for d_in in 0..self.d_model {
-                    // Gradient w.r.t. W_o
-                    grad_w_o[d_in * self.d_model + d_out] += attn_out[attn_out_base + d_in] * grad;
-
-                    // Gradient w.r.t. attn_out (backprop to attention layer)
-                    grad_attn_out[attn_out_base + d_in] +=
-                        grad * self.w_o[d_in * self.d_model + d_out];
-                }
+                grad_b_o[d_out] += grad_output[grad_out_base + d_out];
             }
+        }
+
+        unsafe {
+            // grad_w_o += attn_out^T * grad_output
+            // Shapes (row-major):
+            //   A=attn_out:   (m=total_tokens) x (k=d_model), transposed -> (k=d_model) x (m=total_tokens), lda=d_model
+            //   B=grad_output:(m=total_tokens) x (n=d_model), ldb=d_model
+            //   C=grad_w_o:   (k=d_model) x (n=d_model), ldc=d_model
+            cblas::sgemm(
+                Layout::RowMajor,
+                Transpose::Ordinary,
+                Transpose::None,
+                self.d_model as i32,
+                self.d_model as i32,
+                total_tokens as i32,
+                1.0,
+                &attn_out,
+                self.d_model as i32,
+                grad_output,
+                self.d_model as i32,
+                1.0,
+                &mut grad_w_o,
+                self.d_model as i32,
+            );
+
+            // grad_attn_out = grad_output * W_o^T
+            // Shapes (row-major):
+            //   A=grad_output:(m=total_tokens) x (k=d_model), lda=d_model
+            //   B=W_o:        (n=d_model) x (k=d_model), transposed -> (k=d_model) x (n=d_model), ldb=d_model
+            //   C=grad_attn_out:(m=total_tokens) x (n=d_model), ldc=d_model
+            cblas::sgemm(
+                Layout::RowMajor,
+                Transpose::None,
+                Transpose::Ordinary,
+                total_tokens as i32,
+                self.d_model as i32,
+                self.d_model as i32,
+                1.0,
+                grad_output,
+                self.d_model as i32,
+                &self.w_o,
+                self.d_model as i32,
+                0.0,
+                &mut scratch.grad_attn_out,
+                self.d_model as i32,
+            );
         }
 
         // Step 2: Backprop through attention mechanism
         let inv_sqrt_d = 1.0f32 / (self.d_head as f32).sqrt();
 
+        // We compute per-(batch, head) matrices using GEMM:
+        //  - context = alpha * V
+        //  - grad_alpha = grad_context * V^T
+        //  - grad_V = alpha^T * grad_context
+        //  - grad_Q = (grad_scores / sqrt(d_head)) * K
+        //  - grad_K = (grad_scores / sqrt(d_head))^T * Q
+        // where scores = Q*K^T / sqrt(d_head).
         for batch in 0..batch_size {
             for head in 0..self.num_heads {
-                for i in 0..seq_len {
-                    let attn_row_base = ((batch * self.num_heads + head) * seq_len + i) * seq_len;
-                    let out_base = (batch * seq_len + i) * self.d_model + head * self.d_head;
+                let bh = batch * self.num_heads + head;
 
-                    // Gradient w.r.t. V (from weighted sum)
-                    for j in 0..seq_len {
-                        let alpha = attn_weights[attn_row_base + j];
-                        let v_base = (batch * seq_len + j) * self.d_model + head * self.d_head;
+                let q_base = (batch * seq_len) * self.d_model + head * self.d_head;
+                let k_base = (batch * seq_len) * self.d_model + head * self.d_head;
+                let v_base = (batch * seq_len) * self.d_model + head * self.d_head;
+                let grad_context_base = (batch * seq_len) * self.d_model + head * self.d_head;
 
-                        for d in 0..self.d_head {
-                            grad_v[v_base + d] += alpha * grad_attn_out[out_base + d];
+                // Strides between tokens for per-head matrices inside the flattened [total_tokens, d_model]
+                let row_stride = self.d_model;
+
+                // Pointers to the start of each per-head matrix
+                let q_ptr = &q[q_base..];
+                let k_ptr = &k[k_base..];
+                let _v_ptr = &v[v_base..];
+                // We'll borrow the different scratch buffers in small scopes to satisfy Rust's
+                // aliasing rules while still avoiding any per-loop allocations.
+
+                {
+                    // 1) grad_alpha = grad_context * V^T   => [seq_len, seq_len]
+                    //    (RowMajor) A=[seq_len, d_head] lda=d_head
+                    //               B=[seq_len, d_head] ldb=d_head, transposed
+                    //               C=[seq_len, seq_len] ldc=seq_len
+                    //
+                    // Pack grad_context and V (strided in [total_tokens, d_model]) into
+                    // contiguous [seq_len, d_head] matrices for GEMM.
+                    // Fill grad_context_contig and v_contig
+                    for i in 0..seq_len {
+                        let src_row = grad_context_base + i * row_stride;
+                        let dst_row = i * self.d_head;
+                        // Avoid overlapping borrows of `scratch` by copying elementwise.
+                        for j in 0..self.d_head {
+                            scratch.grad_context_contig[dst_row + j] =
+                                scratch.grad_attn_out[src_row + j];
                         }
                     }
+                    for i in 0..seq_len {
+                        let src_row = v_base + i * row_stride;
+                        let dst_row = i * self.d_head;
+                        scratch.v_contig[dst_row..dst_row + self.d_head]
+                            .copy_from_slice(&v[src_row..src_row + self.d_head]);
+                    }
 
-                    // Gradient w.r.t. attention weights (alpha)
-                    let mut grad_alpha = vec![0.0f32; seq_len];
-                    for j in 0..seq_len {
-                        let v_base = (batch * seq_len + j) * self.d_model + head * self.d_head;
-                        let mut dot = 0.0f32;
-                        for d in 0..self.d_head {
-                            dot += grad_attn_out[out_base + d] * v[v_base + d];
+                    // grad_context_contig: [seq_len, d_head]
+                    // v_contig:            [seq_len, d_head]
+
+                    let grad_alpha_range = bh * seq_len * seq_len..(bh + 1) * seq_len * seq_len;
+
+                    // Use raw pointers to avoid borrow conflicts while still passing slices to cblas.
+                    unsafe {
+                        let grad_context_ptr = scratch.grad_context_contig.as_ptr();
+                        let v_ptr = scratch.v_contig.as_ptr();
+                        let grad_alpha_ptr =
+                            scratch.grad_attn_weights[grad_alpha_range].as_mut_ptr();
+
+                        let grad_context =
+                            std::slice::from_raw_parts(grad_context_ptr, seq_len * self.d_head);
+                        let v_contig = std::slice::from_raw_parts(v_ptr, seq_len * self.d_head);
+                        let grad_alpha =
+                            std::slice::from_raw_parts_mut(grad_alpha_ptr, seq_len * seq_len);
+                        grad_alpha.fill(0.0);
+
+                        cblas::sgemm(
+                            Layout::RowMajor,
+                            Transpose::None,
+                            Transpose::Ordinary,
+                            seq_len as i32,
+                            seq_len as i32,
+                            self.d_head as i32,
+                            1.0,
+                            grad_context,
+                            self.d_head as i32,
+                            v_contig,
+                            self.d_head as i32,
+                            0.0,
+                            grad_alpha,
+                            seq_len as i32,
+                        );
+                    }
+                }
+                {
+                    // 2) grad_V += alpha^T * grad_context  => [seq_len, d_head]
+                    //    A=alpha [seq_len, seq_len] lda=seq_len, transposed
+                    //    B=grad_context [seq_len, d_head] ldb=d_head
+                    //    C=grad_V [seq_len, d_head] ldc=d_head
+                    scratch.grad_v_contig.fill(0.0);
+
+                    let alpha_mat =
+                        &attn_weights[bh * seq_len * seq_len..(bh + 1) * seq_len * seq_len];
+
+                    unsafe {
+                        let grad_context_ptr = scratch.grad_context_contig.as_ptr();
+                        let grad_v_ptr = scratch.grad_v_contig.as_mut_ptr();
+
+                        let grad_context =
+                            std::slice::from_raw_parts(grad_context_ptr, seq_len * self.d_head);
+                        let grad_v =
+                            std::slice::from_raw_parts_mut(grad_v_ptr, seq_len * self.d_head);
+
+                        cblas::sgemm(
+                            Layout::RowMajor,
+                            Transpose::Ordinary,
+                            Transpose::None,
+                            seq_len as i32,
+                            self.d_head as i32,
+                            seq_len as i32,
+                            1.0,
+                            alpha_mat,
+                            seq_len as i32,
+                            grad_context,
+                            self.d_head as i32,
+                            0.0,
+                            grad_v,
+                            self.d_head as i32,
+                        );
+                    }
+
+                    for i in 0..seq_len {
+                        let dst_row = v_base + i * row_stride;
+                        let src_row = i * self.d_head;
+                        // Avoid overlapping borrows of `scratch` by copying elementwise.
+                        for j in 0..self.d_head {
+                            scratch.grad_v[dst_row + j] = scratch.grad_v_contig[src_row + j];
                         }
-                        grad_alpha[j] = dot;
                     }
+                }
 
-                    // Backprop through softmax
-                    let mut grad_scores = vec![0.0f32; seq_len];
-                    let mut sum = 0.0f32;
-                    for j in 0..seq_len {
-                        let alpha = attn_weights[attn_row_base + j];
-                        sum += grad_alpha[j] * alpha;
+                {
+                    // 2) Backprop softmax per row i: grad_scores_mat[i,*] becomes dL/dscores.
+                    let grad_scores_mat = &mut scratch.grad_attn_weights
+                        [bh * seq_len * seq_len..(bh + 1) * seq_len * seq_len];
+                    for i in 0..seq_len {
+                        let attn_row_base = (bh * seq_len + i) * seq_len;
+                        let grad_row = &mut grad_scores_mat[i * seq_len..(i + 1) * seq_len];
+
+                        let mut sum = 0.0f32;
+                        for j in 0..seq_len {
+                            sum += grad_row[j] * attn_weights[attn_row_base + j];
+                        }
+                        for j in 0..seq_len {
+                            let alpha = attn_weights[attn_row_base + j];
+                            grad_row[j] = alpha * (grad_row[j] - sum);
+                        }
                     }
-                    for j in 0..seq_len {
-                        let alpha = attn_weights[attn_row_base + j];
-                        grad_scores[j] = alpha * (grad_alpha[j] - sum);
-                    }
+                }
 
-                    // Gradient w.r.t. Q and K (from scores = Q * K^T / sqrt(d_head))
-                    for j in 0..seq_len {
-                        let q_base = (batch * seq_len + i) * self.d_model + head * self.d_head;
-                        let k_base = (batch * seq_len + j) * self.d_model + head * self.d_head;
-                        let ds = grad_scores[j] * inv_sqrt_d;
+                // (grad_V computed above using packed GEMM; no additional work needed here)
 
-                        for d in 0..self.d_head {
-                            grad_q[q_base + d] += ds * k[k_base + d];
-                            grad_k[k_base + d] += ds * q[q_base + d];
+                {
+                    // 4) grad_scores_scaled = grad_scores_mat / sqrt(d_head), then
+                    //    grad_Q += grad_scores_scaled * K  => [seq_len, d_head]
+                    //    grad_K += grad_scores_scaled^T * Q => [seq_len, d_head]
+                    {
+                        let grad_scores_range =
+                            bh * seq_len * seq_len..(bh + 1) * seq_len * seq_len;
+
+                        unsafe {
+                            let grad_scores_ptr =
+                                scratch.grad_attn_weights[grad_scores_range.clone()].as_mut_ptr();
+                            let grad_scores_mat =
+                                std::slice::from_raw_parts_mut(grad_scores_ptr, seq_len * seq_len);
+
+                            for val in grad_scores_mat.iter_mut() {
+                                *val *= inv_sqrt_d;
+                            }
+
+                            let dst_ptr = scratch.grad_scores_mat.as_mut_ptr();
+                            std::ptr::copy_nonoverlapping(
+                                grad_scores_mat.as_ptr(),
+                                dst_ptr,
+                                seq_len * seq_len,
+                            );
+                        }
+
+                        unsafe {
+                            let grad_scores_ptr = scratch.grad_scores_mat.as_ptr();
+                            let grad_scores =
+                                std::slice::from_raw_parts(grad_scores_ptr, seq_len * seq_len);
+
+                            // grad_Q
+                            let grad_q_ptr = scratch.grad_q[q_base..].as_mut_ptr();
+                            let grad_q =
+                                std::slice::from_raw_parts_mut(grad_q_ptr, seq_len * row_stride);
+                            cblas::sgemm(
+                                Layout::RowMajor,
+                                Transpose::None,
+                                Transpose::None,
+                                seq_len as i32,
+                                self.d_head as i32,
+                                seq_len as i32,
+                                1.0,
+                                grad_scores,
+                                seq_len as i32,
+                                k_ptr,
+                                row_stride as i32,
+                                1.0,
+                                grad_q,
+                                row_stride as i32,
+                            );
+
+                            // grad_K
+                            let grad_k_ptr = scratch.grad_k[k_base..].as_mut_ptr();
+                            let grad_k =
+                                std::slice::from_raw_parts_mut(grad_k_ptr, seq_len * row_stride);
+                            cblas::sgemm(
+                                Layout::RowMajor,
+                                Transpose::Ordinary,
+                                Transpose::None,
+                                seq_len as i32,
+                                self.d_head as i32,
+                                seq_len as i32,
+                                1.0,
+                                grad_scores,
+                                seq_len as i32,
+                                q_ptr,
+                                row_stride as i32,
+                                1.0,
+                                grad_k,
+                                row_stride as i32,
+                            );
                         }
                     }
                 }
@@ -532,35 +946,133 @@ impl Layer for MultiHeadAttentionLayer {
         }
 
         // Step 3: Backprop through Q/K/V projections
+        // Shapes (row-major):
+        //  - X:  [total_tokens, d_model]
+        //  - dQ/dK/dV: [total_tokens, d_model]
+        //  - dW? = X^T * d?  => [d_model, d_model]
+        //  - dX  += d? * W?^T => [total_tokens, d_model]
         grad_input.fill(0.0);
 
+        // Bias gradients: sum over tokens
         for tok_idx in 0..total_tokens {
-            let input_base = tok_idx * self.d_model;
-
-            for d_out in 0..self.d_model {
-                let grad_q_val = grad_q[input_base + d_out];
-                let grad_k_val = grad_k[input_base + d_out];
-                let grad_v_val = grad_v[input_base + d_out];
-
-                grad_b_q[d_out] += grad_q_val;
-                grad_b_k[d_out] += grad_k_val;
-                grad_b_v[d_out] += grad_v_val;
-
-                for d_in in 0..self.d_model {
-                    let x = input[input_base + d_in];
-
-                    // Gradients for W_q, W_k, W_v
-                    grad_w_q[d_in * self.d_model + d_out] += x * grad_q_val;
-                    grad_w_k[d_in * self.d_model + d_out] += x * grad_k_val;
-                    grad_w_v[d_in * self.d_model + d_out] += x * grad_v_val;
-
-                    // Gradient w.r.t. input
-                    grad_input[input_base + d_in] += grad_q_val
-                        * self.w_q[d_in * self.d_model + d_out]
-                        + grad_k_val * self.w_k[d_in * self.d_model + d_out]
-                        + grad_v_val * self.w_v[d_in * self.d_model + d_out];
-                }
+            let base = tok_idx * self.d_model;
+            for j in 0..self.d_model {
+                grad_b_q[j] += scratch.grad_q[base + j];
+                grad_b_k[j] += scratch.grad_k[base + j];
+                grad_b_v[j] += scratch.grad_v[base + j];
             }
+        }
+
+        unsafe {
+            // dWq += X^T * dQ
+            // Shapes (row-major):
+            //   A=X:  (m=total_tokens) x (k=d_model), transposed -> (k=d_model) x (m=total_tokens)
+            //   B=dQ: (m=total_tokens) x (n=d_model)
+            //   C=dWq:(k=d_model) x (n=d_model)
+            cblas::sgemm(
+                Layout::RowMajor,
+                Transpose::Ordinary,
+                Transpose::None,
+                self.d_model as i32,
+                self.d_model as i32,
+                total_tokens as i32,
+                1.0,
+                input,
+                self.d_model as i32,
+                &scratch.grad_q,
+                self.d_model as i32,
+                1.0,
+                &mut grad_w_q,
+                self.d_model as i32,
+            );
+            // dWk += X^T * dK
+            cblas::sgemm(
+                Layout::RowMajor,
+                Transpose::Ordinary,
+                Transpose::None,
+                self.d_model as i32,
+                self.d_model as i32,
+                total_tokens as i32,
+                1.0,
+                input,
+                self.d_model as i32,
+                &scratch.grad_k,
+                self.d_model as i32,
+                1.0,
+                &mut grad_w_k,
+                self.d_model as i32,
+            );
+            // dWv += X^T * dV
+            cblas::sgemm(
+                Layout::RowMajor,
+                Transpose::Ordinary,
+                Transpose::None,
+                self.d_model as i32,
+                self.d_model as i32,
+                total_tokens as i32,
+                1.0,
+                input,
+                self.d_model as i32,
+                &scratch.grad_v,
+                self.d_model as i32,
+                1.0,
+                &mut grad_w_v,
+                self.d_model as i32,
+            );
+
+            // dX = dQ*Wq^T + dK*Wk^T + dV*Wv^T
+            // Shapes (row-major):
+            //   A=dQ:  (m=total_tokens) x (k=d_model)
+            //   B=Wq:  (n=d_model) x (k=d_model), transposed -> (k=d_model) x (n=d_model)
+            //   C=dX:  (m=total_tokens) x (n=d_model)
+            cblas::sgemm(
+                Layout::RowMajor,
+                Transpose::None,
+                Transpose::Ordinary,
+                total_tokens as i32,
+                self.d_model as i32,
+                self.d_model as i32,
+                1.0,
+                &scratch.grad_q,
+                self.d_model as i32,
+                &self.w_q,
+                self.d_model as i32,
+                0.0,
+                grad_input,
+                self.d_model as i32,
+            );
+            cblas::sgemm(
+                Layout::RowMajor,
+                Transpose::None,
+                Transpose::Ordinary,
+                total_tokens as i32,
+                self.d_model as i32,
+                self.d_model as i32,
+                1.0,
+                &scratch.grad_k,
+                self.d_model as i32,
+                &self.w_k,
+                self.d_model as i32,
+                1.0,
+                grad_input,
+                self.d_model as i32,
+            );
+            cblas::sgemm(
+                Layout::RowMajor,
+                Transpose::None,
+                Transpose::Ordinary,
+                total_tokens as i32,
+                self.d_model as i32,
+                self.d_model as i32,
+                1.0,
+                &scratch.grad_v,
+                self.d_model as i32,
+                &self.w_v,
+                self.d_model as i32,
+                1.0,
+                grad_input,
+                self.d_model as i32,
+            );
         }
     }
 

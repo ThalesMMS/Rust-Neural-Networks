@@ -54,6 +54,57 @@ pub fn parse_step_flag(args: &[String]) -> bool {
     args.iter().any(|a| a == "--step")
 }
 
+/// Extracts an optional `--run-name` value from command-line arguments.
+///
+/// Accepts `--run-name <name>`. Returns `None` if not present or if the value is missing/invalid.
+pub fn parse_run_name(args: &[String]) -> Option<String> {
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--run-name" {
+            if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                return Some(args[i + 1].clone());
+            }
+            return None;
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Extracts an optional `--registry-dir` value from command-line arguments.
+///
+/// Accepts `--registry-dir <path>`. Returns `None` if not present or if the value is missing/invalid.
+pub fn parse_registry_dir(args: &[String]) -> Option<String> {
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--registry-dir" {
+            if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                return Some(args[i + 1].clone());
+            }
+            return None;
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Extracts an optional `--seed` value from command-line arguments.
+///
+/// Accepts `--seed <u64>`. Returns `None` if not present or if parsing fails.
+pub fn parse_seed_override(args: &[String]) -> Option<u64> {
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--seed" {
+            if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                return args[i + 1].parse::<u64>().ok();
+            }
+            return None;
+        }
+        i += 1;
+    }
+    None
+}
+
 /// Prints a human-readable training configuration to stdout.
 ///
 /// Displays resolved hyperparameters (learning rate, epochs, batch size, validation split),
@@ -85,6 +136,37 @@ pub fn print_training_config(
     println!("  Early stopping patience: {}", early_stopping_patience);
     println!("  Early stopping min delta: {}", early_stopping_min_delta);
     println!("  Scheduler type: {}", config.scheduler_type);
+
+    if let Some(ref warmup) = config.warmup {
+        println!("  Warmup: {:?}", warmup);
+    } else {
+        println!("  Warmup: disabled");
+    }
+
+    if let Some(ref cyclical) = config.cyclical_lr {
+        println!("  Cyclical LR: {:?}", cyclical);
+    } else {
+        println!("  Cyclical LR: disabled");
+    }
+
+    if let Some(ref reg) = config.regularization {
+        let l1 = reg.l1.unwrap_or(0.0);
+        let l2 = reg.l2.unwrap_or(0.0);
+        if l1 != 0.0 || l2 != 0.0 {
+            println!("  Regularization: l1={}, l2={}", l1, l2);
+        } else {
+            println!("  Regularization: disabled");
+        }
+    } else {
+        println!("  Regularization: disabled");
+    }
+
+    if let Some(ref clipping) = config.gradient_clipping {
+        println!("  Gradient clipping: {:?}", clipping);
+    } else {
+        println!("  Gradient clipping: disabled");
+    }
+
     if let Some(ref activation) = config.activation_function {
         println!("  Activation function: {}", activation);
     }

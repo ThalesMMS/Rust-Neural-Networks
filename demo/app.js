@@ -60,6 +60,10 @@ export class DigitRecognizerApp {
         this.hiddenCanvas = null;
         this.hiddenCtx = null;
 
+        // Optional on-page preprocessing preview (also 28x28)
+        this.preprocessCanvas = null;
+        this.preprocessCtx = null;
+
         // WASM classifier
         this.classifier = null;
 
@@ -68,6 +72,10 @@ export class DigitRecognizerApp {
         this.clearButton = null;
         this.predictButton = null;
         this.statusMessage = null;
+
+        // Intermediate signal UI
+        this.activationBarsEl = null;
+        this.activationSummaryEl = null;
     }
 
     /**
@@ -93,6 +101,8 @@ export class DigitRecognizerApp {
             this.classifier = new MnistWasmWrapper();
             await this.classifier.initialize(this.modelUrl);
 
+            await this.loadAndRenderMetadata();
+
             this.updateStatus('Ready! Draw a digit on the canvas.');
         } catch (error) {
             this.updateStatus(`Error: ${error.message}`);
@@ -106,6 +116,79 @@ export class DigitRecognizerApp {
      *
      * @private
      */
+    async loadAndRenderMetadata() {
+        const metadataEl = document.getElementById('metadata-content');
+        if (!metadataEl) return;
+
+        try {
+            const resp = await fetch('model_metadata.json');
+            if (!resp.ok) {
+                throw new Error(`metadata HTTP ${resp.status}`);
+            }
+            const metadata = await resp.json();
+            this.renderMetadata(metadata);
+        } catch (e) {
+            metadataEl.textContent = 'Model metadata unavailable.';
+        }
+    }
+
+    renderMetadata(metadata) {
+        const metadataEl = document.getElementById('metadata-content');
+        if (!metadataEl) return;
+
+        const layers = metadata?.architecture?.layers || [];
+        const totalParams = metadata?.architecture?.parameter_count?.total;
+
+        const layerLis = layers
+            .map((l) => {
+                const act = l.activation ? ` + ${l.activation}` : '';
+                if (l.input_size != null && l.output_size != null) {
+                    return `<li>${l.name || l.type}: ${l.input_size} → ${l.output_size}${act}</li>`;
+                }
+                return `<li>${l.name || l.type}${act}</li>`;
+            })
+            .join('');
+
+        const dataset = metadata?.training_reference?.dataset;
+        const trainingNote = metadata?.training_reference?.note;
+
+        metadataEl.innerHTML = `
+            <div class="metadata-grid">
+                <div class="metadata-row">
+                    <div class="metadata-key">Model</div>
+                    <div class="metadata-value">${metadata.name || '—'}</div>
+                </div>
+                <div class="metadata-row">
+                    <div class="metadata-key">Task</div>
+                    <div class="metadata-value">${metadata.task || '—'}</div>
+                </div>
+                <div class="metadata-row">
+                    <div class="metadata-key">Input</div>
+                    <div class="metadata-value">${metadata.input || '—'}</div>
+                </div>
+                <div class="metadata-row">
+                    <div class="metadata-key">Output</div>
+                    <div class="metadata-value">${metadata.output || '—'}</div>
+                </div>
+                <div class="metadata-row">
+                    <div class="metadata-key">Architecture</div>
+                    <div class="metadata-value">
+                        <ul class="metadata-list">${layerLis || '<li>—</li>'}</ul>
+                    </div>
+                </div>
+                <div class="metadata-row">
+                    <div class="metadata-key">Parameters</div>
+                    <div class="metadata-value">${typeof totalParams === 'number' ? totalParams.toLocaleString() : '—'}</div>
+                </div>
+                <div class="metadata-row">
+                    <div class="metadata-key">Training</div>
+                    <div class="metadata-value">${dataset || '—'}</div>
+                </div>
+            </div>
+            ${trainingNote ? `<div class="metadata-small">${trainingNote}</div>` : ''}
+        `;
+    }
+
     setupCanvas() {
         // Get main canvas
         this.canvas = document.getElementById(this.canvasId);
@@ -136,6 +219,14 @@ export class DigitRecognizerApp {
         this.clearButton = document.getElementById(this.clearButtonId);
         this.predictButton = document.getElementById(this.predictButtonId);
         this.statusMessage = document.getElementById(this.statusMessageId);
+
+        // Optional preprocessing preview
+        this.preprocessCanvas = document.getElementById('preprocess-canvas');
+        this.preprocessCtx = this.preprocessCanvas ? this.preprocessCanvas.getContext('2d') : null;
+
+        // Intermediate signal UI (optional)
+        this.activationBarsEl = document.getElementById('activation-bars');
+        this.activationSummaryEl = document.getElementById('activation-summary');
 
         if (!this.predictionsContainer || !this.clearButton || !this.predictButton || !this.statusMessage) {
             throw new Error('Required UI elements not found');
@@ -301,8 +392,17 @@ export class DigitRecognizerApp {
         // Draw scaled-down version to hidden canvas
         this.hiddenCtx.fillStyle = 'black';
         this.hiddenCtx.fillRect(0, 0, this.imageSize, this.imageSize);
-        this.hiddenCtx.drawImage(this.canvas, 0, 0, this.canvasSize, this.canvasSize,
-                                             0, 0, this.imageSize, this.imageSize);
+        this.hiddenCtx.drawImage(
+            this.canvas,
+            0,
+            0,
+            this.canvasSize,
+            this.canvasSize,
+            0,
+            0,
+            this.imageSize,
+            this.imageSize
+        );
 
         // Get pixel data
         const imageData = this.hiddenCtx.getImageData(0, 0, this.imageSize, this.imageSize);
@@ -316,7 +416,37 @@ export class DigitRecognizerApp {
             normalized[i] = pixels[i * 4] / 255.0;
         }
 
+        this.updatePreprocessPreview(pixels);
+
         return normalized;
+    }
+
+    /**
+     * Draws the 28x28 preprocessed input to the on-page preview canvas.
+     *
+     * @private
+     * @param {Uint8ClampedArray} pixels - RGBA pixels from the hidden 28x28 canvas
+     */
+    updatePreprocessPreview(pixels) {
+        if (!this.preprocessCtx || !this.preprocessCanvas) return;
+
+        // Ensure crisp pixels when scaled by CSS
+        this.preprocessCtx.imageSmoothingEnabled = false;
+
+        const img = this.preprocessCtx.createImageData(this.imageSize, this.imageSize);
+        const dst = img.data;
+
+        // Copy the hidden 28x28 RGBA pixels, but force alpha=255 for consistency
+        for (let i = 0; i < this.imageSize * this.imageSize; i++) {
+            const j = i * 4;
+            const v = pixels[j];
+            dst[j] = v;
+            dst[j + 1] = v;
+            dst[j + 2] = v;
+            dst[j + 3] = 255;
+        }
+
+        this.preprocessCtx.putImageData(img, 0, 0);
     }
 
     /**
@@ -338,12 +468,13 @@ export class DigitRecognizerApp {
             // Get normalized image data
             const imageData = this.getImageData();
 
-            // Run prediction
-            const probabilities = this.classifier.predict(imageData);
+            // Run prediction (+ intermediate signal)
+            const { probabilities, hidden } = this.classifier.predictWithHidden(imageData);
             const predictedDigit = this.classifier.predictDigit(imageData);
 
             // Update UI
             this.updatePredictions(probabilities, predictedDigit);
+            this.updateHiddenActivations(hidden);
         } catch (error) {
             this.updateStatus(`Prediction error: ${error.message}`);
         }
@@ -397,6 +528,49 @@ export class DigitRecognizerApp {
                 label.textContent = `${percentage}%`;
             }
         });
+    }
+
+    /**
+     * Renders a compact visualization of the hidden layer activations.
+     *
+     * Shows the first 512 activations as a 64x8 grid of small bars.
+     *
+     * @private
+     * @param {Float32Array} hidden - Hidden layer post-ReLU activations (expected length: 512)
+     */
+    updateHiddenActivations(hidden) {
+        if (!this.activationBarsEl || !this.activationSummaryEl) return;
+        if (!hidden || hidden.length === 0) return;
+
+        const n = hidden.length;
+
+        // Compute simple stats
+        let max = 0;
+        let sum = 0;
+        let nonZero = 0;
+        for (let i = 0; i < n; i++) {
+            const v = hidden[i];
+            sum += v;
+            if (v > 0) nonZero++;
+            if (v > max) max = v;
+        }
+        const mean = sum / n;
+
+        this.activationSummaryEl.textContent = `mean=${mean.toFixed(4)}  max=${max.toFixed(4)}  nonzero=${nonZero}/${n}`;
+
+        // Render bars (rebuild each time; 512 elements is small)
+        this.activationBarsEl.innerHTML = '';
+
+        const denom = max > 0 ? max : 1;
+        for (let i = 0; i < n; i++) {
+            const v = hidden[i];
+            const t = Math.max(0, Math.min(1, v / denom));
+
+            const el = document.createElement('div');
+            el.className = 'activation-bar';
+            el.style.background = `rgb(${Math.round(221 - 120 * t)}, ${Math.round(221 - 160 * t)}, ${Math.round(221 - 221 * t)})`;
+            this.activationBarsEl.appendChild(el);
+        }
     }
 
     /**

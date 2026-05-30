@@ -555,8 +555,20 @@ fn check_regression(results: &[BenchmarkResult], baseline_path: &str) -> Result<
 // Main
 // ============================================================================
 
+fn print_help_and_exit() -> ! {
+    println!(
+        "run_benchmarks\n\nUSAGE:\n  cargo run --release --bin run_benchmarks [-- <FLAGS>]\n\nFLAGS:\n  --save-results        Save JSON results to benchmarks/results/<timestamp>.json\n  --check-regression    Compare results against benchmarks/baseline.json and exit non-zero on violations\n  -h, --help            Print this help and exit\n\nNOTES:\n  - The benchmark configuration is read from config/benchmarks/benchmark_config.json\n  - JSON results are always printed to stdout (unless you redirect it)\n"
+    );
+    process::exit(0)
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
+
+    let wants_help = args.iter().any(|a| a == "--help" || a == "-h");
+    if wants_help {
+        print_help_and_exit();
+    }
 
     let check_regression_flag = args.iter().any(|a| a == "--check-regression");
     let save_results_flag = args.iter().any(|a| a == "--save-results");

@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+use rust_neural_networks::experiment_registry::RunRecord;
 use rust_neural_networks::sweep::{generate_configs, load_sweep_config, SweepResult};
 
 // Hyperparameter sweep orchestrator - runs training with multiple configurations
@@ -15,6 +16,8 @@ use rust_neural_networks::sweep::{generate_configs, load_sweep_config, SweepResu
 struct RunResult {
     config_num: usize,
     log_file: String,
+    run_id: Option<String>,
+    run_json_path: Option<String>,
     final_epoch: usize,
     train_loss: f32,
     val_loss: f32,
@@ -37,6 +40,7 @@ fn print_usage() {
     eprintln!("  --target <binary>     Target binary to run (e.g., mnist_mlp, mnist_cnn)");
     eprintln!("  --sweep <path>        Path to sweep configuration JSON file");
     eprintln!("  --quick               (Optional) Use reduced epochs for quick testing");
+    eprintln!("  --export <json|csv>    (Optional) Export aggregated summary table as JSON (default) or CSV");
     eprintln!();
     eprintln!("Example:");
     eprintln!("  cargo run --release --bin hyperparameter_sweep -- \\");
@@ -44,7 +48,7 @@ fn print_usage() {
     eprintln!("    --sweep config/sweeps/mnist_mlp_sweep.json");
 }
 
-fn parse_args() -> Result<(String, String, bool), String> {
+fn parse_args() -> Result<(String, String, bool, Option<String>), String> {
     let args: Vec<String> = env::args().collect();
 
     // Check for --help flag
@@ -60,6 +64,7 @@ fn parse_args() -> Result<(String, String, bool), String> {
     let mut target_binary = None;
     let mut sweep_config = None;
     let mut quick_mode = false;
+    let mut export_format: Option<String> = None;
 
     let mut i = 1;
     while i < args.len() {
@@ -82,6 +87,13 @@ fn parse_args() -> Result<(String, String, bool), String> {
                 quick_mode = true;
                 i += 1;
             }
+            "--export" => {
+                if i + 1 >= args.len() {
+                    return Err("--export requires a value (json or csv)".to_string());
+                }
+                export_format = Some(args[i + 1].clone());
+                i += 2;
+            }
             "--help" | "-h" => {
                 print_usage();
                 process::exit(0);
@@ -95,7 +107,7 @@ fn parse_args() -> Result<(String, String, bool), String> {
     let target = target_binary.ok_or("--target argument is required")?;
     let sweep = sweep_config.ok_or("--sweep argument is required")?;
 
-    Ok((target, sweep, quick_mode))
+    Ok((target, sweep, quick_mode, export_format))
 }
 
 fn main() {
@@ -103,7 +115,7 @@ fn main() {
     println!("============================\n");
 
     // Parse command-line arguments
-    let (target_binary, sweep_config_path, quick_mode) = match parse_args() {
+    let (target_binary, sweep_config_path, quick_mode, export_format) = match parse_args() {
         Ok(args) => args,
         Err(err) => {
             eprintln!("Error: {}\n", err);
@@ -204,6 +216,8 @@ fn main() {
         let run_start = Instant::now();
         println!("\nStarting training run...\n");
 
+        let runs_before = list_run_records("./runs");
+
         let success = run_training(&target_binary, config_path.as_path());
 
         let run_duration = run_start.elapsed();
@@ -212,6 +226,110 @@ fn main() {
         if success {
             successful_runs += 1;
             println!("Status: SUCCESS");
+
+            // Try to detect the run record (preferred), falling back to log parsing.
+            let runs_after = list_run_records("./runs");
+            let new_run_record = find_new_run_record(&runs_before, &runs_after);
+
+            if let Some((run_id, run_json_path)) = new_run_record {
+                println!("Run record created: {}", run_json_path);
+
+                match load_run_record(Path::new(&run_json_path)) {
+                    Ok(record) => {
+                        let metrics = match record.metrics.clone() {
+                            Some(m) => m,
+                            None => {
+                                eprintln!(
+                                    "Warning: run.json missing metrics; falling back to log parsing"
+                                );
+                                // Find and parse the new log file
+                                let logs_after = list_log_files("./logs");
+                                if let Some(new_log_file) =
+                                    find_new_log_file(&logs_before, &logs_after)
+                                {
+                                    println!("Log file created: {}", new_log_file);
+                                    match parse_log_file(&new_log_file) {
+                                        Ok((
+                                            final_epoch,
+                                            train_loss,
+                                            val_loss,
+                                            val_accuracy,
+                                            training_time,
+                                            lr,
+                                        )) => {
+                                            let result = RunResult {
+                                                config_num,
+                                                log_file: new_log_file.clone(),
+                                                run_id: Some(run_id.clone()),
+                                                run_json_path: Some(run_json_path.clone()),
+                                                final_epoch,
+                                                train_loss,
+                                                val_loss,
+                                                val_accuracy,
+                                                training_time,
+                                                _learning_rate: lr,
+                                                config_lr: config.learning_rate.unwrap_or(0.01),
+                                                config_batch_size: config.batch_size.unwrap_or(64),
+                                                config_epochs: config.epochs.unwrap_or(10),
+                                                config_scheduler: config.scheduler_type.clone(),
+                                                config: config.clone(),
+                                            };
+                                            println!("Final metrics - Epoch: {}, Train Loss: {:.4}, Val Loss: {:.4}, Val Acc: {:.2}%",
+                                                     final_epoch, train_loss, val_loss, val_accuracy * 100.0);
+                                            run_results.push(result);
+                                        }
+                                        Err(err) => {
+                                            eprintln!("Warning: Could not parse log file: {}", err)
+                                        }
+                                    }
+                                } else {
+                                    eprintln!("Warning: Could not find new log file for this run");
+                                }
+                                continue;
+                            }
+                        };
+
+                        let result = RunResult {
+                            config_num,
+                            log_file: record
+                                .artifacts
+                                .as_ref()
+                                .and_then(|a| a.training_log_csv.clone())
+                                .unwrap_or_else(|| "".to_string()),
+                            run_id: Some(run_id),
+                            run_json_path: Some(run_json_path),
+                            final_epoch: metrics.epochs_completed,
+                            train_loss: metrics.final_train_loss.unwrap_or(0.0) as f32,
+                            val_loss: metrics.final_val_loss.unwrap_or(0.0) as f32,
+                            val_accuracy: metrics.final_val_accuracy.unwrap_or(0.0) as f32,
+                            training_time: metrics.total_training_time_seconds.unwrap_or(0.0)
+                                as f32,
+                            _learning_rate: 0.0,
+                            config_lr: config.learning_rate.unwrap_or(0.01),
+                            config_batch_size: config.batch_size.unwrap_or(64),
+                            config_epochs: config.epochs.unwrap_or(10),
+                            config_scheduler: config.scheduler_type.clone(),
+                            config: config.clone(),
+                        };
+
+                        println!(
+                            "Final metrics - Epochs: {}, Train Loss: {:.4}, Val Loss: {:.4}, Val Acc: {:.2}%",
+                            result.final_epoch,
+                            result.train_loss,
+                            result.val_loss,
+                            result.val_accuracy * 100.0
+                        );
+
+                        run_results.push(result);
+                    }
+                    Err(err) => {
+                        eprintln!(
+                            "Warning: Could not load run record ({}): {}; falling back to log parsing",
+                            run_json_path, err
+                        );
+                    }
+                }
+            }
 
             // Find and parse the new log file
             let logs_after = list_log_files("./logs");
@@ -224,6 +342,8 @@ fn main() {
                         let result = RunResult {
                             config_num,
                             log_file: new_log_file.clone(),
+                            run_id: None,
+                            run_json_path: None,
                             final_epoch,
                             train_loss,
                             val_loss,
@@ -304,16 +424,34 @@ fn main() {
         println!("\nNote: No results collected (all runs failed)");
     }
 
-    // Write aggregated results to JSON
+    // Export aggregated summary table
     if !run_results.is_empty() {
-        match write_results_to_json(&run_results) {
-            Ok(json_path) => {
-                println!("\n==================================================");
-                println!("Results exported to: {}", json_path);
-                println!("==================================================");
-            }
-            Err(err) => {
-                eprintln!("\nWarning: Could not write results to JSON: {}", err);
+        match export_format.as_deref() {
+            Some("csv") => match write_results_to_csv(&run_results) {
+                Ok(path) => {
+                    println!("\n==================================================");
+                    println!("Results exported to: {}", path);
+                    println!("==================================================");
+                }
+                Err(err) => {
+                    eprintln!("\nWarning: Could not write results to CSV: {}", err);
+                }
+            },
+            Some("json") | None => match write_results_to_json(&run_results) {
+                Ok(path) => {
+                    println!("\n==================================================");
+                    println!("Results exported to: {}", path);
+                    println!("==================================================");
+                }
+                Err(err) => {
+                    eprintln!("\nWarning: Could not write results to JSON: {}", err);
+                }
+            },
+            Some(other) => {
+                eprintln!(
+                    "\nWarning: Unknown export format '{}'; use 'json' or 'csv'",
+                    other
+                );
             }
         }
     }
@@ -385,6 +523,48 @@ fn run_training(target_binary: &str, config_path: &Path) -> bool {
             false
         }
     }
+}
+
+/// Lists all run record JSON files in the given registry directory.
+fn list_run_records(registry_dir_path: &str) -> Vec<String> {
+    let mut records = Vec::new();
+
+    let runs_dir = Path::new(registry_dir_path);
+    if let Ok(entries) = fs::read_dir(runs_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let run_json = path.join("run.json");
+            if run_json.is_file() {
+                records.push(run_json.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    records
+}
+
+/// Returns (run_id, run_json_path) for the first new run record created.
+fn find_new_run_record(before: &[String], after: &[String]) -> Option<(String, String)> {
+    for run_json in after {
+        if !before.contains(run_json) {
+            let run_id = Path::new(run_json)
+                .parent()
+                .and_then(|p| p.file_name())
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| "".to_string());
+            return Some((run_id, run_json.clone()));
+        }
+    }
+    None
+}
+
+fn load_run_record(path: &Path) -> Result<RunRecord, Box<dyn std::error::Error>> {
+    let contents = fs::read_to_string(path)?;
+    let record: RunRecord = serde_json::from_str(&contents)?;
+    Ok(record)
 }
 
 /// Lists all log files in the given directory
@@ -610,4 +790,72 @@ fn write_results_to_json(results: &[RunResult]) -> Result<String, Box<dyn std::e
     fs::write(&json_filename, json_content)?;
 
     Ok(json_filename)
+}
+
+/// Writes aggregated sweep results to a CSV file (summary table)
+/// Returns the path to the created CSV file
+fn write_results_to_csv(results: &[RunResult]) -> Result<String, Box<dyn std::error::Error>> {
+    // Generate timestamp for filename
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+
+    // Create logs directory if it doesn't exist
+    fs::create_dir_all("./logs")?;
+
+    // Generate output filename
+    let csv_filename = format!("./logs/sweep_results_{}.csv", timestamp);
+
+    let sweep_results: Vec<SweepResult> = results.iter().map(convert_to_sweep_result).collect();
+
+    let mut out = String::new();
+    out.push_str("config_id,learning_rate,batch_size,epochs_completed,scheduler_type,activation_function,final_train_loss,final_val_loss,final_val_accuracy,total_training_time,log_file,step_size,gamma,decay_rate,min_lr,T_max,validation_split,early_stopping_patience,early_stopping_min_delta,leaky_relu_alpha,elu_alpha\n");
+
+    for r in sweep_results {
+        out.push_str(&format!(
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
+            r.config_id,
+            r.learning_rate,
+            r.batch_size,
+            r.epochs_completed,
+            csv_escape(&r.scheduler_type),
+            csv_escape_opt(r.activation_function.as_deref()),
+            r.final_train_loss,
+            r.final_val_loss,
+            r.final_val_accuracy,
+            r.total_training_time,
+            csv_escape(&r.log_file),
+            opt_to_csv(r.step_size),
+            opt_to_csv(r.gamma),
+            opt_to_csv(r.decay_rate),
+            opt_to_csv(r.min_lr),
+            opt_to_csv(r.T_max),
+            opt_to_csv(r.validation_split),
+            opt_to_csv(r.early_stopping_patience),
+            opt_to_csv(r.early_stopping_min_delta),
+            opt_to_csv(r.leaky_relu_alpha),
+            opt_to_csv(r.elu_alpha)
+        ));
+    }
+
+    fs::write(&csv_filename, out)?;
+
+    Ok(csv_filename)
+}
+
+fn csv_escape(s: &str) -> String {
+    if s.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_string()
+    }
+}
+
+fn csv_escape_opt(s: Option<&str>) -> String {
+    match s {
+        Some(v) => csv_escape(v),
+        None => String::new(),
+    }
+}
+
+fn opt_to_csv<T: std::fmt::Display>(v: Option<T>) -> String {
+    v.map(|x| x.to_string()).unwrap_or_default()
 }

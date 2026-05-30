@@ -395,6 +395,35 @@ impl GradientAccumulator {
         drop(grads);
         self.zero();
     }
+
+    /// Borrows the underlying gradient buffer mutably and applies clipping by L2 norm.
+    ///
+    /// This is a convenience wrapper around [`crate::utils::gradient_clipping::clip_gradient_norm`]
+    /// that operates directly on the accumulator's internal buffer.
+    ///
+    /// # Arguments
+    ///
+    /// * `max_norm` - Maximum allowed L2 norm for the gradient vector.
+    ///
+    /// # Returns
+    ///
+    /// The L2 norm of the gradients before clipping.
+    pub fn clip_by_norm(&self, max_norm: f32) -> f32 {
+        let mut grads = self.gradients.borrow_mut();
+        crate::utils::gradient_clipping::clip_gradient_norm(&mut grads, max_norm)
+    }
+
+    /// Borrows the underlying gradient buffer mutably and applies per-element value clipping.
+    ///
+    /// This is a convenience wrapper around [`crate::utils::gradient_clipping::clip_gradient_value`].
+    ///
+    /// # Arguments
+    ///
+    /// * `clip_value` - Maximum absolute value for any gradient element.
+    pub fn clip_by_value(&self, clip_value: f32) {
+        let mut grads = self.gradients.borrow_mut();
+        crate::utils::gradient_clipping::clip_gradient_value(&mut grads, clip_value)
+    }
 }
 
 #[cfg(test)]

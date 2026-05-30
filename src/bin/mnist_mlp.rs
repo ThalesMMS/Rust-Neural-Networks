@@ -11,8 +11,8 @@ use rust_neural_networks::optimizers::{Adam, Optimizer, SGD};
 use rust_neural_networks::step_debug::StepDebugger;
 use rust_neural_networks::training::{
     compute_softmax_cross_entropy, evaluate_batch_accuracy, gather_batch, parse_config_path,
-    parse_step_flag, print_training_config, CsvTrainingLogger, EarlyStopping, EarlyStoppingAction,
-    TrainingMetrics,
+    parse_registry_dir, parse_run_name, parse_seed_override, parse_step_flag,
+    print_training_config, CsvTrainingLogger, EarlyStopping, EarlyStoppingAction, TrainingMetrics,
 };
 use rust_neural_networks::utils::activations::{relu_inplace, softmax_rows};
 use rust_neural_networks::utils::lr_scheduler::{create_scheduler_from_config, LRScheduler};
@@ -182,7 +182,8 @@ fn train(
     params: &TrainHyperparams,
     aug_rng: &mut SimpleRng,
     debugger: &mut StepDebugger,
-) {
+    config: &rust_neural_networks::config::TrainingConfig,
+) -> TrainingMetrics {
     // Attempt to create logs dir if not exists
     std::fs::create_dir_all("./logs").ok();
 
@@ -247,6 +248,14 @@ fn train(
     );
 
     let total_batches = (train_data.num_samples + params.batch_size - 1) / params.batch_size;
+
+    let mut last_metrics = TrainingMetrics {
+        train_loss: 0.0,
+        val_loss: 0.0,
+        val_accuracy: 0.0,
+        train_time: 0.0,
+        learning_rate: scheduler.get_lr(),
+    };
 
     for epoch in 0..params.epochs {
         let mut total_loss = 0.0f32;
@@ -407,6 +416,26 @@ fn train(
                 NUM_INPUTS,
             );
 
+            // Apply optional regularization before logging/updating.
+            // (This augments the parameter gradients, so the effect is reflected in
+            // gradient norm logging and optimizer updates.)
+            if let Some(ref reg) = config.regularization {
+                if let Some(l2) = reg.l2 {
+                    nn.hidden_layer.apply_l2_regularization(l2);
+                    nn.output_layer.apply_l2_regularization(l2);
+                }
+                if let Some(l1) = reg.l1 {
+                    nn.hidden_layer.apply_l1_regularization(l1);
+                    nn.output_layer.apply_l1_regularization(l1);
+                }
+            }
+
+            // Apply gradient clipping (if enabled) before logging and parameter update.
+            nn.hidden_layer
+                .apply_gradient_clipping(&config.gradient_clipping);
+            nn.output_layer
+                .apply_gradient_clipping(&config.gradient_clipping);
+
             // Log gradient magnitudes before parameter update (accumulate for epoch)
             let (hidden_w_norm, hidden_b_norm) = nn.hidden_layer.get_gradient_magnitude();
             let (output_w_norm, output_b_norm) = nn.output_layer.get_gradient_magnitude();
@@ -520,6 +549,7 @@ fn train(
             train_time: duration,
             learning_rate: current_lr,
         };
+        last_metrics = metrics;
         csv_logger
             .write_epoch(epoch + 1, &metrics)
             .unwrap_or_else(|_| {
@@ -543,6 +573,8 @@ fn train(
         // Update learning rate for next epoch
         scheduler.step();
     }
+
+    last_metrics
 }
 
 // Evaluate accuracy on the test set using batches.
@@ -815,8 +847,19 @@ fn main() {
         actual_train_samples, validation_samples, test_samples
     );
 
+    // Registry-related CLI args (optional)
+    let run_name = parse_run_name(&args);
+    let registry_dir = parse_registry_dir(&args).unwrap_or_else(|| "runs".to_string());
+
+    // Log paths that we want to capture in the run record.
+    let training_log_path = format!("./logs/training_loss_{}.csv", OPTIMIZER_TYPE);
+    let gradient_log_path = "./logs/gradients_mlp.csv".to_string();
+
     println!("Initializing neural network...");
-    let mut rng = SimpleRng::new(1);
+    let seed = parse_seed_override(&args).unwrap_or(1);
+    let run_id = rust_neural_networks::experiment_registry_run_id::generate_run_id();
+    let timestamp_start = chrono::Utc::now().to_rfc3339();
+    let mut rng = SimpleRng::new(seed);
     let mut nn = initialize_network(
         &mut rng,
         #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
@@ -853,7 +896,7 @@ fn main() {
         brightness_jitter,
         contrast_jitter,
     };
-    train(
+    let last_epoch_metrics = train(
         &mut nn,
         &train_data,
         &val_data,
@@ -862,9 +905,15 @@ fn main() {
         &hyperparams,
         &mut aug_rng,
         &mut debugger,
+        &config,
     );
     let train_time = train_start.elapsed().as_secs_f64();
     println!("Total training time: {:.2} seconds", train_time);
+
+    println!(
+        "Final epoch metrics: train_loss={:.6}, val_loss={:.6}, val_acc={:.2}%",
+        last_epoch_metrics.train_loss, last_epoch_metrics.val_loss, last_epoch_metrics.val_accuracy
+    );
 
     println!("Testing neural network...");
     let test_start = Instant::now();
@@ -874,6 +923,54 @@ fn main() {
 
     println!("Saving model...");
     save_model(&nn, "mnist_model.bin");
+
+    // Registry artifacts captured (minimum: training log path; plus any obvious artifacts).
+    let artifacts = rust_neural_networks::experiment_registry::Artifacts {
+        training_log_csv: Some(training_log_path),
+        checkpoints: vec![
+            "mnist_model_best.bin".to_string(),
+            "mnist_model.bin".to_string(),
+        ],
+        plots: vec![],
+        extra: Some(serde_json::json!({
+            "gradient_log_csv": gradient_log_path,
+        })),
+    };
+
+    let record = rust_neural_networks::experiment_registry::RunRecord {
+        schema_version: rust_neural_networks::experiment_registry::RUN_RECORD_SCHEMA_VERSION
+            .to_string(),
+        run_id,
+        run_name,
+        timestamp_start,
+        timestamp_end: Some(chrono::Utc::now().to_rfc3339()),
+        model_type: "mnist_mlp".to_string(),
+        command: Some(std::env::args().collect::<Vec<_>>().join(" ")),
+        status: rust_neural_networks::experiment_registry::RunStatus::Completed,
+        seed,
+        config: rust_neural_networks::experiment_registry::ConfigSnapshot {
+            config_path: Some(config_path.clone()),
+            config_format: Some("json".to_string()),
+            raw: std::fs::read_to_string(&config_path).ok(),
+            parsed: None,
+        },
+        dataset: Some(rust_neural_networks::experiment_registry::dataset_placeholder("mnist")),
+        metrics: Some(rust_neural_networks::experiment_registry::Metrics {
+            epochs_completed: epochs,
+            final_train_loss: Some(last_epoch_metrics.train_loss as f64),
+            final_val_loss: Some(last_epoch_metrics.val_loss as f64),
+            final_val_accuracy: Some(last_epoch_metrics.val_accuracy as f64),
+            total_training_time_seconds: Some(train_time),
+        }),
+        artifacts: Some(artifacts),
+        environment: Some(rust_neural_networks::experiment_registry::collect_environment()),
+    };
+
+    if let Err(e) =
+        rust_neural_networks::experiment_registry::write_run_record(&registry_dir, &record)
+    {
+        eprintln!("Warning: failed to write run record: {e}");
+    }
 
     let total_time = program_start.elapsed().as_secs_f64();
     println!("\n=== Performance Summary ===");

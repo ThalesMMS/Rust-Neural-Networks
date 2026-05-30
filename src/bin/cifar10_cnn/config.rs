@@ -125,10 +125,6 @@ pub(crate) fn parse_arch_path(args: &[String]) -> Option<String> {
 /// assert_eq!(config, "c.json");
 /// assert_eq!(arch, None);
 /// ```
-// TODO: Use this in the CIFAR entrypoint when --config and --arch parsing are
-// consolidated; main currently calls parse_config_path, parse_arch_path, and
-// DEFAULT_CONFIG_PATH separately.
-#[allow(dead_code)]
 pub(crate) fn parse_config_paths(args: &[String]) -> (String, Option<String>) {
     (
         parse_config_path(args, DEFAULT_CONFIG_PATH),

@@ -64,6 +64,11 @@ struct LayerInfo {
 struct TrainingData {
     config: TrainingConfig,
     epochs: Vec<EpochData>,
+
+    // Per-run summary metrics derived from the epoch series
+    final_train_loss: f32,
+    final_val_loss: f32,
+    final_val_accuracy: f32,
     best_accuracy: f32,
     total_time: f32,
 }
@@ -341,6 +346,11 @@ fn build_mlp_data(rng: &mut SimpleRng) -> ModelData {
             .map(|e| e.val_accuracy)
             .fold(0.0_f32, f32::max);
         let total_time: f32 = epochs.iter().map(|e| e.train_time).sum();
+
+        let final_train_loss = epochs.last().map_or(0.0, |e| e.train_loss);
+        let final_val_loss = epochs.last().map_or(0.0, |e| e.val_loss);
+        let final_val_accuracy = epochs.last().map_or(0.0, |e| e.val_accuracy);
+
         TrainingData {
             config: TrainingConfig {
                 optimizer,
@@ -348,6 +358,9 @@ fn build_mlp_data(rng: &mut SimpleRng) -> ModelData {
                 batch_size: 64,
             },
             epochs,
+            final_train_loss,
+            final_val_loss,
+            final_val_accuracy,
             best_accuracy,
             total_time,
         }
@@ -433,6 +446,11 @@ fn build_cnn_data(rng: &mut SimpleRng) -> ModelData {
             .map(|e| e.val_accuracy)
             .fold(0.0_f32, f32::max);
         let total_time: f32 = epochs.iter().map(|e| e.train_time).sum();
+
+        let final_train_loss = epochs.last().map_or(0.0, |e| e.train_loss);
+        let final_val_loss = epochs.last().map_or(0.0, |e| e.val_loss);
+        let final_val_accuracy = epochs.last().map_or(0.0, |e| e.val_accuracy);
+
         TrainingData {
             config: TrainingConfig {
                 optimizer,
@@ -440,6 +458,9 @@ fn build_cnn_data(rng: &mut SimpleRng) -> ModelData {
                 batch_size: 64,
             },
             epochs,
+            final_train_loss,
+            final_val_loss,
+            final_val_accuracy,
             best_accuracy,
             total_time,
         }
@@ -540,6 +561,11 @@ fn build_attention_data() -> ModelData {
             .map(|e| e.val_accuracy)
             .fold(0.0_f32, f32::max);
         let total_time: f32 = epochs.iter().map(|e| e.train_time).sum();
+
+        let final_train_loss = epochs.last().map_or(0.0, |e| e.train_loss);
+        let final_val_loss = epochs.last().map_or(0.0, |e| e.val_loss);
+        let final_val_accuracy = epochs.last().map_or(0.0, |e| e.val_accuracy);
+
         TrainingData {
             config: TrainingConfig {
                 optimizer,
@@ -547,6 +573,9 @@ fn build_attention_data() -> ModelData {
                 batch_size: 32,
             },
             epochs,
+            final_train_loss,
+            final_val_loss,
+            final_val_accuracy,
             best_accuracy,
             total_time,
         }
