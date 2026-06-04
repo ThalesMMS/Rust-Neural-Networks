@@ -882,10 +882,10 @@ All runs used the default settings unless noted. Training time is reported as to
 | MNIST MLP | Rust | `cargo run --release --bin mnist_mlp` | 10 | 64 | 3.33 | 94.17 | BLAS (Accelerate) |
 | MNIST CNN | Rust | `cargo run --release --bin mnist_cnn` | 3 | 32 | 11.24 | 91.93 | Conv8/3x3 + MaxPool |
 | MNIST Attention | Rust | `cargo run --release --bin mnist_attention_pool` | 8 | 32 | 960 | 91.08 | D=64, FF=128, sinusoidal pos encoding |
-| CIFAR-10 CNN | Rust | `cargo run --release --bin cifar10_cnn` | 10 | 32 | TBD | TBD (expected 50-60) | Conv16/3x3 + MaxPool, RGB input |
+| CIFAR-10 CNN | Rust | `cargo run --release --bin cifar10_cnn` | 5/10 | 32 | 30.37 | 10.00 | Conv16/3x3 -> Dense, RGB input; early stopped |
 | XOR MLP | Rust | `cargo run --release --bin mlp_simple` | 1,000,000 | - | 0.74 | 100.00 | Threshold 0.5 |
 
-Note: results vary by hardware and build flags.
+Note: results vary by hardware and build flags. The CIFAR-10 CNN run used the documented default command after `cargo run --bin dataset-helper -- verify --cifar10`; the default config requested 10 epochs but early stopping ended the run after epoch 5, so the training time is the sum of the five logged epoch times.
 
 ## MNIST dataset
 

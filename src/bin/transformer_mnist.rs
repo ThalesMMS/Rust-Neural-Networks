@@ -223,6 +223,16 @@ fn extract_patches(images: &[f32], batch_size: usize, patches: &mut [f32]) {
     }
 }
 
+fn apply_patch_embedding_relu_backward(patch_embeds: &[f32], grad_patch_embeds: &mut [f32]) {
+    assert_eq!(patch_embeds.len(), grad_patch_embeds.len());
+
+    for (activation, gradient) in patch_embeds.iter().zip(grad_patch_embeds.iter_mut()) {
+        if *activation <= 0.0 {
+            *gradient = 0.0;
+        }
+    }
+}
+
 // ============================================================================
 // Training Loop
 // ============================================================================
@@ -537,9 +547,12 @@ fn main() {
                 current_batch_size,
             );
 
-            // Note: We skip backward through ReLU and positional encoding for simplicity
-            // The gradients flow through as-is since ReLU gradient is 1 for positive values
-            // and positional encoding is added (gradient passes through unchanged)
+            apply_patch_embedding_relu_backward(
+                &patch_embeds[..current_batch_size * SEQ_LEN * D_MODEL],
+                &mut grad_patch_embeds[..current_batch_size * SEQ_LEN * D_MODEL],
+            );
+            // Positional encoding is an additive, non-trainable term, so gradients pass
+            // through unchanged after applying the patch embedding ReLU derivative.
 
             // Backward pass: Patch embedding
             patch_embedding.backward(
@@ -791,4 +804,20 @@ fn evaluate(
     let accuracy = correct as f32 / num_samples as f32;
 
     (avg_loss, accuracy)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_patch_embedding_relu_backward_masks_inactive_outputs() {
+        let mut patch_embeds = vec![-1.0f32, 0.0, 0.25, 2.0];
+        relu_inplace(&mut patch_embeds);
+        let mut gradients = vec![3.0f32, -4.0, 5.0, -6.0];
+
+        apply_patch_embedding_relu_backward(&patch_embeds, &mut gradients);
+
+        assert_eq!(gradients, vec![0.0, 0.0, 5.0, -6.0]);
+    }
 }

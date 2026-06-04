@@ -158,6 +158,22 @@ fn test_accuracy_invalid_inputs_return_zero() {
 }
 
 #[test]
+fn test_accuracy_handles_partial_final_batch() {
+    let mut rng = SimpleRng::new(42);
+    let dense = DenseLayer::new(NUM_INPUTS, NUM_CLASSES, &mut rng);
+    let mut model = Cnn {
+        layers: vec![Box::new(dense)],
+    };
+    let sample_count = BATCH_SIZE + 1;
+    let images = vec![0.0f32; sample_count * NUM_INPUTS];
+    let labels = vec![0u8; sample_count];
+
+    let acc = test_accuracy(&mut model, &images, &labels);
+
+    assert!((0.0..=100.0).contains(&acc));
+}
+
+#[test]
 fn test_backward_pass_masks_conv_relu_before_backward() {
     let mut rng = SimpleRng::new(42);
     let conv = Conv2DLayer::new(1, 1, 3, 1isize, 1, 4, 4, &mut rng);

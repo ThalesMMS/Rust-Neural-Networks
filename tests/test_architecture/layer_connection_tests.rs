@@ -159,3 +159,33 @@ fn test_invalid_conv2d_to_dense_size_mismatch() {
     let error_msg = result.unwrap_err().to_string();
     assert!(error_msg.contains("Layer connection mismatch"));
 }
+
+#[test]
+fn test_invalid_residual_block_to_globalavgpool_shape_mismatch() {
+    let config_json = r#"{
+  "layers": [
+{
+  "layer_type": "residual_block",
+  "in_channels": 16,
+  "out_channels": 32,
+  "stride": 2,
+  "input_height": 32,
+  "input_width": 32
+},
+{
+  "layer_type": "globalavgpool",
+  "pool_input_height": 32,
+  "pool_input_width": 16,
+  "pool_channels": 32
+}
+  ]
+}"#;
+
+    let temp_file = write_temp_config(config_json);
+    let result = load_architecture(temp_file.path().to_str().unwrap());
+
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(error_msg.contains("Layer connection mismatch"));
+    assert!(error_msg.contains("output height"));
+}

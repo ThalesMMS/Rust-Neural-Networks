@@ -679,6 +679,8 @@ def backward(inputs, hidden_states, outputs, targets):
 4. **Memory efficiency**: Only need to store dh_next, not all hidden gradients
 5. **Numerical stability**: Apply gradient clipping before or during accumulation
 
+In this crate, `RnnLayer::backward_bptt(input, grad_output, grad_input, dh_next, batch_size)` exposes this reverse-time state-gradient path by returning `dh_prev`. The `Layer::backward` implementation remains the single-step form and calls the same math with zero incoming `dh_next`.
+
 ## The Vanishing/Exploding Gradient Problem
 
 ### Mathematical Analysis

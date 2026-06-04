@@ -396,6 +396,62 @@ fn test_rnn_sequential_processing() {
     }
 }
 
+#[test]
+fn test_rnn_backward_bptt_propagates_later_loss_to_earlier_timestep() {
+    let mut rng = SimpleRng::new(2026);
+    let input_size = 3;
+    let hidden_size = 4;
+    let output_size = 2;
+    let batch_size = 1;
+
+    let layer = RnnLayer::new(input_size, hidden_size, output_size, &mut rng);
+    let inputs = [vec![1.0f32, 0.2, -0.1], vec![0.0f32, 0.5, 0.7]];
+
+    layer.reset_hidden_state();
+    for input in &inputs {
+        let mut output = vec![0.0f32; output_size];
+        layer.forward(input, &mut output, batch_size);
+    }
+
+    let mut grad_input_t1 = vec![0.0f32; input_size];
+    let zero_dh_next = vec![0.0f32; hidden_size];
+    let dh_from_later = layer.backward_bptt(
+        &inputs[1],
+        &[1.0f32, -0.5],
+        &mut grad_input_t1,
+        &zero_dh_next,
+        batch_size,
+    );
+
+    assert!(
+        dh_from_later.iter().any(|&x| x.abs() > 1e-10),
+        "later timestep loss should produce hidden-state gradient"
+    );
+
+    layer.reset_hidden_state();
+    let mut replay_output = vec![0.0f32; output_size];
+    layer.forward(&inputs[0], &mut replay_output, batch_size);
+
+    let mut grad_input_t0 = vec![0.0f32; input_size];
+    let zero_grad_output_t0 = vec![0.0f32; output_size];
+    let dh_before_t0 = layer.backward_bptt(
+        &inputs[0],
+        &zero_grad_output_t0,
+        &mut grad_input_t0,
+        &dh_from_later,
+        batch_size,
+    );
+
+    assert!(
+        grad_input_t0.iter().any(|&x| x.abs() > 1e-10),
+        "earlier timestep input should receive gradient from later loss"
+    );
+    assert!(
+        dh_before_t0.iter().all(|&x| x.is_finite()),
+        "returned hidden-state gradients should be finite"
+    );
+}
+
 // ============================================================================
 // Test: Parameter Updates
 // ============================================================================

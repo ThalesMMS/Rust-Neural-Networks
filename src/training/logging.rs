@@ -133,12 +133,12 @@ impl CsvTrainingLogger {
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```
     /// use rust_neural_networks::training::CsvTrainingLogger;
+    /// use tempfile::NamedTempFile;
     ///
-    /// // Given a constructed `CsvTrainingLogger` named `logger`,
-    /// // calling `flush` will attempt to persist buffered writes to disk.
-    /// let mut logger: CsvTrainingLogger = unimplemented!(); // replace with actual logger construction
+    /// let tmp = NamedTempFile::new().unwrap();
+    /// let mut logger = CsvTrainingLogger::new(tmp.path().to_str().unwrap()).unwrap();
     /// logger.flush().unwrap();
     /// ```
     ///
@@ -254,12 +254,12 @@ impl CsvGradientLogger {
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```
     /// use rust_neural_networks::training::CsvGradientLogger;
+    /// use tempfile::NamedTempFile;
     ///
-    /// // Given a constructed `CsvGradientLogger` named `logger`,
-    /// // calling `flush` will attempt to persist buffered writes to disk.
-    /// let mut logger: CsvGradientLogger = unimplemented!(); // replace with actual logger construction
+    /// let tmp = NamedTempFile::new().unwrap();
+    /// let mut logger = CsvGradientLogger::new(tmp.path().to_str().unwrap()).unwrap();
     /// logger.flush().unwrap();
     /// ```
     ///

@@ -424,6 +424,12 @@ The complete inference flow from user input to prediction display:
 6. Model ready for inference
 ```
 
+The practical demo path uses the curated trained model at `demo/mnist_model.bin`,
+loaded by `demo/wasm_wrapper.js` and parsed by `demo/model_loader.js`. The
+zero-weight byte arrays shown in `wasm/src/model.rs` examples are only structural
+validation fixtures: they check the header, parameter counts, and uniform-softmax
+behavior, but they do not represent useful digit-recognition weights.
+
 **Inference (per prediction):**
 
 ```

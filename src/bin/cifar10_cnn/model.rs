@@ -357,12 +357,13 @@ pub(crate) fn test_accuracy(model: &mut Cnn, images: &[f32], labels: &[u8]) -> f
         let batch = (num_samples - start).min(BATCH_SIZE);
         let len = batch * NUM_INPUTS;
         batch_inputs[..len].copy_from_slice(&images[start * NUM_INPUTS..start * NUM_INPUTS + len]);
+        let batch_input = &batch_inputs[..len];
 
         // Forward pass through all layers
         let output_idx = forward_pass(
             model,
             batch,
-            &batch_inputs,
+            batch_input,
             &mut activations,
             &mut temp_buffer,
         );

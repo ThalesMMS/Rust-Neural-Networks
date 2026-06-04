@@ -30,6 +30,31 @@ pub fn dataset_placeholder(name: impl Into<String>) -> DatasetMetadata {
     }
 }
 
+/// Dataset metadata for MNIST runs after the train/validation split is known.
+pub fn mnist_dataset_metadata(
+    train_size: usize,
+    val_size: usize,
+    test_size: usize,
+) -> DatasetMetadata {
+    DatasetMetadata {
+        name: "mnist".to_string(),
+        train_size: Some(train_size),
+        val_size: Some(val_size),
+        test_size: Some(test_size),
+        preprocessing: Some(serde_json::json!({
+            "format": "MNIST IDX",
+            "input_shape": [28, 28, 1],
+            "flattened_size": 784,
+            "normalization": "u8 pixels scaled to f32 in [0, 1]",
+            "split": "validation samples are split from the tail of the training IDX files"
+        })),
+        source: Some(DatasetSource {
+            path: Some("./data".to_string()),
+            sha256: None,
+        }),
+    }
+}
+
 pub fn collect_environment() -> Environment {
     Environment {
         git: git_info_from_repo(),

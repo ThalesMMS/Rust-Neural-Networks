@@ -339,12 +339,13 @@ fn main() {
                     None
                 },
             );
+            let batch_input = &batch_inputs[..batch * NUM_INPUTS];
 
             // Forward pass through all layers
             let output_idx = forward_pass(
                 &mut model,
                 batch,
-                &batch_inputs,
+                batch_input,
                 &mut activations,
                 &mut temp_buffer,
             );
@@ -376,7 +377,7 @@ fn main() {
             backward_pass(
                 &mut model,
                 batch,
-                &batch_inputs,
+                batch_input,
                 &activations,
                 &delta[..batch * NUM_CLASSES],
                 &mut grad_buffer1,
@@ -507,12 +508,13 @@ fn main() {
             let input_start = batch_start * NUM_INPUTS;
             val_batch_inputs[..input_len]
                 .copy_from_slice(&val_images[input_start..input_start + input_len]);
+            let val_batch_input = &val_batch_inputs[..input_len];
 
             // Forward pass through all layers
             let output_idx = forward_pass(
                 &mut model,
                 batch_count,
-                &val_batch_inputs,
+                val_batch_input,
                 &mut val_activations,
                 &mut val_temp_buffer,
             );

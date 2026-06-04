@@ -1444,7 +1444,7 @@ Each layer learns increasingly abstract temporal patterns. Modern language model
 A simplified LSTM with only 2 gates (update + reset) and no separate cell state. Fewer parameters, comparable performance on many tasks.
 
 **Transformer Attention:**
-The architecture that replaced LSTMs for most NLP tasks in 2017+. Instead of processing sequences step-by-step, attention mechanisms allow each position to "attend" to all other positions simultaneously. See Tutorial 05 (coming soon).
+The architecture that replaced LSTMs for most NLP tasks in 2017+. Instead of processing sequences step-by-step, attention mechanisms allow each position to "attend" to all other positions simultaneously. For a transformer-based follow-up with self-attention, see [Tutorial 07: Vision Transformer](07_vision_transformer.md).
 
 ### From Character Level to Word Level
 
@@ -1453,7 +1453,7 @@ The same LSTM architecture works for word-level language models:
 - Output: probability distribution over all words
 - Challenge: much larger vocabulary makes output layer expensive
 
-**Word embeddings** (Tutorial 05 preview): Instead of one-hot encoding words, learn a dense embedding vector for each word (e.g., 300-dimensional). Similar words cluster in embedding space, enabling generalization.
+**Word embeddings:** Instead of one-hot encoding words, learn a dense embedding vector for each word (e.g., 300-dimensional). Similar words cluster in embedding space, enabling generalization.
 
 ---
 
@@ -1484,6 +1484,8 @@ The same LSTM architecture works for word-level language models:
 - [Tutorial 01: XOR MLP](01_xor_mlp.md) — Backpropagation fundamentals
 - [Tutorial 02: MNIST MLP](02_mnist_mlp.md) — Dense layers and cross-entropy
 - [Tutorial 03: MNIST CNN](03_mnist_cnn.md) — Spatial structure and convolutions
+- [Tutorial 05: Automatic Differentiation Engine](05_autograd_engine.md) — Current next tutorial in the sequence
+- [Tutorial 07: Vision Transformer](07_vision_transformer.md) — Transformer self-attention applied to images
 
 ---
 

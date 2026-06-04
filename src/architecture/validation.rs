@@ -31,16 +31,37 @@ fn get_layer_input_size(layer: &LayerConfig) -> Result<usize, Box<dyn Error>> {
                 .and_then(|v| v.checked_mul(input_width))
                 .ok_or_else(|| invalid_data("Conv2D input size overflow"))
         }
-        "maxpool" | "avgpool" | "pool" => {
-            let channels = layer
-                .pool_channels
-                .ok_or_else(|| invalid_data("Pooling layer missing pool_channels"))?;
+        "residual_block" => {
+            let in_channels = layer
+                .in_channels
+                .ok_or_else(|| invalid_data("ResidualBlock layer missing in_channels"))?;
             let input_height = layer
-                .pool_input_height
-                .ok_or_else(|| invalid_data("Pooling layer missing pool_input_height"))?;
+                .input_height
+                .ok_or_else(|| invalid_data("ResidualBlock layer missing input_height"))?;
             let input_width = layer
-                .pool_input_width
-                .ok_or_else(|| invalid_data("Pooling layer missing pool_input_width"))?;
+                .input_width
+                .ok_or_else(|| invalid_data("ResidualBlock layer missing input_width"))?;
+            in_channels
+                .checked_mul(input_height)
+                .and_then(|v| v.checked_mul(input_width))
+                .ok_or_else(|| invalid_data("ResidualBlock input size overflow"))
+        }
+        "globalavgpool" | "maxpool" | "avgpool" | "pool" => {
+            let channels = layer.pool_channels.ok_or_else(|| {
+                invalid_data(format!("{} layer missing pool_channels", layer.layer_type))
+            })?;
+            let input_height = layer.pool_input_height.ok_or_else(|| {
+                invalid_data(format!(
+                    "{} layer missing pool_input_height",
+                    layer.layer_type
+                ))
+            })?;
+            let input_width = layer.pool_input_width.ok_or_else(|| {
+                invalid_data(format!(
+                    "{} layer missing pool_input_width",
+                    layer.layer_type
+                ))
+            })?;
 
             channels
                 .checked_mul(input_height)
@@ -99,6 +120,30 @@ fn get_layer_output_size(layer: &LayerConfig) -> Result<usize, Box<dyn Error>> {
                 .and_then(|v| v.checked_mul(out_width))
                 .ok_or_else(|| invalid_data("Conv2D output size overflow"))
         }
+        "residual_block" => {
+            let out_channels = layer
+                .out_channels
+                .ok_or_else(|| invalid_data("ResidualBlock layer missing out_channels"))?;
+            let input_height = layer
+                .input_height
+                .ok_or_else(|| invalid_data("ResidualBlock layer missing input_height"))?;
+            let input_width = layer
+                .input_width
+                .ok_or_else(|| invalid_data("ResidualBlock layer missing input_width"))?;
+            let stride = layer.stride.unwrap_or(1);
+            let out_height = residual_output_dim(input_height, stride)
+                .ok_or_else(|| invalid_data("ResidualBlock output height is invalid"))?;
+            let out_width = residual_output_dim(input_width, stride)
+                .ok_or_else(|| invalid_data("ResidualBlock output width is invalid"))?;
+
+            out_channels
+                .checked_mul(out_height)
+                .and_then(|v| v.checked_mul(out_width))
+                .ok_or_else(|| invalid_data("ResidualBlock output size overflow"))
+        }
+        "globalavgpool" => layer
+            .pool_channels
+            .ok_or_else(|| invalid_data("GlobalAvgPool layer missing pool_channels")),
         "maxpool" | "avgpool" | "pool" => {
             let channels = layer
                 .pool_channels
@@ -212,26 +257,35 @@ fn validate_layer_connection(
 
 fn get_layer_input_height(layer: &LayerConfig) -> Option<usize> {
     match layer.layer_type.to_lowercase().as_str() {
-        "conv2d" => layer.input_height,
-        "maxpool" | "avgpool" | "pool" => layer.pool_input_height,
+        "conv2d" | "residual_block" => layer.input_height,
+        "globalavgpool" | "maxpool" | "avgpool" | "pool" => layer.pool_input_height,
         _ => None,
     }
 }
 
 fn get_layer_input_width(layer: &LayerConfig) -> Option<usize> {
     match layer.layer_type.to_lowercase().as_str() {
-        "conv2d" => layer.input_width,
-        "maxpool" | "avgpool" | "pool" => layer.pool_input_width,
+        "conv2d" | "residual_block" => layer.input_width,
+        "globalavgpool" | "maxpool" | "avgpool" | "pool" => layer.pool_input_width,
         _ => None,
     }
 }
 
 fn get_layer_input_channels(layer: &LayerConfig) -> Option<usize> {
     match layer.layer_type.to_lowercase().as_str() {
-        "conv2d" => layer.in_channels,
-        "maxpool" | "avgpool" | "pool" => layer.pool_channels,
+        "conv2d" | "residual_block" => layer.in_channels,
+        "globalavgpool" | "maxpool" | "avgpool" | "pool" => layer.pool_channels,
         _ => None,
     }
+}
+
+fn residual_output_dim(input: usize, stride: usize) -> Option<usize> {
+    if stride == 0 {
+        return None;
+    }
+
+    let out_dim = (input as isize + 2 - 3) / stride as isize + 1;
+    (out_dim >= 0).then_some(out_dim as usize)
 }
 
 fn get_layer_output_height(layer: &LayerConfig) -> Option<usize> {
@@ -245,6 +299,11 @@ fn get_layer_output_height(layer: &LayerConfig) -> Option<usize> {
             let out_height_isize =
                 (input_height as isize + 2 * padding - kernel_size as isize) / stride as isize + 1;
             (out_height_isize >= 0).then_some(out_height_isize as usize)
+        }
+        "residual_block" => {
+            let input_height = layer.input_height?;
+            let stride = layer.stride.unwrap_or(1);
+            residual_output_dim(input_height, stride)
         }
         "maxpool" | "avgpool" | "pool" => {
             let input_height = layer.pool_input_height?;
@@ -273,6 +332,11 @@ fn get_layer_output_width(layer: &LayerConfig) -> Option<usize> {
                 (input_width as isize + 2 * padding - kernel_size as isize) / stride as isize + 1;
             (out_width_isize >= 0).then_some(out_width_isize as usize)
         }
+        "residual_block" => {
+            let input_width = layer.input_width?;
+            let stride = layer.stride.unwrap_or(1);
+            residual_output_dim(input_width, stride)
+        }
         "maxpool" | "avgpool" | "pool" => {
             let input_width = layer.pool_input_width?;
             let pool_size = layer.pool_size?;
@@ -290,7 +354,7 @@ fn get_layer_output_width(layer: &LayerConfig) -> Option<usize> {
 
 fn get_layer_output_channels(layer: &LayerConfig) -> Option<usize> {
     match layer.layer_type.to_lowercase().as_str() {
-        "conv2d" => layer.out_channels,
+        "conv2d" | "residual_block" => layer.out_channels,
         "maxpool" | "avgpool" | "pool" => layer.pool_channels,
         _ => None,
     }
@@ -307,11 +371,18 @@ fn get_layer_output_channels(layer: &LayerConfig) -> Option<usize> {
 /// # Examples
 ///
 /// ```ignore
-/// // Construct a valid ArchitectureConfig with compatible layers, then validate it.
-/// // (Replace the following placeholder with a real ArchitectureConfig value.)
-/// # use super::super::config::{ArchitectureConfig};
-/// # let config = ArchitectureConfig { layers: Vec::new() }; // placeholder
-/// let _ = crate::architecture::validation::validate_architecture(&config);
+/// # // Ignored because `validate_architecture` is crate-internal.
+/// # use super::super::config::{ArchitectureConfig, LayerConfig};
+/// let config = ArchitectureConfig {
+///     layers: vec![LayerConfig {
+///         layer_type: "dense".to_string(),
+///         input_size: Some(4),
+///         output_size: Some(2),
+///         ..Default::default()
+///     }],
+/// };
+///
+/// assert!(crate::architecture::validation::validate_architecture(&config).is_ok());
 /// ```
 pub(super) fn validate_architecture(config: &ArchitectureConfig) -> Result<(), Box<dyn Error>> {
     if config.layers.is_empty() {
@@ -462,6 +533,44 @@ fn validate_layer(layer: &LayerConfig, index: usize) -> Result<(), Box<dyn Error
                 "invalid Conv2D configuration: input_width + 2*padding - kernel_size must be >= 0",
             )?;
         }
+        "residual_block" => {
+            require(
+                layer.in_channels.is_some(),
+                "ResidualBlock layer requires 'in_channels'",
+            )?;
+            require(
+                layer.out_channels.is_some(),
+                "ResidualBlock layer requires 'out_channels'",
+            )?;
+            require(
+                layer.input_height.is_some(),
+                "ResidualBlock layer requires 'input_height'",
+            )?;
+            require(
+                layer.input_width.is_some(),
+                "ResidualBlock layer requires 'input_width'",
+            )?;
+            require(
+                layer.in_channels.unwrap() > 0,
+                "in_channels must be greater than 0",
+            )?;
+            require(
+                layer.out_channels.unwrap() > 0,
+                "out_channels must be greater than 0",
+            )?;
+            require(
+                layer.stride.unwrap_or(1) > 0,
+                "stride must be greater than 0",
+            )?;
+            require(
+                layer.input_height.unwrap() > 0,
+                "input_height must be greater than 0",
+            )?;
+            require(
+                layer.input_width.unwrap() > 0,
+                "input_width must be greater than 0",
+            )?;
+        }
         "batchnorm" => {
             require(layer.size.is_some(), "BatchNorm layer requires 'size'")?;
             require(layer.size.unwrap() > 0, "size must be greater than 0")?;
@@ -486,6 +595,32 @@ fn validate_layer(layer: &LayerConfig, index: usize) -> Result<(), Box<dyn Error
             require(
                 (0.0..1.0).contains(&rate),
                 "drop_rate must be in range [0.0, 1.0)",
+            )?;
+        }
+        "globalavgpool" => {
+            require(
+                layer.pool_input_height.is_some(),
+                "GlobalAvgPool layer requires 'pool_input_height'",
+            )?;
+            require(
+                layer.pool_input_width.is_some(),
+                "GlobalAvgPool layer requires 'pool_input_width'",
+            )?;
+            require(
+                layer.pool_channels.is_some(),
+                "GlobalAvgPool layer requires 'pool_channels'",
+            )?;
+            require(
+                layer.pool_input_height.unwrap() > 0,
+                "pool_input_height must be greater than 0",
+            )?;
+            require(
+                layer.pool_input_width.unwrap() > 0,
+                "pool_input_width must be greater than 0",
+            )?;
+            require(
+                layer.pool_channels.unwrap() > 0,
+                "pool_channels must be greater than 0",
             )?;
         }
         "maxpool" | "avgpool" | "pool" => {
@@ -560,7 +695,7 @@ fn validate_layer(layer: &LayerConfig, index: usize) -> Result<(), Box<dyn Error
         }
         _ => {
             return Err(invalid_data(format!(
-                "Layer {}: Invalid layer type '{}'. Must be one of: dense, conv2d, batchnorm, dropout, maxpool, avgpool, pool",
+                "Layer {}: Invalid layer type '{}'. Must be one of: dense, conv2d, residual_block, batchnorm, dropout, globalavgpool, maxpool, avgpool, pool",
                 index, layer.layer_type
             )));
         }

@@ -18,6 +18,7 @@
 //   - resnet_cifar10_model_best.bin  (best checkpoint by validation loss)
 //
 // Note: educational implementation. ResidualBlocks handle skip connections internally.
+// The layer stack is defined in config/architectures/resnet_cifar10.json.
 
 use std::env;
 use std::fs;
@@ -25,11 +26,10 @@ use std::io::Write;
 use std::process;
 use std::time::Instant;
 
+use rust_neural_networks::architecture::{build_model, ArchitectureConfig};
 use rust_neural_networks::config::{load_config, TrainingConfig};
 use rust_neural_networks::data::cifar10::{read_cifar10_batch, read_cifar10_batches};
-use rust_neural_networks::layers::{
-    batchnorm::BatchNormLayer, Conv2DLayer, DenseLayer, GlobalAvgPoolLayer, Layer, ResidualBlock,
-};
+use rust_neural_networks::layers::{batchnorm::BatchNormLayer, Layer, ResidualBlock};
 use rust_neural_networks::optimizers::rmsprop::RMSprop;
 use rust_neural_networks::optimizers::{Adam, AdamW, Optimizer, SGD};
 use rust_neural_networks::persistence::save_layers_to_file;
@@ -60,6 +60,7 @@ const EARLY_STOPPING_MIN_DELTA: f32 = 0.001;
 
 // ── File paths ────────────────────────────────────────────────────────────────
 const DEFAULT_CONFIG_PATH: &str = "config/training/resnet_cifar10_default.json";
+const ARCHITECTURE_JSON: &str = include_str!("../../config/architectures/resnet_cifar10.json");
 const MODEL_CHECKPOINT_PATH: &str = "resnet_cifar10_model_best.bin";
 const LOG_PATH: &str = "./logs/training_loss_resnet_cifar10.csv";
 
@@ -72,12 +73,10 @@ struct ResNet {
     apply_relu: Vec<bool>,
 }
 
-/// Builds the ResNet-18 CIFAR-10 variant programmatically.
+/// Builds the ResNet-18 CIFAR-10 variant from the architecture config.
 ///
-/// The network is constructed directly from [`ResidualBlock`], [`Conv2DLayer`],
-/// [`BatchNormLayer`], [`GlobalAvgPoolLayer`], and [`DenseLayer`] objects – no
-/// JSON architecture config is used because skip connections cannot be expressed
-/// in the sequential config format.
+/// [`ResidualBlock`] is a first-class config layer, so the JSON architecture can
+/// represent skip connections without manually constructing the layer stack here.
 ///
 /// # Arguments
 ///
@@ -95,58 +94,19 @@ struct ResNet {
 /// assert_eq!(model.layers.len(), 12);
 /// ```
 fn init_resnet(rng: &mut SimpleRng) -> ResNet {
-    let mut layers: Vec<Box<dyn Layer>> = Vec::new();
-    let mut apply_relu: Vec<bool> = Vec::new();
-
-    // ── Stem ──────────────────────────────────────────────────────────────────
-    // Conv(3→16, 3×3, padding=1, stride=1) preserves spatial dims: 32×32.
-    let stem_conv = Conv2DLayer::new(IMG_CHANNELS, 16, 3, 1isize, 1, IMG_H, IMG_W, rng);
-    layers.push(Box::new(stem_conv));
-    apply_relu.push(false); // ReLU comes after the following BN, not here
-
-    // BatchNorm for stem feature map: 16 * 32 * 32 = 16 384 features.
-    let stem_bn = BatchNormLayer::new(16 * IMG_H * IMG_W, 1e-5, 0.9);
-    layers.push(Box::new(stem_bn));
-    apply_relu.push(true); // Apply ReLU after stem BN
-
-    // ── Stage 1: 16→16 channels, 32×32 spatial ───────────────────────────────
-    layers.push(Box::new(ResidualBlock::new(16, 16, 1, 32, 32, rng)));
-    apply_relu.push(false); // ResidualBlock applies its own final ReLU
-
-    layers.push(Box::new(ResidualBlock::new(16, 16, 1, 32, 32, rng)));
-    apply_relu.push(false);
-
-    // ── Stage 2: 16→32 channels, 32×32 → 16×16 (stride-2 first block) ────────
-    layers.push(Box::new(ResidualBlock::new(16, 32, 2, 32, 32, rng)));
-    apply_relu.push(false);
-
-    layers.push(Box::new(ResidualBlock::new(32, 32, 1, 16, 16, rng)));
-    apply_relu.push(false);
-
-    // ── Stage 3: 32→64 channels, 16×16 → 8×8 ────────────────────────────────
-    layers.push(Box::new(ResidualBlock::new(32, 64, 2, 16, 16, rng)));
-    apply_relu.push(false);
-
-    layers.push(Box::new(ResidualBlock::new(64, 64, 1, 8, 8, rng)));
-    apply_relu.push(false);
-
-    // ── Stage 4: 64→128 channels, 8×8 → 4×4 ─────────────────────────────────
-    layers.push(Box::new(ResidualBlock::new(64, 128, 2, 8, 8, rng)));
-    apply_relu.push(false);
-
-    layers.push(Box::new(ResidualBlock::new(128, 128, 1, 4, 4, rng)));
-    apply_relu.push(false);
-
-    // ── Head ──────────────────────────────────────────────────────────────────
-    // GlobalAvgPool: (4×4, 128 channels) → 128-dim vector.
-    let gap = GlobalAvgPoolLayer::new(4, 4, 128);
-    layers.push(Box::new(gap));
-    apply_relu.push(false);
-
-    // Dense: 128 → 10 (logits; softmax applied externally during training).
-    let dense = DenseLayer::new(128, NUM_CLASSES, rng);
-    layers.push(Box::new(dense));
-    apply_relu.push(false);
+    let architecture: ArchitectureConfig =
+        serde_json::from_str(ARCHITECTURE_JSON).expect("built-in ResNet architecture JSON");
+    let layers = build_model(&architecture, rng).expect("built-in ResNet architecture config");
+    let apply_relu = vec![
+        false, // stem conv
+        true,  // stem batchnorm
+        false, false, false, false, false, false, false, false, false, false,
+    ];
+    assert_eq!(
+        layers.len(),
+        apply_relu.len(),
+        "ResNet ReLU flags must match architecture layer count"
+    );
 
     // ── Architecture summary ──────────────────────────────────────────────────
     println!("\nResNet-18 CIFAR-10 Architecture:");

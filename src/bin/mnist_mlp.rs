@@ -954,7 +954,13 @@ fn main() {
             raw: std::fs::read_to_string(&config_path).ok(),
             parsed: None,
         },
-        dataset: Some(rust_neural_networks::experiment_registry::dataset_placeholder("mnist")),
+        dataset: Some(
+            rust_neural_networks::experiment_registry::mnist_dataset_metadata(
+                actual_train_samples,
+                validation_samples,
+                test_samples,
+            ),
+        ),
         metrics: Some(rust_neural_networks::experiment_registry::Metrics {
             epochs_completed: epochs,
             final_train_loss: Some(last_epoch_metrics.train_loss as f64),

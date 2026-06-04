@@ -70,6 +70,35 @@ fn test_vae_backward_does_not_panic_kl_weight_large() {
     vae.backward(&input, 1, 10.0);
 }
 
+#[test]
+fn test_vae_gradient_magnitudes_report_layer_norms_after_backward() {
+    let mut rng = SimpleRng::new(52);
+    let mut vae = VariationalAutoencoder::new(8, &[4], 2, &[4], &mut rng);
+    let mut forward_rng = SimpleRng::new(53);
+    let input = vec![0.9f32, 0.1, 0.8, 0.2, 0.7, 0.3, 0.6, 0.4];
+
+    vae.forward(&input, 1, &mut forward_rng);
+    vae.backward(&input, 1, 1.0);
+
+    let gradients = vae.gradient_magnitudes();
+    let names: Vec<&str> = gradients.iter().map(|(name, _, _)| name.as_str()).collect();
+
+    assert_eq!(
+        names,
+        vec!["encoder_0", "mu", "log_var", "decoder_0", "decoder_1"]
+    );
+    assert!(!names.contains(&"vae_all_layers"));
+    assert!(gradients.iter().all(|(_, weight_norm, bias_norm)| {
+        weight_norm.is_finite() && *weight_norm >= 0.0 && bias_norm.is_finite() && *bias_norm >= 0.0
+    }));
+    assert!(
+        gradients
+            .iter()
+            .any(|(_, weight_norm, bias_norm)| *weight_norm > 0.0 || *bias_norm > 0.0),
+        "at least one VAE layer should have a non-zero accumulated gradient norm"
+    );
+}
+
 // ============================================================================
 // Parameter Update Tests
 // ============================================================================

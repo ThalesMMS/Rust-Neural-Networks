@@ -2,7 +2,7 @@ use super::config::ArchitectureConfig;
 use super::validation::validate_architecture;
 use crate::layers::pooling::{AvgPoolLayer, MaxPoolLayer};
 use crate::layers::{
-    BatchNormLayer, Conv2DLayer, DenseLayer, DropoutLayer, GlobalAvgPoolLayer, Layer,
+    BatchNormLayer, Conv2DLayer, DenseLayer, DropoutLayer, GlobalAvgPoolLayer, Layer, ResidualBlock,
 };
 use crate::utils::rng::SimpleRng;
 use std::error::Error;
@@ -99,6 +99,30 @@ pub fn build_model(
                     rng,
                 )));
             }
+            "residual_block" => {
+                let in_channels = layer_config
+                    .in_channels
+                    .ok_or_else(|| missing("in_channels"))?;
+                let out_channels = layer_config
+                    .out_channels
+                    .ok_or_else(|| missing("out_channels"))?;
+                let input_height = layer_config
+                    .input_height
+                    .ok_or_else(|| missing("input_height"))?;
+                let input_width = layer_config
+                    .input_width
+                    .ok_or_else(|| missing("input_width"))?;
+                let stride = layer_config.stride.unwrap_or(1);
+
+                layers.push(Box::new(ResidualBlock::new(
+                    in_channels,
+                    out_channels,
+                    stride,
+                    input_height,
+                    input_width,
+                    rng,
+                )));
+            }
             "batchnorm" => {
                 let size = layer_config.size.ok_or_else(|| missing("size"))?;
                 layers.push(Box::new(BatchNormLayer::new(
@@ -182,7 +206,7 @@ pub fn build_model(
             }
             _ => {
                 return Err(invalid_data(format!(
-                    "Layer {}: Invalid layer type '{}'. Must be one of: dense, conv2d, batchnorm, dropout, globalavgpool, maxpool, avgpool, pool",
+                    "Layer {}: Invalid layer type '{}'. Must be one of: dense, conv2d, residual_block, batchnorm, dropout, globalavgpool, maxpool, avgpool, pool",
                     i, layer_config.layer_type
                 )));
             }

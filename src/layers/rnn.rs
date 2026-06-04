@@ -405,6 +405,270 @@ impl RnnLayer {
     pub fn parameter_count(&self) -> usize {
         self.w_xh.len() + self.w_hh.len() + self.w_hy.len() + self.b_h.len() + self.b_y.len()
     }
+
+    /// Backward pass for one time step with incoming recurrent state gradient.
+    ///
+    /// `dh_next` is the gradient flowing from the next time step into this step's
+    /// hidden state. The returned vector is the gradient with respect to `h_{t-1}`,
+    /// which callers can pass as `dh_next` when stepping backward through a sequence.
+    pub fn backward_bptt(
+        &self,
+        input: &[f32],
+        grad_output: &[f32],
+        grad_input: &mut [f32],
+        dh_next: &[f32],
+        batch_size: usize,
+    ) -> Vec<f32> {
+        let cached_h_prev = self.cached_h_prev.borrow();
+        let cached_h_current = self.cached_h_current.borrow();
+        self.backward_bptt_with_cache(
+            input,
+            grad_output,
+            grad_input,
+            dh_next,
+            batch_size,
+            &cached_h_prev,
+            &cached_h_current,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn backward_bptt_with_cache(
+        &self,
+        input: &[f32],
+        grad_output: &[f32],
+        grad_input: &mut [f32],
+        dh_next: &[f32],
+        batch_size: usize,
+        cached_h_prev: &[f32],
+        cached_h_current: &[f32],
+    ) -> Vec<f32> {
+        use cblas::{sgemm, Layout, Transpose};
+
+        if batch_size == 0 {
+            panic!("batch_size cannot be zero in RNN::backward_bptt");
+        }
+
+        assert_eq!(
+            input.len(),
+            batch_size * self.input_size,
+            "Input size mismatch in backward_bptt"
+        );
+        assert_eq!(
+            grad_output.len(),
+            batch_size * self.output_size,
+            "Grad output size mismatch in backward_bptt"
+        );
+        assert_eq!(
+            grad_input.len(),
+            batch_size * self.input_size,
+            "Grad input size mismatch in backward_bptt"
+        );
+        assert_eq!(
+            dh_next.len(),
+            self.hidden_size,
+            "dh_next size mismatch in backward_bptt"
+        );
+        assert_eq!(
+            cached_h_prev.len(),
+            self.hidden_size,
+            "cached_h_prev size mismatch in backward_bptt"
+        );
+        assert_eq!(
+            cached_h_current.len(),
+            self.hidden_size,
+            "cached_h_current size mismatch in backward_bptt"
+        );
+
+        let scale = 1.0f32 / batch_size as f32;
+
+        // Replicate cached hidden states for batch processing.
+        let mut h_prev_batch = vec![0.0f32; batch_size * self.hidden_size];
+        let mut h_current_batch = vec![0.0f32; batch_size * self.hidden_size];
+        for b in 0..batch_size {
+            h_prev_batch[b * self.hidden_size..(b + 1) * self.hidden_size]
+                .copy_from_slice(cached_h_prev);
+            h_current_batch[b * self.hidden_size..(b + 1) * self.hidden_size]
+                .copy_from_slice(cached_h_current);
+        }
+
+        // Gradient w.r.t. W_hy: grad_W_hy = h_t^T x grad_output / batch_size.
+        {
+            let mut grad_w_hy = self.grad_w_hy.borrow_mut();
+            unsafe {
+                sgemm(
+                    Layout::RowMajor,
+                    Transpose::Ordinary,
+                    Transpose::None,
+                    self.hidden_size as i32,
+                    self.output_size as i32,
+                    batch_size as i32,
+                    scale,
+                    &h_current_batch,
+                    self.hidden_size as i32,
+                    grad_output,
+                    self.output_size as i32,
+                    1.0,
+                    &mut grad_w_hy,
+                    self.output_size as i32,
+                );
+            }
+        }
+
+        // Gradient w.r.t. b_y: sum(grad_output) / batch_size.
+        {
+            let mut batch_bias_grad = vec![0.0f32; self.output_size];
+            for b in 0..batch_size {
+                for o in 0..self.output_size {
+                    batch_bias_grad[o] += grad_output[b * self.output_size + o];
+                }
+            }
+            self.grad_b_y.accumulate_scaled(&batch_bias_grad, scale);
+        }
+
+        // Gradient w.r.t. h_t from output projection plus incoming BPTT state gradient.
+        let mut grad_h = vec![0.0f32; batch_size * self.hidden_size];
+        unsafe {
+            sgemm(
+                Layout::RowMajor,
+                Transpose::None,
+                Transpose::Ordinary,
+                batch_size as i32,
+                self.hidden_size as i32,
+                self.output_size as i32,
+                1.0,
+                grad_output,
+                self.output_size as i32,
+                &self.w_hy,
+                self.output_size as i32,
+                0.0,
+                &mut grad_h,
+                self.hidden_size as i32,
+            );
+        }
+        for b in 0..batch_size {
+            for h in 0..self.hidden_size {
+                grad_h[b * self.hidden_size + h] += dh_next[h];
+            }
+        }
+
+        // Backpropagate through tanh activation.
+        let mut grad_pre_activation = vec![0.0f32; batch_size * self.hidden_size];
+        for i in 0..grad_pre_activation.len() {
+            let h_val = h_current_batch[i];
+            grad_pre_activation[i] = grad_h[i] * (1.0 - h_val * h_val);
+        }
+
+        // Gradient w.r.t. W_xh: grad_W_xh = input^T x grad_pre_activation / batch_size.
+        {
+            let mut grad_w_xh = self.grad_w_xh.borrow_mut();
+            unsafe {
+                sgemm(
+                    Layout::RowMajor,
+                    Transpose::Ordinary,
+                    Transpose::None,
+                    self.input_size as i32,
+                    self.hidden_size as i32,
+                    batch_size as i32,
+                    scale,
+                    input,
+                    self.input_size as i32,
+                    &grad_pre_activation,
+                    self.hidden_size as i32,
+                    1.0,
+                    &mut grad_w_xh,
+                    self.hidden_size as i32,
+                );
+            }
+        }
+
+        // Gradient w.r.t. W_hh: grad_W_hh = h_{t-1}^T x grad_pre_activation / batch_size.
+        {
+            let mut grad_w_hh = self.grad_w_hh.borrow_mut();
+            unsafe {
+                sgemm(
+                    Layout::RowMajor,
+                    Transpose::Ordinary,
+                    Transpose::None,
+                    self.hidden_size as i32,
+                    self.hidden_size as i32,
+                    batch_size as i32,
+                    scale,
+                    &h_prev_batch,
+                    self.hidden_size as i32,
+                    &grad_pre_activation,
+                    self.hidden_size as i32,
+                    1.0,
+                    &mut grad_w_hh,
+                    self.hidden_size as i32,
+                );
+            }
+        }
+
+        // Gradient w.r.t. b_h: sum(grad_pre_activation) / batch_size.
+        {
+            let mut batch_bias_grad = vec![0.0f32; self.hidden_size];
+            for b in 0..batch_size {
+                for h in 0..self.hidden_size {
+                    batch_bias_grad[h] += grad_pre_activation[b * self.hidden_size + h];
+                }
+            }
+            self.grad_b_h.accumulate_scaled(&batch_bias_grad, scale);
+        }
+
+        // Gradient w.r.t. input: grad_input = grad_pre_activation x W_xh^T.
+        unsafe {
+            sgemm(
+                Layout::RowMajor,
+                Transpose::None,
+                Transpose::Ordinary,
+                batch_size as i32,
+                self.input_size as i32,
+                self.hidden_size as i32,
+                1.0,
+                &grad_pre_activation,
+                self.hidden_size as i32,
+                &self.w_xh,
+                self.hidden_size as i32,
+                0.0,
+                grad_input,
+                self.input_size as i32,
+            );
+        }
+
+        // Gradient w.r.t. previous hidden state for reverse-time BPTT callers.
+        let mut grad_h_prev_batch = vec![0.0f32; batch_size * self.hidden_size];
+        unsafe {
+            sgemm(
+                Layout::RowMajor,
+                Transpose::None,
+                Transpose::Ordinary,
+                batch_size as i32,
+                self.hidden_size as i32,
+                self.hidden_size as i32,
+                1.0,
+                &grad_pre_activation,
+                self.hidden_size as i32,
+                &self.w_hh,
+                self.hidden_size as i32,
+                0.0,
+                &mut grad_h_prev_batch,
+                self.hidden_size as i32,
+            );
+        }
+
+        let mut grad_h_prev = vec![0.0f32; self.hidden_size];
+        for b in 0..batch_size {
+            for h in 0..self.hidden_size {
+                grad_h_prev[h] += grad_h_prev_batch[b * self.hidden_size + h];
+            }
+        }
+        for value in &mut grad_h_prev {
+            *value *= scale;
+        }
+
+        grad_h_prev
+    }
 }
 
 impl Layer for RnnLayer {
@@ -615,106 +879,11 @@ impl Layer for RnnLayer {
         }
     }
 
-    /// Computes the RNN backward pass using Backpropagation Through Time (BPTT).
+    /// Computes the single-step RNN backward pass.
     ///
-    /// # Backpropagation Through Time (BPTT)
-    ///
-    /// BPTT extends standard backpropagation to recurrent networks by unrolling the network
-    /// across time steps and applying the chain rule through the temporal connections.
-    ///
-    /// For a single time step, we compute gradients for:
-    /// - Output layer: `y_t = h_t × W_hy + b_y`
-    /// - Hidden state: `h_t = tanh(x_t × W_xh + h_{t-1} × W_hh + b_h)`
-    ///
-    /// # Mathematical Formulation
-    ///
-    /// Given gradient w.r.t. output: `∂L/∂y_t` (batch_size × output_size)
-    ///
-    /// ## Step 1: Output Layer Gradients
-    ///
-    /// **Gradient w.r.t. W_hy** (hidden-to-output weights):
-    /// - `∂L/∂W_hy = h_t^T × ∂L/∂y_t`
-    /// - Dimension check: (hidden_size × batch_size) × (batch_size × output_size) → (hidden_size × output_size)
-    ///
-    /// **Gradient w.r.t. b_y** (output bias):
-    /// - `∂L/∂b_y = Σ(∂L/∂y_t)` along batch dimension
-    /// - Dimension check: sum over (batch_size × output_size) → (output_size)
-    ///
-    /// **Gradient w.r.t. hidden state**:
-    /// - `∂L/∂h_t = ∂L/∂y_t × W_hy^T`
-    /// - Dimension check: (batch_size × output_size) × (output_size × hidden_size) → (batch_size × hidden_size)
-    ///
-    /// ## Step 2: Hidden State Activation Gradient
-    ///
-    /// Apply tanh derivative using the chain rule:
-    /// - Tanh derivative: `tanh'(z) = 1 - tanh²(z)`
-    /// - `∂L/∂z_h = ∂L/∂h_t ⊙ (1 - h_t²)`
-    /// - Where `z_h = x_t × W_xh + h_{t-1} × W_hh + b_h` (pre-activation)
-    /// - Element-wise multiplication (⊙) applies tanh derivative to each hidden unit
-    ///
-    /// ## Step 3: Weight and Bias Gradients
-    ///
-    /// **Gradient w.r.t. W_xh** (input-to-hidden weights):
-    /// - `∂L/∂W_xh = x_t^T × ∂L/∂z_h`
-    /// - Dimension check: (input_size × batch_size) × (batch_size × hidden_size) → (input_size × hidden_size)
-    ///
-    /// **Gradient w.r.t. W_hh** (hidden-to-hidden weights):
-    /// - `∂L/∂W_hh = h_{t-1}^T × ∂L/∂z_h`
-    /// - Dimension check: (hidden_size × batch_size) × (batch_size × hidden_size) → (hidden_size × hidden_size)
-    /// - This captures how previous hidden state contributes to current error
-    ///
-    /// **Gradient w.r.t. b_h** (hidden bias):
-    /// - `∂L/∂b_h = Σ(∂L/∂z_h)` along batch dimension
-    /// - Dimension check: sum over (batch_size × hidden_size) → (hidden_size)
-    ///
-    /// ## Step 4: Input Gradient (for previous layer)
-    ///
-    /// **Gradient w.r.t. input x_t**:
-    /// - `∂L/∂x_t = ∂L/∂z_h × W_xh^T`
-    /// - Dimension check: (batch_size × hidden_size) × (hidden_size × input_size) → (batch_size × input_size)
-    ///
-    /// ## Temporal Gradient Flow (BPTT)
-    ///
-    /// **Gradient w.r.t. previous hidden state h_{t-1}** (for full BPTT):
-    /// - `∂L/∂h_{t-1} = ∂L/∂z_h × W_hh^T`
-    /// - Dimension check: (batch_size × hidden_size) × (hidden_size × hidden_size) → (batch_size × hidden_size)
-    /// - This gradient would be propagated to time step t-1 in full BPTT
-    /// - **Note**: Current implementation computes this gradient but does not propagate it
-    ///   backward through multiple time steps (truncated BPTT at single step)
-    ///
-    /// # Chain Rule Summary
-    ///
-    /// The complete gradient flow follows this path:
-    /// ```text
-    /// ∂L/∂y_t → ∂L/∂h_t → ∂L/∂z_h → {∂L/∂W_xh, ∂L/∂W_hh, ∂L/∂b_h, ∂L/∂x_t, ∂L/∂h_{t-1}}
-    /// ```
-    ///
-    /// Where:
-    /// - `∂L/∂y_t`: Gradient from loss function or next layer
-    /// - `∂L/∂h_t`: Gradient at hidden state (after activation)
-    /// - `∂L/∂z_h`: Gradient at pre-activation (before tanh)
-    /// - Final gradients: Used to update parameters or backprop to previous layers/time steps
-    ///
-    /// # Implementation Details
-    ///
-    /// - Uses BLAS `sgemm` for efficient matrix multiplications
-    /// - Gradients are **accumulated** (not replaced) to support mini-batch training
-    /// - Scaling by `1/batch_size` for proper gradient averaging
-    /// - Cached values from forward pass (`h_{t-1}`, `h_t`) are used for gradient computation
-    ///
-    /// # Arguments
-    ///
-    /// * `input` - Input from current time step (batch_size × input_size)
-    /// * `grad_output` - Gradient w.r.t. output (batch_size × output_size)
-    /// * `grad_input` - Output buffer for gradient w.r.t. input (batch_size × input_size)
-    /// * `batch_size` - Number of sequences in the batch
-    ///
-    /// # Important Notes
-    ///
-    /// - This implements **truncated BPTT** for a single time step
-    /// - For full BPTT across sequences, this method would be called iteratively
-    ///   in reverse time order, accumulating gradients at each step
-    /// - Gradients are accumulated (+=) to support gradient accumulation across time steps
+    /// This preserves the `Layer` trait behavior by treating the incoming recurrent
+    /// hidden-state gradient as zero. Use [`RnnLayer::backward_bptt`] to thread the
+    /// returned hidden-state gradient through a sequence in reverse time order.
     fn backward(
         &self,
         input: &[f32],
@@ -722,209 +891,8 @@ impl Layer for RnnLayer {
         grad_input: &mut [f32],
         batch_size: usize,
     ) {
-        use cblas::{sgemm, Layout, Transpose};
-
-        if batch_size == 0 {
-            panic!("batch_size cannot be zero in RNN::backward");
-        }
-
-        assert_eq!(
-            input.len(),
-            batch_size * self.input_size,
-            "Input size mismatch in backward"
-        );
-        assert_eq!(
-            grad_output.len(),
-            batch_size * self.output_size,
-            "Grad output size mismatch in backward"
-        );
-        assert_eq!(
-            grad_input.len(),
-            batch_size * self.input_size,
-            "Grad input size mismatch in backward"
-        );
-
-        let scale = 1.0f32 / batch_size as f32;
-
-        // Get cached values from forward pass
-        let cached_h_prev = self.cached_h_prev.borrow();
-        let cached_h_current = self.cached_h_current.borrow();
-
-        // Replicate cached hidden states for batch processing
-        let mut h_prev_batch = vec![0.0f32; batch_size * self.hidden_size];
-        let mut h_current_batch = vec![0.0f32; batch_size * self.hidden_size];
-        for b in 0..batch_size {
-            h_prev_batch[b * self.hidden_size..(b + 1) * self.hidden_size]
-                .copy_from_slice(&cached_h_prev[..]);
-            h_current_batch[b * self.hidden_size..(b + 1) * self.hidden_size]
-                .copy_from_slice(&cached_h_current[..]);
-        }
-
-        // Step 1: Compute gradients for output layer (y_t = h_t × W_hy + b_y)
-
-        // Gradient w.r.t. W_hy: grad_W_hy = h_t^T × grad_output / batch_size
-        // h_current_batch: (batch_size × hidden_size)
-        // grad_output: (batch_size × output_size)
-        // grad_W_hy: (hidden_size × output_size)
-        {
-            let mut grad_w_hy = self.grad_w_hy.borrow_mut();
-            unsafe {
-                sgemm(
-                    Layout::RowMajor,
-                    Transpose::Ordinary,
-                    Transpose::None,
-                    self.hidden_size as i32,
-                    self.output_size as i32,
-                    batch_size as i32,
-                    scale,
-                    &h_current_batch,
-                    self.hidden_size as i32,
-                    grad_output,
-                    self.output_size as i32,
-                    1.0, // Accumulate gradients
-                    &mut grad_w_hy,
-                    self.output_size as i32,
-                );
-            }
-        }
-
-        // Gradient w.r.t. b_y: sum(grad_output) / batch_size
-        {
-            let mut batch_bias_grad = vec![0.0f32; self.output_size];
-            for b in 0..batch_size {
-                for o in 0..self.output_size {
-                    batch_bias_grad[o] += grad_output[b * self.output_size + o];
-                }
-            }
-            self.grad_b_y.accumulate_scaled(&batch_bias_grad, scale);
-        }
-
-        // Gradient w.r.t. h_t: grad_h = grad_output × W_hy^T
-        // grad_output: (batch_size × output_size)
-        // W_hy: (hidden_size × output_size)
-        // grad_h: (batch_size × hidden_size)
-        let mut grad_h = vec![0.0f32; batch_size * self.hidden_size];
-        unsafe {
-            sgemm(
-                Layout::RowMajor,
-                Transpose::None,
-                Transpose::Ordinary,
-                batch_size as i32,
-                self.hidden_size as i32,
-                self.output_size as i32,
-                1.0,
-                grad_output,
-                self.output_size as i32,
-                &self.w_hy,
-                self.output_size as i32,
-                0.0,
-                &mut grad_h,
-                self.hidden_size as i32,
-            );
-        }
-
-        // Step 2: Backpropagate through tanh activation
-        // h_t = tanh(pre_activation)
-        // grad_pre_activation = grad_h * (1 - h_t^2)
-        let mut grad_pre_activation = vec![0.0f32; batch_size * self.hidden_size];
-        for i in 0..grad_pre_activation.len() {
-            let h_val = h_current_batch[i];
-            grad_pre_activation[i] = grad_h[i] * (1.0 - h_val * h_val);
-        }
-
-        // Step 3: Compute gradients for hidden state computation
-        // pre_activation = x_t × W_xh + h_{t-1} × W_hh + b_h
-
-        // Gradient w.r.t. W_xh: grad_W_xh = input^T × grad_pre_activation / batch_size
-        // input: (batch_size × input_size)
-        // grad_pre_activation: (batch_size × hidden_size)
-        // grad_W_xh: (input_size × hidden_size)
-        {
-            let mut grad_w_xh = self.grad_w_xh.borrow_mut();
-            unsafe {
-                sgemm(
-                    Layout::RowMajor,
-                    Transpose::Ordinary,
-                    Transpose::None,
-                    self.input_size as i32,
-                    self.hidden_size as i32,
-                    batch_size as i32,
-                    scale,
-                    input,
-                    self.input_size as i32,
-                    &grad_pre_activation,
-                    self.hidden_size as i32,
-                    1.0, // Accumulate gradients
-                    &mut grad_w_xh,
-                    self.hidden_size as i32,
-                );
-            }
-        }
-
-        // Gradient w.r.t. W_hh: grad_W_hh = h_{t-1}^T × grad_pre_activation / batch_size
-        // h_prev_batch: (batch_size × hidden_size)
-        // grad_pre_activation: (batch_size × hidden_size)
-        // grad_W_hh: (hidden_size × hidden_size)
-        {
-            let mut grad_w_hh = self.grad_w_hh.borrow_mut();
-            unsafe {
-                sgemm(
-                    Layout::RowMajor,
-                    Transpose::Ordinary,
-                    Transpose::None,
-                    self.hidden_size as i32,
-                    self.hidden_size as i32,
-                    batch_size as i32,
-                    scale,
-                    &h_prev_batch,
-                    self.hidden_size as i32,
-                    &grad_pre_activation,
-                    self.hidden_size as i32,
-                    1.0, // Accumulate gradients
-                    &mut grad_w_hh,
-                    self.hidden_size as i32,
-                );
-            }
-        }
-
-        // Gradient w.r.t. b_h: sum(grad_pre_activation) / batch_size
-        {
-            let mut batch_bias_grad = vec![0.0f32; self.hidden_size];
-            for b in 0..batch_size {
-                for h in 0..self.hidden_size {
-                    batch_bias_grad[h] += grad_pre_activation[b * self.hidden_size + h];
-                }
-            }
-            self.grad_b_h.accumulate_scaled(&batch_bias_grad, scale);
-        }
-
-        // Gradient w.r.t. input: grad_input = grad_pre_activation × W_xh^T
-        // grad_pre_activation: (batch_size × hidden_size)
-        // W_xh: (input_size × hidden_size)
-        // grad_input: (batch_size × input_size)
-        unsafe {
-            sgemm(
-                Layout::RowMajor,
-                Transpose::None,
-                Transpose::Ordinary,
-                batch_size as i32,
-                self.input_size as i32,
-                self.hidden_size as i32,
-                1.0,
-                &grad_pre_activation,
-                self.hidden_size as i32,
-                &self.w_xh,
-                self.hidden_size as i32,
-                0.0,
-                grad_input,
-                self.input_size as i32,
-            );
-        }
-
-        // Note: Gradient w.r.t. h_{t-1} for BPTT would be:
-        // grad_h_prev = grad_pre_activation × W_hh^T
-        // This would be used when propagating gradients back through time,
-        // but for now we only compute gradients w.r.t. the current input.
+        let dh_next = vec![0.0f32; self.hidden_size];
+        let _ = self.backward_bptt(input, grad_output, grad_input, &dh_next, batch_size);
     }
 
     fn update_parameters(&mut self, learning_rate: f32) {

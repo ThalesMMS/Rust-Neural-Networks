@@ -7,8 +7,11 @@ use serde::Deserialize;
 /// - **Dense**: Requires `input_size` and `output_size`
 /// - **Conv2D**: Requires `in_channels`, `out_channels`, `kernel_size`, `input_height`, `input_width`,
 ///   and optional `padding` (default 0), `stride` (default 1)
+/// - **ResidualBlock**: Requires `in_channels`, `out_channels`, `input_height`, `input_width`,
+///   and optional `stride` (default 1). Uses an internal identity or projection shortcut.
 /// - **BatchNorm**: Requires `size`, and optional `epsilon` (default 1e-5), `momentum` (default 0.9)
 /// - **Dropout**: Requires `size` and `drop_rate` (probability of dropping units, range [0.0, 1.0))
+/// - **GlobalAvgPool**: Requires `pool_input_height`, `pool_input_width`, and `pool_channels`
 /// - **Pooling**: Supported via:
 ///   - `layer_type`: "maxpool" or "avgpool" and pooling fields (see below), or
 ///   - `layer_type`: "pool" with `pool_mode`: "max" or "avg" and pooling fields
@@ -41,6 +44,26 @@ use serde::Deserialize;
 ///
 /// ```json
 /// {
+///   "layer_type": "residual_block",
+///   "in_channels": 16,
+///   "out_channels": 32,
+///   "stride": 2,
+///   "input_height": 32,
+///   "input_width": 32
+/// }
+/// ```
+///
+/// ```json
+/// {
+///   "layer_type": "globalavgpool",
+///   "pool_input_height": 4,
+///   "pool_input_width": 4,
+///   "pool_channels": 128
+/// }
+/// ```
+///
+/// ```json
+/// {
 ///   "layer_type": "maxpool",
 ///   "pool_size": 2,
 ///   "pool_stride": 2,
@@ -53,7 +76,8 @@ use serde::Deserialize;
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LayerConfig {
-    /// Type of layer: "dense", "conv2d", "batchnorm", "dropout", "maxpool", "avgpool", or "pool"
+    /// Type of layer: "dense", "conv2d", "residual_block", "batchnorm", "dropout",
+    /// "globalavgpool", "maxpool", "avgpool", or "pool"
     pub layer_type: String,
 
     // Dense layer parameters
@@ -62,20 +86,20 @@ pub struct LayerConfig {
     /// Output size for Dense layer
     pub output_size: Option<usize>,
 
-    // Conv2D layer parameters
-    /// Number of input channels for Conv2D layer
+    // Conv2D and ResidualBlock layer parameters
+    /// Number of input channels for Conv2D and ResidualBlock layers
     pub in_channels: Option<usize>,
-    /// Number of output channels (filters) for Conv2D layer
+    /// Number of output channels for Conv2D and ResidualBlock layers
     pub out_channels: Option<usize>,
     /// Kernel size for Conv2D layer (assumes square kernel)
     pub kernel_size: Option<usize>,
     /// Zero-padding for Conv2D layer (default: 0)
     pub padding: Option<isize>,
-    /// Stride for Conv2D layer (default: 1)
+    /// Stride for Conv2D and ResidualBlock layers (default: 1)
     pub stride: Option<usize>,
-    /// Input height for Conv2D layer
+    /// Input height for Conv2D and ResidualBlock layers
     pub input_height: Option<usize>,
-    /// Input width for Conv2D layer
+    /// Input width for Conv2D and ResidualBlock layers
     pub input_width: Option<usize>,
 
     // BatchNorm layer parameters

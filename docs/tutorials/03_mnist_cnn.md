@@ -1505,7 +1505,10 @@ Congratulations! You now understand:
 - What learned filters and feature maps look like
 - Why CNNs achieve better accuracy with fewer parameters than MLPs
 
-### Next Tutorial: CIFAR-10 CNN
+### Next Step: CIFAR-10 CNN Materials
+
+There is not currently a dedicated CIFAR-10 CNN tutorial in this series, but the
+implementation and supporting guides are available in the repository.
 
 **Building on this foundation:**
 - **Multi-channel inputs:** RGB images (3 channels) instead of grayscale (1 channel)
@@ -1536,6 +1539,7 @@ Congratulations! You now understand:
 
 **Architecture design:**
 - [CIFAR-10 Architecture Design](../cifar10_architecture_design.md) - Design principles for deeper CNNs
+- [CIFAR-10 Dataset Guide](../cifar10_dataset.md) - Binary format, RGB channel handling, and training setup
 - [Hyperparameters Guide](../hyperparameters.md) - Learning rate, batch size, optimizer selection
 - [Configuration System](../architecture_config.md) - JSON-based hyperparameter configs
 
@@ -1561,7 +1565,8 @@ Congratulations! You now understand:
 **Related architectures:**
 - `mnist_mlp.rs` - Feedforward network for comparison (previous tutorial)
 - `mnist_attention_pool.rs` - Transformer-style attention mechanism (alternative to convolution)
-- `cifar10_cnn.rs` - Multi-channel RGB CNN for color images (coming soon in Tutorial 04)
+- `src/bin/cifar10_cnn/` - Multi-channel RGB CNN for color images
+- `config/training/cifar10_cnn_default.json` - Default CIFAR-10 CNN training configuration
 
 ---
 
@@ -1604,7 +1609,7 @@ Congratulations! You now understand:
 - Object detection and segmentation
 - Modern vision transformers (ViT, DINO)
 
-**Keep experimenting!** Try the exercises above, visualize your learned filters, and explore the codebase. When you're ready for color images and deeper networks, move on to CIFAR-10 CNN (Tutorial 04, coming soon). Happy learning!
+**Keep experimenting!** Try the exercises above, visualize your learned filters, and explore the codebase. When you're ready for color images and deeper networks, explore the CIFAR-10 CNN implementation in `src/bin/cifar10_cnn/` and the supporting CIFAR-10 dataset and architecture guides. Happy learning!
 
 ---
 

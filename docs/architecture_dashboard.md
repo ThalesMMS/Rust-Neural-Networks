@@ -899,8 +899,6 @@ row.innerHTML = `
 - **Benchmark suite**: Standardized tests across multiple datasets
 - **Deployment dashboard**: Track inference latency in production
 
-**Contributions welcome!** See `CONTRIBUTING.md` for development guidelines.
-
 ---
 
-**Generated from real training data. Part of the [Rust Neural Networks](https://github.com/yourusername/rust-neural-networks) project.**
+**Generated from real training data. Part of the [Rust Neural Networks](https://github.com/ThalesMMS/Rust-Neural-Networks) project.**

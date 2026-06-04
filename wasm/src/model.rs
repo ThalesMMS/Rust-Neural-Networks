@@ -32,6 +32,12 @@ impl MnistModel {
     /// 4. Output layer weights (hidden_size × output_size floats, little-endian)
     /// 5. Output layer biases (output_size floats, little-endian)
     ///
+    /// The browser demo loads the curated trained artifact from `demo/mnist_model.bin`
+    /// through `demo/wasm_wrapper.js`. The synthetic byte arrays in the examples below
+    /// are structural validation fixtures only; they use valid headers with zero
+    /// weights and biases, so they produce uniform probabilities rather than
+    /// meaningful digit recognition.
+    ///
     /// # Arguments
     ///
     /// * `bytes` - Binary data containing the model weights and biases
@@ -159,43 +165,30 @@ impl MnistModel {
     /// # Examples
     ///
     /// ```
-    /// use mnist_wasm::model::MnistModel;
+    /// use mnist_wasm::model::{MnistModel, NUM_HIDDEN, NUM_INPUTS, NUM_OUTPUTS};
     ///
-    /// // Create a dummy model for testing (not a real trained model)
-    /// let input_size = 784;
-    /// let hidden_size = 512;
-    /// let output_size = 10;
-    ///
-    /// // Build a minimal binary model (header only, weights as zeros for this example)
+    /// // Build synthetic structural model bytes, not trained model data.
+    /// // The header is valid and every weight/bias is encoded as 0.0f32.
     /// let mut model_bytes = Vec::new();
-    /// model_bytes.extend_from_slice(&(input_size as i32).to_le_bytes());
-    /// model_bytes.extend_from_slice(&(hidden_size as i32).to_le_bytes());
-    /// model_bytes.extend_from_slice(&(output_size as i32).to_le_bytes());
-    ///
-    /// // Add weights and biases (all zeros for this example)
-    /// for _ in 0..(input_size * hidden_size) {
-    ///     model_bytes.extend_from_slice(&0.0f32.to_le_bytes());
-    /// }
-    /// for _ in 0..hidden_size {
-    ///     model_bytes.extend_from_slice(&0.0f32.to_le_bytes());
-    /// }
-    /// for _ in 0..(hidden_size * output_size) {
-    ///     model_bytes.extend_from_slice(&0.0f32.to_le_bytes());
-    /// }
-    /// for _ in 0..output_size {
-    ///     model_bytes.extend_from_slice(&0.0f32.to_le_bytes());
-    /// }
+    /// model_bytes.extend_from_slice(&(NUM_INPUTS as i32).to_le_bytes());
+    /// model_bytes.extend_from_slice(&(NUM_HIDDEN as i32).to_le_bytes());
+    /// model_bytes.extend_from_slice(&(NUM_OUTPUTS as i32).to_le_bytes());
+    /// let parameter_count =
+    ///     NUM_INPUTS * NUM_HIDDEN + NUM_HIDDEN + NUM_HIDDEN * NUM_OUTPUTS + NUM_OUTPUTS;
+    /// model_bytes.resize(12 + parameter_count * std::mem::size_of::<f32>(), 0);
     ///
     /// let model = MnistModel::from_bytes(&model_bytes).unwrap();
     ///
-    /// // Run prediction on a zero image
-    /// let input = vec![0.0; 784];
+    /// // A zero-weight structural model produces uniform probabilities.
+    /// let input = vec![0.0; NUM_INPUTS];
     /// let probabilities = model.predict(&input);
     ///
-    /// assert_eq!(probabilities.len(), 10);
-    /// // With zero weights and biases, all outputs should be equal (1/10)
+    /// assert_eq!(probabilities.len(), NUM_OUTPUTS);
     /// let sum: f32 = probabilities.iter().sum();
     /// assert!((sum - 1.0).abs() < 1e-5, "Probabilities should sum to 1.0");
+    /// for probability in probabilities {
+    ///     assert!((probability - 0.1).abs() < 1e-6);
+    /// }
     /// ```
     pub fn predict(&self, input: &[f32]) -> Vec<f32> {
         self.predict_with_hidden(input).0
@@ -243,28 +236,26 @@ impl MnistModel {
     /// # Examples
     ///
     /// ```
-    /// use mnist_wasm::model::MnistModel;
+    /// use mnist_wasm::model::{MnistModel, NUM_HIDDEN, NUM_INPUTS, NUM_OUTPUTS};
     ///
-    /// // Create a dummy model (same as predict example)
-    /// let input_size = 784;
-    /// let hidden_size = 512;
-    /// let output_size = 10;
-    ///
+    /// // Build synthetic structural zero-weight model bytes. This proves the
+    /// // parser and inference path work, but it is not a trained classifier.
     /// let mut model_bytes = Vec::new();
-    /// model_bytes.extend_from_slice(&(input_size as i32).to_le_bytes());
-    /// model_bytes.extend_from_slice(&(hidden_size as i32).to_le_bytes());
-    /// model_bytes.extend_from_slice(&(output_size as i32).to_le_bytes());
-    ///
-    /// for _ in 0..(input_size * hidden_size + hidden_size + hidden_size * output_size + output_size) {
-    ///     model_bytes.extend_from_slice(&0.0f32.to_le_bytes());
-    /// }
+    /// model_bytes.extend_from_slice(&(NUM_INPUTS as i32).to_le_bytes());
+    /// model_bytes.extend_from_slice(&(NUM_HIDDEN as i32).to_le_bytes());
+    /// model_bytes.extend_from_slice(&(NUM_OUTPUTS as i32).to_le_bytes());
+    /// let parameter_count =
+    ///     NUM_INPUTS * NUM_HIDDEN + NUM_HIDDEN + NUM_HIDDEN * NUM_OUTPUTS + NUM_OUTPUTS;
+    /// model_bytes.resize(12 + parameter_count * std::mem::size_of::<f32>(), 0);
     ///
     /// let model = MnistModel::from_bytes(&model_bytes).unwrap();
     ///
-    /// let input = vec![0.0; 784];
+    /// let input = vec![0.0; NUM_INPUTS];
     /// let predicted_class = model.predict_class(&input);
     ///
-    /// assert!(predicted_class < 10, "Predicted class should be 0-9");
+    /// // Uniform probabilities make the chosen class a tie-break result, not
+    /// // meaningful recognition quality.
+    /// assert!(predicted_class < NUM_OUTPUTS, "Predicted class should be 0-9");
     /// ```
     pub fn predict_class(&self, input: &[f32]) -> usize {
         let probabilities = self.predict(input);

@@ -681,6 +681,36 @@ impl VariationalAutoencoder {
         self.encoder_post_acts = enc_post_acts;
     }
 
+    /// Returns L2 norms of accumulated weight and bias gradients for each trainable layer.
+    ///
+    /// Intended for training diagnostics after `backward()` and before an update clears
+    /// the layer gradient accumulators.
+    pub fn gradient_magnitudes(&self) -> Vec<(String, f32, f32)> {
+        let mut gradients = Vec::with_capacity(self.encoder.len() + 2 + self.decoder.len());
+
+        for (i, layer) in self.encoder.iter().enumerate() {
+            let (weight_norm, bias_norm) = layer.get_gradient_magnitude();
+            gradients.push((format!("encoder_{}", i), weight_norm, bias_norm));
+        }
+
+        let (mu_weight_norm, mu_bias_norm) = self.mu_layer.get_gradient_magnitude();
+        gradients.push(("mu".to_string(), mu_weight_norm, mu_bias_norm));
+
+        let (log_var_weight_norm, log_var_bias_norm) = self.log_var_layer.get_gradient_magnitude();
+        gradients.push((
+            "log_var".to_string(),
+            log_var_weight_norm,
+            log_var_bias_norm,
+        ));
+
+        for (i, layer) in self.decoder.iter().enumerate() {
+            let (weight_norm, bias_norm) = layer.get_gradient_magnitude();
+            gradients.push((format!("decoder_{}", i), weight_norm, bias_norm));
+        }
+
+        gradients
+    }
+
     /// Updates all layer parameters using vanilla SGD.
     ///
     /// Applies `param -= learning_rate * gradient` to the encoder trunk, mu head,

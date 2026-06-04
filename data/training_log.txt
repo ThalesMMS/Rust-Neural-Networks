@@ -14,7 +14,7 @@ warning: structure field `T_max` should have a snake case name
 
 warning: `rust_neural_networks` (lib) generated 2 warnings
     Finished `release` profile [optimized] target(s) in 0.04s
-     Running `/Users/thales/Documents/GitHub/Rust-Neural-Networks-dev/.auto-claude/worktrees/tasks/022-improved-cifar-10-architecture/target/release/cifar10_cnn --arch config/architectures/cifar10_deep_cnn.json --config config/training/cifar10_deep_cnn_default.json`
+     Running `/Users/thales/Documents/GitHub/Rust-Neural-Networks/.auto-claude/worktrees/tasks/022-improved-cifar-10-architecture/target/release/cifar10_cnn --arch config/architectures/cifar10_deep_cnn.json --config config/training/cifar10_deep_cnn_default.json`
 === CIFAR-10 CNN Training ===
 Loading training configuration from: config/training/cifar10_deep_cnn_default.json
 Error loading config from 'config/training/cifar10_deep_cnn_default.json': No such file or directory (os error 2)

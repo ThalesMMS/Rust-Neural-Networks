@@ -233,15 +233,22 @@ fn train(
             total_recon_loss += recon_loss * batch_count as f32;
             total_kl_loss += kl_loss * batch_count as f32;
 
-            // Create a placeholder gradient buffer for loss logging
-            let loss_grad = vec![0.0f32; batch_count * NUM_INPUTS];
+            let loss_grad_scale = 2.0 / input_len as f32;
+            let loss_grad: Vec<f32> = reconstruction
+                .iter()
+                .zip(batch_inputs[..input_len].iter())
+                .map(|(&recon, &target)| loss_grad_scale * (recon - target))
+                .collect();
             debugger.after_loss(elbo_loss, &loss_grad, batch_count, NUM_INPUTS);
 
             // Backward pass and parameter update with ELBO gradients
             vae.backward(&batch_inputs[..input_len], batch_count, KL_WEIGHT);
 
-            // Log gradient magnitudes (VAE internal gradients)
-            let grad_info = [("vae_all_layers", 0.0f32, 0.0f32)]; // Placeholder
+            let gradient_magnitudes = vae.gradient_magnitudes();
+            let grad_info: Vec<(&str, f32, f32)> = gradient_magnitudes
+                .iter()
+                .map(|(name, weight_norm, bias_norm)| (name.as_str(), *weight_norm, *bias_norm))
+                .collect();
             debugger.after_update(&grad_info, current_lr);
 
             vae.update_with_optimizer(optimizer.as_mut());

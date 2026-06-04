@@ -107,6 +107,78 @@ fn test_build_conv2d_model() {
 }
 
 #[test]
+fn test_build_resnet_style_model_with_residual_blocks() {
+    let config_json = r#"{
+  "layers": [
+{
+  "layer_type": "conv2d",
+  "in_channels": 3,
+  "out_channels": 16,
+  "kernel_size": 3,
+  "padding": 1,
+  "stride": 1,
+  "input_height": 32,
+  "input_width": 32
+},
+{
+  "layer_type": "batchnorm",
+  "size": 16384
+},
+{
+  "layer_type": "residual_block",
+  "in_channels": 16,
+  "out_channels": 16,
+  "stride": 1,
+  "input_height": 32,
+  "input_width": 32
+},
+{
+  "layer_type": "residual_block",
+  "in_channels": 16,
+  "out_channels": 32,
+  "stride": 2,
+  "input_height": 32,
+  "input_width": 32
+},
+{
+  "layer_type": "globalavgpool",
+  "pool_input_height": 16,
+  "pool_input_width": 16,
+  "pool_channels": 32
+},
+{
+  "layer_type": "dense",
+  "input_size": 32,
+  "output_size": 10
+}
+  ]
+}"#;
+
+    let temp_file = write_temp_config(config_json);
+    let config = load_architecture(temp_file.path().to_str().unwrap()).unwrap();
+
+    let mut rng = SimpleRng::new(42);
+    let layers = build_model(&config, &mut rng).unwrap();
+
+    assert_eq!(layers.len(), 6);
+    assert!(
+        layers[2]
+            .as_any()
+            .downcast_ref::<rust_neural_networks::layers::ResidualBlock>()
+            .is_some(),
+        "expected ResidualBlock"
+    );
+    assert_eq!(layers[2].input_size(), 16 * 32 * 32);
+    assert_eq!(layers[2].output_size(), 16 * 32 * 32);
+    assert_eq!(layers[3].input_size(), 16 * 32 * 32);
+    assert_eq!(layers[3].output_size(), 32 * 16 * 16);
+    assert_eq!(layers[4].input_size(), 32 * 16 * 16);
+    assert_eq!(layers[4].output_size(), 32);
+    assert_eq!(layers[5].input_size(), 32);
+    assert_eq!(layers[5].output_size(), 10);
+}
+
+#[test]
 #[ignore = "Pooling runtime layers are not available in this build; architecture validation supports pooling but builder does not expose it"]
 fn test_build_conv2d_with_pooling() {
     let config_json = r#"{

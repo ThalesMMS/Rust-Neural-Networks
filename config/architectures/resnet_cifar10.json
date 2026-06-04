@@ -1,0 +1,95 @@
+{
+  "layers": [
+    {
+      "layer_type": "conv2d",
+      "in_channels": 3,
+      "out_channels": 16,
+      "kernel_size": 3,
+      "padding": 1,
+      "stride": 1,
+      "input_height": 32,
+      "input_width": 32
+    },
+    {
+      "layer_type": "batchnorm",
+      "size": 16384,
+      "epsilon": 1e-5,
+      "momentum": 0.9
+    },
+    {
+      "layer_type": "residual_block",
+      "in_channels": 16,
+      "out_channels": 16,
+      "stride": 1,
+      "input_height": 32,
+      "input_width": 32
+    },
+    {
+      "layer_type": "residual_block",
+      "in_channels": 16,
+      "out_channels": 16,
+      "stride": 1,
+      "input_height": 32,
+      "input_width": 32
+    },
+    {
+      "layer_type": "residual_block",
+      "in_channels": 16,
+      "out_channels": 32,
+      "stride": 2,
+      "input_height": 32,
+      "input_width": 32
+    },
+    {
+      "layer_type": "residual_block",
+      "in_channels": 32,
+      "out_channels": 32,
+      "stride": 1,
+      "input_height": 16,
+      "input_width": 16
+    },
+    {
+      "layer_type": "residual_block",
+      "in_channels": 32,
+      "out_channels": 64,
+      "stride": 2,
+      "input_height": 16,
+      "input_width": 16
+    },
+    {
+      "layer_type": "residual_block",
+      "in_channels": 64,
+      "out_channels": 64,
+      "stride": 1,
+      "input_height": 8,
+      "input_width": 8
+    },
+    {
+      "layer_type": "residual_block",
+      "in_channels": 64,
+      "out_channels": 128,
+      "stride": 2,
+      "input_height": 8,
+      "input_width": 8
+    },
+    {
+      "layer_type": "residual_block",
+      "in_channels": 128,
+      "out_channels": 128,
+      "stride": 1,
+      "input_height": 4,
+      "input_width": 4
+    },
+    {
+      "layer_type": "globalavgpool",
+      "pool_input_height": 4,
+      "pool_input_width": 4,
+      "pool_channels": 128
+    },
+    {
+      "layer_type": "dense",
+      "input_size": 128,
+      "output_size": 10
+    }
+  ]
+}
