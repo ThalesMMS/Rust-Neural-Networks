@@ -1,0 +1,61 @@
+{
+  "schema_version": "0",
+  "run_id": "2026-07-04T21-17-41Z_7dc1c698",
+  "timestamp_start": "2026-07-04T21:17:41.077712+00:00",
+  "timestamp_end": "2026-07-04T21:17:51.561513+00:00",
+  "model_type": "mnist_cnn",
+  "command": "./target/release/mnist_cnn config/training/mnist_cnn_default.json",
+  "status": "completed",
+  "seed": 1,
+  "config": {
+    "config_path": "config/training/mnist_cnn_default.json",
+    "config_format": "json",
+    "raw": "{\n  \"scheduler_type\": \"step_decay\",\n  \"step_size\": 3,\n  \"gamma\": 0.5,\n  \"activation_function\": \"relu\",\n  \"learning_rate\": 0.01,\n  \"epochs\": 3,\n  \"batch_size\": 32,\n  \"validation_split\": 0.1,\n  \"early_stopping_patience\": 3,\n  \"early_stopping_min_delta\": 0.001,\n  \"enable_augmentation\": false\n}\n"
+  },
+  "dataset": {
+    "name": "mnist",
+    "train_size": 54000,
+    "val_size": 6000,
+    "test_size": 10000,
+    "preprocessing": {
+      "flattened_size": 784,
+      "format": "MNIST IDX",
+      "input_shape": [
+        28,
+        28,
+        1
+      ],
+      "normalization": "u8 pixels scaled to f32 in [0, 1]",
+      "split": "validation samples are split from the tail of the training IDX files"
+    },
+    "source": {
+      "path": "./data"
+    }
+  },
+  "metrics": {
+    "epochs_completed": 3,
+    "final_train_loss": 0.22801432013511658,
+    "final_val_loss": 0.22801432013511658,
+    "final_val_accuracy": 92.5,
+    "total_training_time_seconds": 10.483381375
+  },
+  "artifacts": {
+    "training_log_csv": "./logs/training_loss_cnn.csv",
+    "checkpoints": [
+      "mnist_cnn_model_best.bin",
+      "mnist_cnn_model_final.bin"
+    ],
+    "extra": {
+      "gradient_log_csv": "./logs/gradients_cnn.csv"
+    }
+  },
+  "environment": {
+    "git": {
+      "commit": "4356828111e772fc5c0f93b474ddb7b88457d156",
+      "dirty": false
+    },
+    "crate_version": "0.1.0",
+    "rustc_version": "rustc 1.96.0 (ac68faa20 2026-05-25) (Homebrew)",
+    "os": "macos aarch64 (unix)"
+  }
+}

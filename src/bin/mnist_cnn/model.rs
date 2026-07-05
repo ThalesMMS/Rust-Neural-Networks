@@ -366,9 +366,19 @@ pub(crate) fn test_accuracy(model: &mut Cnn, images: &[f32], labels: &[u8]) -> f
         let len = batch * NUM_INPUTS;
         batch_inputs[..len].copy_from_slice(&images[start * NUM_INPUTS..start * NUM_INPUTS + len]);
 
-        conv_forward_relu(model, batch, &batch_inputs, &mut conv_out);
+        conv_forward_relu(
+            model,
+            batch,
+            &batch_inputs[..len],
+            &mut conv_out[..batch * CONV_OUT * IMG_H * IMG_W],
+        );
         maxpool_forward(batch, &conv_out, &mut pool_out, &mut pool_idx);
-        fc_forward(model, batch, &pool_out, &mut logits);
+        fc_forward(
+            model,
+            batch,
+            &pool_out[..batch * FC_IN],
+            &mut logits[..batch * NUM_CLASSES],
+        );
 
         for b in 0..batch {
             let base = b * NUM_CLASSES;

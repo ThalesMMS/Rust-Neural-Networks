@@ -14,3 +14,4 @@ transformer_mnist_model.bin
 
 AGENTS.md
 CLAUDE.md
+/ui/node_modules

@@ -328,6 +328,7 @@ fn train(
             );
 
             // Forward: hidden layer.
+            let input_len = batch_count * NUM_INPUTS;
             let a1_len = batch_count * NUM_HIDDEN;
             debugger.before_forward(
                 "hidden_layer",
@@ -337,7 +338,11 @@ fn train(
                 NUM_HIDDEN,
                 nn.hidden_layer.parameter_count(),
             );
-            nn.hidden_layer.forward(&batch_inputs, &mut a1, batch_count);
+            nn.hidden_layer.forward(
+                &batch_inputs[..input_len],
+                &mut a1[..a1_len],
+                batch_count,
+            );
             debugger.after_forward("hidden_layer", &a1, batch_count, NUM_HIDDEN);
             relu_inplace(&mut a1[..a1_len]);
             debugger.after_activation("ReLU", &a1[..a1_len], batch_count, NUM_HIDDEN);
@@ -352,7 +357,8 @@ fn train(
                 NUM_OUTPUTS,
                 nn.output_layer.parameter_count(),
             );
-            nn.output_layer.forward(&a1, &mut a2, batch_count);
+            nn.output_layer
+                .forward(&a1[..a1_len], &mut a2[..a2_len], batch_count);
             debugger.after_forward("output_layer", &a2, batch_count, NUM_OUTPUTS);
             assert_eq!(
                 a2[..a2_len].len(),
@@ -380,7 +386,12 @@ fn train(
             );
 
             // Backward: output layer.
-            nn.output_layer.backward(&a1, &dz2, &mut dz1, batch_count);
+            nn.output_layer.backward(
+                &a1[..a1_len],
+                &dz2[..a2_len],
+                &mut dz1[..a1_len],
+                batch_count,
+            );
             debugger.after_backward(
                 "output_layer",
                 &dz2,
@@ -402,8 +413,8 @@ fn train(
             // Backward: hidden layer.
             let grad_len = batch_count * NUM_INPUTS;
             nn.hidden_layer.backward(
-                &batch_inputs,
-                &dz1,
+                &batch_inputs[..input_len],
+                &dz1[..dz1_len],
                 &mut unused_grad[..grad_len],
                 batch_count,
             );
@@ -477,13 +488,20 @@ fn train(
 
             // Forward: hidden layer
             let val_a1_len = batch_count * NUM_HIDDEN;
-            nn.hidden_layer
-                .forward(&val_batch_inputs, &mut val_a1, batch_count);
+            nn.hidden_layer.forward(
+                &val_batch_inputs[..input_len],
+                &mut val_a1[..val_a1_len],
+                batch_count,
+            );
             relu_inplace(&mut val_a1[..val_a1_len]);
 
             // Forward: output layer
             let val_a2_len = batch_count * NUM_OUTPUTS;
-            nn.output_layer.forward(&val_a1, &mut val_a2, batch_count);
+            nn.output_layer.forward(
+                &val_a1[..val_a1_len],
+                &mut val_a2[..val_a2_len],
+                batch_count,
+            );
             softmax_rows(&mut val_a2[..val_a2_len], batch_count, NUM_OUTPUTS);
 
             // Compute loss and accuracy using shared evaluate_batch_accuracy
@@ -607,12 +625,17 @@ fn test(nn: &NeuralNetwork, images: &[f32], labels: &[u8], num_samples: usize, b
 
         // Forward: hidden layer.
         let a1_len = batch_count * NUM_HIDDEN;
-        nn.hidden_layer.forward(&batch_inputs, &mut a1, batch_count);
+        nn.hidden_layer.forward(
+            &batch_inputs[..input_len],
+            &mut a1[..a1_len],
+            batch_count,
+        );
         relu_inplace(&mut a1[..a1_len]);
 
         // Forward: output layer.
         let a2_len = batch_count * NUM_OUTPUTS;
-        nn.output_layer.forward(&a1, &mut a2, batch_count);
+        nn.output_layer
+            .forward(&a1[..a1_len], &mut a2[..a2_len], batch_count);
         assert_eq!(
             a2[..a2_len].len(),
             batch_count * NUM_OUTPUTS,
@@ -1004,5 +1027,27 @@ mod tests {
         assert_eq!(nn.hidden_layer.output_size(), NUM_HIDDEN);
         assert_eq!(nn.output_layer.input_size(), NUM_HIDDEN);
         assert_eq!(nn.output_layer.output_size(), NUM_OUTPUTS);
+    }
+
+    // Regression test for a bug where per-batch buffers sized to a fixed
+    // `batch_size` were passed unsliced into DenseLayer::forward, which asserts
+    // `input.len() == batch_count * input_size` exactly. A dataset whose sample
+    // count does not evenly divide `batch_size` produces a smaller final batch
+    // and previously panicked; this must complete without panicking.
+    #[test]
+    fn test_handles_non_divisible_batch_size() {
+        let mut rng = SimpleRng::new(7);
+        let nn = initialize_network(
+            &mut rng,
+            #[cfg(any(feature = "gpu-metal", feature = "gpu-cuda"))]
+            &None,
+        );
+
+        let batch_size = 8;
+        let num_samples = batch_size * 2 + 3; // guarantees a partial final batch
+        let images = vec![0.1f32; num_samples * NUM_INPUTS];
+        let labels: Vec<u8> = (0..num_samples).map(|i| (i % NUM_OUTPUTS) as u8).collect();
+
+        test(&nn, &images, &labels, num_samples, batch_size);
     }
 }

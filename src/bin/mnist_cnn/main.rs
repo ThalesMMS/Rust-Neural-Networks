@@ -373,7 +373,13 @@ fn main() {
                 CONV_OUT * IMG_H * IMG_W,
                 conv_param_count,
             );
-            conv_forward_relu(&mut model, batch, &batch_inputs, &mut conv_out);
+            let input_len = batch * NUM_INPUTS;
+            conv_forward_relu(
+                &mut model,
+                batch,
+                &batch_inputs[..input_len],
+                &mut conv_out[..batch * CONV_OUT * IMG_H * IMG_W],
+            );
             debugger.after_forward(
                 "conv_layer",
                 &conv_out[..batch * CONV_OUT * IMG_H * IMG_W],
@@ -398,7 +404,12 @@ fn main() {
                 NUM_CLASSES,
                 fc_param_count,
             );
-            fc_forward(&mut model, batch, &pool_out, &mut logits);
+            fc_forward(
+                &mut model,
+                batch,
+                &pool_out[..batch * FC_IN],
+                &mut logits[..batch * NUM_CLASSES],
+            );
             debugger.after_forward("fc_layer", &logits, batch, NUM_CLASSES);
 
             // Softmax + loss + gradient at logits.
@@ -422,7 +433,13 @@ fn main() {
             debugger.after_loss(batch_loss / batch as f32, &delta, batch, NUM_CLASSES);
 
             // Backward: FC -> pool -> conv.
-            fc_backward(&mut model, batch, &pool_out, &delta, &mut d_pool);
+            fc_backward(
+                &mut model,
+                batch,
+                &pool_out[..batch * FC_IN],
+                &delta[..batch * NUM_CLASSES],
+                &mut d_pool[..batch * FC_IN],
+            );
             debugger.after_backward(
                 "fc_layer",
                 &delta,
@@ -439,7 +456,13 @@ fn main() {
                 CONV_OUT * IMG_H * IMG_W,
             );
 
-            conv_backward(&mut model, batch, &batch_inputs, &d_conv, &mut _grad_input);
+            conv_backward(
+                &mut model,
+                batch,
+                &batch_inputs[..input_len],
+                &d_conv[..batch * CONV_OUT * IMG_H * IMG_W],
+                &mut _grad_input[..input_len],
+            );
             debugger.after_backward(
                 "conv_layer",
                 &d_conv,
@@ -494,8 +517,8 @@ fn main() {
             conv_forward_relu(
                 &mut model,
                 batch_count,
-                &val_batch_inputs,
-                &mut val_conv_out,
+                &val_batch_inputs[..input_len],
+                &mut val_conv_out[..batch_count * CONV_OUT * IMG_H * IMG_W],
             );
             maxpool_forward(
                 batch_count,
@@ -503,7 +526,12 @@ fn main() {
                 &mut val_pool_out,
                 &mut val_pool_idx,
             );
-            fc_forward(&mut model, batch_count, &val_pool_out, &mut val_logits);
+            fc_forward(
+                &mut model,
+                batch_count,
+                &val_pool_out[..batch_count * FC_IN],
+                &mut val_logits[..batch_count * NUM_CLASSES],
+            );
 
             // Apply softmax
             softmax_rows(
@@ -652,5 +680,29 @@ fn main() {
         rust_neural_networks::experiment_registry::write_run_record(&registry_dir, &record)
     {
         eprintln!("Warning: failed to write run record: {e}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Regression test for a bug where per-batch buffers sized to a fixed
+    // `BATCH_SIZE` were passed unsliced into Conv2DLayer/DenseLayer forward
+    // calls, which assert `input.len() == batch_count * input_size` exactly.
+    // A sample count that does not evenly divide `BATCH_SIZE` produces a
+    // smaller final batch and previously panicked; this must complete without
+    // panicking.
+    #[test]
+    fn test_accuracy_handles_non_divisible_batch_size() {
+        let num_samples = BATCH_SIZE * 2 + 5; // guarantees a partial final batch
+        let mut rng = SimpleRng::new(7);
+        let mut model = init_cnn(&mut rng);
+
+        let images = vec![0.1f32; num_samples * NUM_INPUTS];
+        let labels: Vec<u8> = (0..num_samples).map(|i| (i % NUM_CLASSES) as u8).collect();
+
+        let accuracy = test_accuracy(&mut model, &images, &labels);
+        assert!((0.0..=100.0).contains(&accuracy));
     }
 }

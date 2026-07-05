@@ -1,0 +1,61 @@
+{
+  "schema_version": "0",
+  "run_id": "2026-07-04T20-54-59Z_647be970",
+  "timestamp_start": "2026-07-04T20:54:59.718663+00:00",
+  "timestamp_end": "2026-07-04T20:55:02.056848+00:00",
+  "model_type": "mnist_mlp",
+  "command": "/Users/thales/Documents/GitHub/Rust-Neural-Networks/target/release/mnist_mlp --config config/training/mnist_mlp_default.json",
+  "status": "completed",
+  "seed": 1,
+  "config": {
+    "config_path": "config/training/mnist_mlp_default.json",
+    "config_format": "json",
+    "raw": "{\n  \"scheduler_type\": \"step_decay\",\n  \"step_size\": 3,\n  \"gamma\": 0.5,\n  \"warmup\": {\n    \"type\": \"linear\",\n    \"epochs\": 2,\n    \"start_lr\": 0.001\n  },\n  \"regularization\": {\n    \"l1\": 0,\n    \"l2\": 0.00001\n  },\n  \"gradient_clipping\": {\n    \"type\": \"norm\",\n    \"max_norm\": 1\n  },\n  \"activation_function\": \"relu\",\n  \"learning_rate\": 0.01,\n  \"epochs\": 10,\n  \"batch_size\": 100,\n  \"validation_split\": 0.1,\n  \"early_stopping_patience\": 3,\n  \"early_stopping_min_delta\": 0.001,\n  \"enable_augmentation\": false\n}"
+  },
+  "dataset": {
+    "name": "mnist",
+    "train_size": 54000,
+    "val_size": 6000,
+    "test_size": 10000,
+    "preprocessing": {
+      "flattened_size": 784,
+      "format": "MNIST IDX",
+      "input_shape": [
+        28,
+        28,
+        1
+      ],
+      "normalization": "u8 pixels scaled to f32 in [0, 1]",
+      "split": "validation samples are split from the tail of the training IDX files"
+    },
+    "source": {
+      "path": "./data"
+    }
+  },
+  "metrics": {
+    "epochs_completed": 10,
+    "final_train_loss": 1.0490981340408325,
+    "final_val_loss": 1.1656653881072998,
+    "final_val_accuracy": 83.71666717529297,
+    "total_training_time_seconds": 2.326172333
+  },
+  "artifacts": {
+    "training_log_csv": "./logs/training_loss_adam.csv",
+    "checkpoints": [
+      "mnist_model_best.bin",
+      "mnist_model.bin"
+    ],
+    "extra": {
+      "gradient_log_csv": "./logs/gradients_mlp.csv"
+    }
+  },
+  "environment": {
+    "git": {
+      "commit": "dd27854f48a4734d516de6a6d4ee75a8eee02caf",
+      "dirty": true
+    },
+    "crate_version": "0.1.0",
+    "rustc_version": "rustc 1.96.0 (ac68faa20 2026-05-25) (Homebrew)",
+    "os": "macos aarch64 (unix)"
+  }
+}

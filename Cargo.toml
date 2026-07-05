@@ -1,3 +1,6 @@
+[workspace]
+members = ["src-tauri"]
+
 [package]
 name = "rust_neural_networks"
 version = "0.1.0"
