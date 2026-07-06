@@ -85,6 +85,7 @@ export interface RunRecord {
     training_log_csv?: string;
     checkpoints: string[];
     plots: string[];
+    extra?: unknown;
   };
   environment?: {
     git?: { commit?: string; dirty?: boolean };
@@ -111,6 +112,70 @@ export interface CsvRow {
   train_time: number;
   val_loss: number;
   val_accuracy: number;
+}
+
+export interface TrainingPoint extends CsvRow {
+  learning_rate?: number;
+}
+
+export interface GradientPoint {
+  epoch: number;
+  layer_name: string;
+  grad_norm_weights: number;
+  grad_norm_biases: number;
+}
+
+export type ExperimentSource = "registry" | "log";
+export type ExperimentStatus = "completed" | "failed" | "unknown";
+
+export interface EnvironmentSummary {
+  git_commit?: string;
+  git_dirty?: boolean;
+  crate_version?: string;
+  rustc_version?: string;
+  os?: string;
+}
+
+export interface ExperimentSummary {
+  key: string;
+  source: ExperimentSource;
+  run_id?: string;
+  model_id?: string;
+  model_type: string;
+  label: string;
+  timestamp_start?: string;
+  timestamp_end?: string;
+  modified_unix_secs?: number;
+  status: ExperimentStatus;
+  config_path?: string;
+  dataset_name?: string;
+  epochs_completed?: number;
+  final_train_loss?: number;
+  final_val_loss?: number;
+  final_val_accuracy?: number;
+  best_val_accuracy?: number;
+  best_val_loss?: number;
+  total_training_time_seconds?: number;
+  average_epoch_time_seconds?: number;
+  training_log_path?: string;
+  gradient_log_path?: string;
+  checkpoints: string[];
+  plots: string[];
+  command?: string;
+  seed?: number;
+  environment?: EnvironmentSummary;
+  config_raw?: string;
+  config_parsed?: unknown;
+  warnings: string[];
+}
+
+export interface ArtifactPreview {
+  relative_path: string;
+  kind: "json" | "csv" | "html" | "text";
+  content: string;
+  truncated: boolean;
+  bytes_total: number;
+  bytes_returned: number;
 }
 
 export interface DataStatus {
@@ -142,6 +207,13 @@ export const api = {
   listRuns: () => invoke<RunRecord[]>("list_runs"),
   listAllLogs: () => invoke<LogSummary[]>("list_all_logs"),
   readLogCsv: (relative_path: string) => invoke<CsvRow[]>("read_log_csv", { relativePath: relative_path }),
+  listExperiments: () => invoke<ExperimentSummary[]>("list_experiments"),
+  readTrainingSeries: (relative_path: string) =>
+    invoke<TrainingPoint[]>("read_training_series", { relativePath: relative_path }),
+  readGradientCsv: (relative_path: string) =>
+    invoke<GradientPoint[]>("read_gradient_csv", { relativePath: relative_path }),
+  readArtifactPreview: (relative_path: string, max_bytes?: number) =>
+    invoke<ArtifactPreview>("read_artifact_preview", { relativePath: relative_path, maxBytes: max_bytes }),
 
   dataStatus: () => invoke<DataStatus>("data_status"),
   checkpointStatus: (relative_paths: string[]) =>

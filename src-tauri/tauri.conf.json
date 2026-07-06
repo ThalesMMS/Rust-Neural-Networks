@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "dev.rustneuralnetworks.studio",
   "build": {
-    "beforeDevCommand": "npm --prefix ../ui run dev",
-    "beforeBuildCommand": "npm --prefix ../ui run build",
+    "beforeDevCommand": "npm --prefix ui run dev",
+    "beforeBuildCommand": "npm --prefix ui run build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../ui/dist"
   },
@@ -15,6 +15,8 @@
         "title": "Rust NN Studio",
         "width": 1440,
         "height": 900,
+        "fullscreen": false,
+        "maximized": true,
         "minWidth": 1024,
         "minHeight": 700
       }

@@ -37,7 +37,7 @@ export default function Sidebar() {
       <nav className="flex flex-col gap-1">
         <Item to="/" icon={<LayoutGrid size={16} />} label="Dashboard" />
         <Item to="/train" icon={<PlayCircle size={16} />} label="Train" />
-        <Item to="/runs" icon={<History size={16} />} label="Runs" />
+        <Item to="/runs" icon={<History size={16} />} label="Experiments" />
         <Item to="/configs" icon={<FileJson size={16} />} label="Configs" />
       </nav>
 

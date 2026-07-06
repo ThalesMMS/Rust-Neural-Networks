@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, ArrowRight, CheckCircle2, XCircle } from "lucide-react";
-import { api, type DataStatus, type ModelDescriptor } from "../lib/tauri";
+import { AlertTriangle, ArrowRight, BarChart3, CheckCircle2, XCircle } from "lucide-react";
+import { api, type DataStatus, type ExperimentSummary, type ModelDescriptor } from "../lib/tauri";
 import Badge from "../components/Badge";
 
 export default function Dashboard() {
   const [models, setModels] = useState<ModelDescriptor[]>([]);
+  const [experiments, setExperiments] = useState<ExperimentSummary[]>([]);
   const [dataStatus, setDataStatus] = useState<DataStatus | null>(null);
   const [trained, setTrained] = useState<Record<string, boolean>>({});
   const navigate = useNavigate();
 
   useEffect(() => {
     api.listModels().then(setModels);
+    api.listExperiments().then(setExperiments);
     api.dataStatus().then(setDataStatus);
   }, []);
 
@@ -36,6 +38,25 @@ export default function Dashboard() {
     }
     return Array.from(byCategory.entries());
   }, [models]);
+
+  const recentExperiments = useMemo(
+    () => [...experiments].sort((a, b) => dateValue(b) - dateValue(a)).slice(0, 4),
+    [experiments],
+  );
+
+  const bestExperiments = useMemo(() => {
+    const bestByModel = new Map<string, ExperimentSummary>();
+    for (const experiment of experiments) {
+      if (experiment.best_val_accuracy === undefined) continue;
+      const previous = bestByModel.get(experiment.model_type);
+      if (!previous || (experiment.best_val_accuracy ?? -Infinity) > (previous.best_val_accuracy ?? -Infinity)) {
+        bestByModel.set(experiment.model_type, experiment);
+      }
+    }
+    return Array.from(bestByModel.values())
+      .sort((a, b) => (b.best_val_accuracy ?? -Infinity) - (a.best_val_accuracy ?? -Infinity))
+      .slice(0, 4);
+  }, [experiments]);
 
   return (
     <div className="mx-auto max-w-6xl px-8 py-8">
@@ -67,6 +88,69 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      <section className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="card p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              <BarChart3 size={14} /> Recent experiments
+            </div>
+            <button
+              onClick={() => navigate("/runs")}
+              className="flex items-center gap-1 rounded-md bg-white/5 px-2 py-1 text-xs text-zinc-300 hover:bg-white/10"
+            >
+              Open <ArrowRight size={12} />
+            </button>
+          </div>
+          {recentExperiments.length > 0 ? (
+            <div className="flex flex-col divide-y divide-border/60">
+              {recentExperiments.map((experiment) => (
+                <button
+                  key={experiment.key}
+                  onClick={() => navigate("/runs")}
+                  className="flex items-center justify-between gap-3 py-2 text-left hover:text-zinc-100"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm text-zinc-200">{experiment.label}</div>
+                    <div className="truncate text-xs text-zinc-600">{displayDate(experiment)}</div>
+                  </div>
+                  <Badge tone={experiment.warnings.length > 0 ? "warn" : experiment.status === "completed" ? "good" : "neutral"}>
+                    {experiment.source}
+                  </Badge>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="py-6 text-sm text-zinc-600">No experiments discovered yet.</div>
+          )}
+        </div>
+
+        <div className="card p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Best models</div>
+            <Badge tone="accent">{experiments.length} total</Badge>
+          </div>
+          {bestExperiments.length > 0 ? (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {bestExperiments.map((experiment) => (
+                <button
+                  key={experiment.key}
+                  onClick={() => navigate("/runs")}
+                  className="rounded-md border border-border/60 p-3 text-left hover:border-accent/50"
+                >
+                  <div className="truncate text-sm font-medium text-zinc-200">{experiment.model_type}</div>
+                  <div className="mt-2 text-xl font-semibold tabular-nums text-zinc-100">
+                    {fmtPercent(experiment.best_val_accuracy)}
+                  </div>
+                  <div className="mt-1 truncate text-xs text-zinc-600">{experiment.label}</div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="py-6 text-sm text-zinc-600">No validation metrics found.</div>
+          )}
+        </div>
+      </section>
 
       <div className="flex flex-col gap-8">
         {grouped.map(([category, items]) => (
@@ -116,4 +200,19 @@ export default function Dashboard() {
       </div>
     </div>
   );
+}
+
+function dateValue(experiment: ExperimentSummary) {
+  if (experiment.timestamp_start) return Date.parse(experiment.timestamp_start) || 0;
+  return (experiment.modified_unix_secs ?? 0) * 1000;
+}
+
+function displayDate(experiment: ExperimentSummary) {
+  const value = dateValue(experiment);
+  if (!value) return "-";
+  return new Date(value).toISOString().slice(0, 19).replace("T", " ");
+}
+
+function fmtPercent(value: number | undefined) {
+  return value === undefined ? "-" : `${value.toFixed(2)}%`;
 }
